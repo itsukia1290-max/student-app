@@ -1,45 +1,62 @@
 import AuthProvider from "./contexts/AuthProvider";
 import { useAuth } from "./contexts/AuthContext";
 import Login from "./pages/Login";
+import Signup from "./pages/Signup";
+import MyPage from "./pages/MyPage";
 import { supabase } from "./lib/supabase";
+import { useState } from "react";
 
-function Home() {
+function Shell() {
   const { user } = useAuth();
-
-  async function loadMyProfile() {
-    if (!user) return;
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    if (error) console.error("❌ profiles 読取エラー:", error.message);
-    else console.log("✅ profiles 読取OK:", data);
-  }
+  const [view, setView] = useState<"home"|"mypage">("home");
 
   return (
-    <div className="min-h-screen grid place-items-center bg-gray-100">
-      <div className="p-8 rounded-2xl shadow bg-white">
-        <h1 className="text-2xl font-bold text-green-600">ログイン済み ✅</h1>
-        <p className="mt-2 text-gray-600">{user?.email}</p>
-        <button onClick={loadMyProfile} className="mt-4 px-4 py-2 rounded bg-black text-white">
-          自分のプロフィールを読み込む
-        </button>
-      </div>
+    <div className="min-h-screen">
+      <header className="flex items-center justify-between p-3 border-b bg-white">
+        <nav className="flex gap-2">
+          <button className={`px-3 py-1 rounded ${view==='home'?'bg-black text-white':'border'}`}
+                  onClick={()=>setView("home")}>Home</button>
+          <button className={`px-3 py-1 rounded ${view==='mypage'?'bg-black text-white':'border'}`}
+                  onClick={()=>setView("mypage")}>MyPage</button>
+        </nav>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-600">{user?.email}</span>
+          <button className="px-3 py-1 rounded border"
+                  onClick={()=>supabase.auth.signOut()}>
+            ログアウト
+          </button>
+        </div>
+      </header>
+
+      {view === "home" ? (
+        <main className="grid place-items-center p-8">
+          <div className="p-8 rounded-2xl shadow bg-white">
+            <h1 className="text-2xl font-bold text-green-600">ログイン済み ✅</h1>
+            <p className="mt-2 text-gray-600">ここから機能を拡張していきます。</p>
+          </div>
+        </main>
+      ) : (
+        <MyPage />
+      )}
     </div>
   );
 }
 
-function Root() {
+function AuthGate() {
   const { session } = useAuth();
-  return session ? <Home /> : <Login />;
+  const [mode, setMode] = useState<"login"|"signup">("login");
+  if (!session) {
+    return mode === "login"
+      ? <Login onSignup={()=>setMode("signup")} />
+      : <Signup onBack={()=>setMode("login")} />;
+  }
+  return <Shell />;
 }
 
 export default function App() {
   return (
     <AuthProvider>
-      <Root />
+      <AuthGate />
     </AuthProvider>
   );
 }
