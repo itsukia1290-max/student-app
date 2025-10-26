@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { useMyRole } from "../hooks/useMyRole";
+import { useIsStaff } from "../hooks/useIsStaff";
 import StudentDetail from "./StudentDetail";
 
 type Student = {
@@ -11,15 +11,12 @@ type Student = {
 };
 
 export default function Students() {
-  const { role } = useMyRole();
-  const isStaff = role === "teacher" || role === "admin";
-
+  const { isStaff } = useIsStaff();   // ★ 教師/管理者のみ閲覧
   const [students, setStudents] = useState<Student[]>([]);
   const [selected, setSelected] = useState<Student | null>(null);
 
-  // フックは常に最上位で定義し、内部で分岐（rules-of-hooks 対策）
   useEffect(() => {
-    if (!isStaff) return; // 権限なければ何もしない
+    if (!isStaff) return; // 権限が無ければ何もしない
     async function load() {
       const { data, error } = await supabase
         .from("profiles")
@@ -34,7 +31,6 @@ export default function Students() {
     load();
   }, [isStaff]);
 
-  // 詳細表示中
   if (selected) {
     return <StudentDetail student={selected} onBack={() => setSelected(null)} />;
   }

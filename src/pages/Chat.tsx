@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
-import { useMyRole } from "../hooks/useMyRole";
+import { useIsStaff } from "../hooks/useIsStaff";
 
 type Group = {
   id: string;
@@ -21,7 +21,7 @@ type Message = {
 
 export default function Chat() {
   const { user } = useAuth();
-  const { role } = useMyRole(); // ✅ ロール取得
+  const { isStaff } = useIsStaff();            // ★ 教師/管理者か？
   const [groups, setGroups] = useState<Group[]>([]);
   const [active, setActive] = useState<Group | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -31,7 +31,7 @@ export default function Chat() {
 
   const myId = user?.id ?? "";
   const activeId = active?.id ?? null;
-  const canManage = role === "teacher" || role === "admin"; // ✅ 教師/管理者判定
+  const canManage = isStaff;                   // ★ 作成/招待の権限
 
   // --- グループ一覧取得 ---
   useEffect(() => {
@@ -149,7 +149,7 @@ export default function Chat() {
     setActive(newGroup);
   }
 
-  // --- メンバー招待（教師/管理者のみ） ---
+  // --- メンバー招待（教師/管理者のみ & オーナー） ---
   async function inviteMember() {
     if (!active) return;
     if (!canManage || active.owner_id !== myId) return;
@@ -174,7 +174,7 @@ export default function Chat() {
       <aside className="col-span-4 border-r">
         <div className="flex items-center justify-between p-3">
           <h2 className="font-bold">グループ</h2>
-          {canManage && ( // ✅ 教師・管理者のみ表示
+          {canManage && (
             <button
               className="text-sm border rounded px-2 py-1"
               onClick={createGroup}
@@ -209,7 +209,7 @@ export default function Chat() {
       <main className="col-span-8 flex flex-col">
         <div className="flex items-center justify-between p-3 border-b bg-white">
           <div className="font-bold">{active ? active.name : "グループ未選択"}</div>
-          {canManage && isActiveOwner && ( // ✅ 教師/管理者かつオーナーのみ
+          {canManage && isActiveOwner && (
             <button
               onClick={inviteMember}
               className="text-sm border rounded px-2 py-1"
