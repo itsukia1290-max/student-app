@@ -19,12 +19,11 @@ export default function Signup({ onBack }: { onBack: () => void }) {
       return;
     }
 
-    // その場でセッションが出る場合と、メール確認が必要で出ない場合がある
-    const session = data.session ?? (await supabase.auth.getSession()).data.session;
-
     try {
+      const session = data.session ?? (await supabase.auth.getSession()).data.session;
+
       if (session) {
-        // profiles の name を更新（トリガで自動作成済み）
+        // プロフィールに名前を反映（is_approvedは既定false想定）
         if (name.trim()) {
           const { error: upErr } = await supabase
             .from("profiles")
@@ -32,9 +31,11 @@ export default function Signup({ onBack }: { onBack: () => void }) {
             .eq("id", session.user.id);
           if (upErr) throw upErr;
         }
-        setMsg("登録完了。ログイン済みです。");
+        // 承認待ち運用のため、いったんサインアウト
+        await supabase.auth.signOut();
+        setMsg("登録完了。教師の承認後にログインできます（承認が必要です）。");
       } else {
-        setMsg("登録メールを送信しました。受信箱のリンクから確認してください。");
+        setMsg("登録メールを送信しました。リンクを開いた後、教師の承認をお待ちください。");
       }
     } catch (e: unknown) {
       setMsg("プロフィール更新に失敗: " + (e instanceof Error ? e.message : "不明なエラーが発生しました"));
@@ -50,31 +51,46 @@ export default function Signup({ onBack }: { onBack: () => void }) {
 
         <label className="block mb-3">
           <span className="text-sm">氏名（任意）</span>
-          <input className="mt-1 w-full border rounded px-3 py-2"
-                 value={name} onChange={(e)=>setName(e.target.value)} />
+          <input
+            className="mt-1 w-full border rounded px-3 py-2"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="山田 太郎"
+          />
         </label>
 
         <label className="block mb-3">
           <span className="text-sm">Email</span>
-          <input className="mt-1 w-full border rounded px-3 py-2" type="email"
-                 value={email} onChange={(e)=>setEmail(e.target.value)} required />
+          <input
+            className="mt-1 w-full border rounded px-3 py-2"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
         </label>
 
         <label className="block mb-4">
           <span className="text-sm">Password</span>
-          <input className="mt-1 w-full border rounded px-3 py-2" type="password"
-                 value={password} onChange={(e)=>setPassword(e.target.value)} required />
+          <input
+            className="mt-1 w-full border rounded px-3 py-2"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
         </label>
 
-        <button disabled={loading}
-                className="w-full py-2 rounded bg-black text-white disabled:opacity-50">
+        <button
+          disabled={loading}
+          className="w-full py-2 rounded bg-black text-white disabled:opacity-50"
+        >
           {loading ? "登録中..." : "登録"}
         </button>
 
-        {msg && <p className="mt-3 text-sm text-gray-600">{msg}</p>}
+        {msg && <p className="mt-3 text-sm text-gray-700">{msg}</p>}
 
-        <button type="button" onClick={onBack}
-                className="mt-4 w-full py-2 rounded border">
+        <button type="button" onClick={onBack} className="mt-4 w-full py-2 rounded border">
           ← ログインに戻る
         </button>
       </form>
