@@ -9,7 +9,7 @@ type Group = {
   type: "class" | "dm";
   owner_id: string | null;
 };
-type GroupJoined = Group & { group_members: { user_id: string }[] };
+
 
 type Message = {
   id: number;
@@ -34,33 +34,57 @@ export default function Chat() {
   const canManage = isStaff;                   // ★ 作成/招待の権限
 
   // --- グループ一覧取得 ---
-  useEffect(() => {
-    if (!myId) return;
-    (async () => {
-      const { data, error } = await supabase
-        .from("groups")
-        .select(`
-          id, name, type, owner_id,
-          group_members!inner(user_id)
-        `)
-        .eq("group_members.user_id", myId)
-        .order("name", { ascending: true });
+  // --- グループ一覧取得（埋め込みJOINをやめて二段階に） ---
+useEffect(() => {
+  if (!myId) return;
 
-      if (error) {
-        console.error("❌ groups load:", error.message);
-        return;
-      }
-      const rows = (data ?? []) as GroupJoined[];
-      const list: Group[] = rows.map((g) => ({
-        id: g.id,
-        name: g.name,
-        type: g.type,
-        owner_id: g.owner_id,
-      }));
-      setGroups(list);
-      if (!active && list.length > 0) setActive(list[0]);
-    })();
-  }, [myId, active]);
+  (async () => {
+    // 1) 自分が所属している group_id を取得
+    const { data: gm, error: e1 } = await supabase
+      .from("group_members")
+      .select("group_id")
+      .eq("user_id", myId);
+
+    if (e1) {
+      console.error("❌ group_members load:", e1.message);
+      return;
+    }
+    const ids = (gm ?? []).map((r) => r.group_id as string);
+    if (ids.length === 0) {
+      setGroups([]);
+      setActive(null);
+      return;
+    }
+
+    // 2) その group_id で groups を取得
+    const { data: gs, error: e2 } = await supabase
+      .from("groups")
+      .select("id, name, type, owner_id")
+      .in("id", ids)
+      .order("name", { ascending: true });
+
+    if (e2) {
+      console.error("❌ groups load:", e2.message);
+      return;
+    }
+
+    const list = (gs ?? []).map((g) => ({
+      id: g.id as string,
+      name: g.name as string,
+      type: g.type as "class" | "dm",
+      owner_id: (g.owner_id as string) ?? null,
+    }));
+
+    setGroups(list);
+    if (!active && list.length > 0) setActive(list[0]);
+    if (active && !list.find((g) => g.id === active.id)) {
+      // 以前の active が一覧にない場合はリセット
+      setActive(list[0] ?? null);
+    }
+  })();
+  // active は初期選択のために参照、依存に含めてOK
+}, [myId, active]);
+
 
   // --- メッセージ一覧取得 ---
   useEffect(() => {
