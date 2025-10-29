@@ -31,9 +31,20 @@ export default function Students() {
     load();
   }, [isStaff]);
 
-  if (selected) {
-    return <StudentDetail student={selected} onBack={() => setSelected(null)} />;
-  }
+  // 差分のみ：StudentDetail の呼び出し部分
+if (selected) {
+  return (
+    <StudentDetail
+      student={selected}
+      onBack={() => setSelected(null)}
+      onDeleted={(id) => {
+        // 一覧から即時に取り除く
+        setStudents((prev) => prev.filter((s) => s.id !== id));
+      }}
+    />
+  );
+}
+
 
   return (
     <div className="p-6">

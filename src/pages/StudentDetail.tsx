@@ -1,6 +1,6 @@
-import { useState } from "react";
+// src/pages/StudentDetail.tsx
 import { supabase } from "../lib/supabase";
-import { useAuth } from "../contexts/AuthContext";
+import { useIsStaff } from "../hooks/useIsStaff";
 
 type Props = {
   student: {
@@ -10,111 +10,44 @@ type Props = {
     memo: string | null;
   };
   onBack: () => void;
+  onDeleted?: (id: string) => void;   // ★ 追加：親へ通知
 };
 
-export default function StudentDetail({ student, onBack }: Props) {
-  const { user } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+export default function StudentDetail({ student, onBack, onDeleted }: Props) {
+  const { isStaff } = useIsStaff();
 
-  // 既存DMを探し、無ければ作成して遷移
-  async function openDM() {
-    if (!user) return;
-    setLoading(true);
-    setMsg(null);
+  async function deleteStudent() {
+    if (!isStaff) return;
+    const ok = confirm(`本当に ${student.name ?? "この生徒"} を削除しますか？`);
+    if (!ok) return;
 
-    try {
-      // 1) 自分が入っているグループID一覧
-      const { data: mine, error: e1 } = await supabase
-        .from("group_members")
-        .select("group_id")
-        .eq("user_id", user.id);
-      if (e1) throw e1;
-      const myGroupIds = new Set((mine ?? []).map((r) => r.group_id as string));
-
-      // 2) 生徒が入っているグループID一覧
-      const { data: his, error: e2 } = await supabase
-        .from("group_members")
-        .select("group_id")
-        .eq("user_id", student.id);
-      if (e2) throw e2;
-      const studentGroupIds = new Set(
-        (his ?? []).map((r) => r.group_id as string)
-      );
-
-      // 3) 交差（両方がメンバー）
-      const both: string[] = [];
-      myGroupIds.forEach((id) => {
-        if (studentGroupIds.has(id)) both.push(id);
-      });
-
-      // 4) 交差の中から type='dm' を1件探す
-      let dmId: string | null = null;
-      for (const gid of both) {
-        const { data: g, error: eg } = await supabase
-          .from("groups")
-          .select("id, type")
-          .eq("id", gid)
-          .maybeSingle();
-        if (eg) throw eg;
-        if (g && g.type === "dm") {
-          dmId = g.id as string;
-          break;
-        }
-      }
-
-      // 5) 無ければ作成（先にUUID発行→members追加）
-      if (!dmId) {
-        const newId = crypto.randomUUID();
-        const { error: ge } = await supabase
-          .from("groups")
-          .insert({
-            id: newId,
-            name: `${(student.name ?? "生徒")}とのDM`,
-            type: "dm",
-            owner_id: user.id,
-          });
-        if (ge) throw ge;
-
-        const { error: me } = await supabase
-          .from("group_members")
-          .insert([
-            { group_id: newId, user_id: user.id },
-            { group_id: newId, user_id: student.id },
-          ]);
-        if (me) throw me;
-
-        dmId = newId;
-      }
-
-      // 6) 遷移（仕様のURLに合わせる）
-      window.location.href = `/app/talk?view=dm&gid=${dmId}`;
-    } catch (e) {
-      console.error(e);
-      setMsg("DMを開く処理に失敗しました。");
-    } finally {
-      setLoading(false);
+    const { error } = await supabase.from("profiles").delete().eq("id", student.id);
+    if (error) {
+      alert("削除失敗: " + error.message);
+      return;
     }
+
+    // 親へ通知して一覧から即除去
+    onDeleted?.(student.id);
+    alert("削除しました。関連するDMも自動的に削除されます。");
+    onBack();
   }
 
   return (
     <div className="p-6">
-      <button onClick={onBack} className="mb-4 border rounded px-3 py-1">
-        ← 戻る
+      <button onClick={onBack} className="border rounded px-3 py-1 mb-4 hover:bg-gray-100">
+        ← 一覧に戻る
       </button>
 
       <h1 className="text-2xl font-bold mb-2">{student.name ?? "（未設定）"}</h1>
-      <p className="text-gray-600 mb-1">電話番号: {student.phone ?? "-"}</p>
-      <p className="text-gray-600 mb-4">メモ: {student.memo ?? "-"}</p>
+      <p className="text-sm text-gray-600">電話番号: {student.phone ?? "-"}</p>
+      <p className="text-sm text-gray-600 mb-4">メモ: {student.memo ?? "-"}</p>
 
-      <button
-        onClick={openDM}
-        disabled={loading}
-        className="px-4 py-2 bg-black text-white rounded disabled:opacity-50"
-      >
-        {loading ? "開いています..." : "個別相談を開く（DM）"}
-      </button>
-      {msg && <p className="mt-2 text-sm text-red-600">{msg}</p>}
+      {isStaff && (
+        <button onClick={deleteStudent} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+          生徒アカウントを削除
+        </button>
+      )}
     </div>
   );
 }
