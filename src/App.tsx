@@ -70,11 +70,12 @@ function PendingApproval() {
 }
 
 function AuthGate() {
+  // ★★★ Hooks は関数のトップレベルで、毎回同じ順序で呼ぶ ★★★
   const { session } = useAuth();
   const [mode, setMode] = useState<"login" | "signup">("login");
-  const { approved } = useMyApproval();
+  const { approved } = useMyApproval(); // ← 常に呼ぶ（未ログインでもOK）
 
-  // 未ログイン
+  // 1) 未ログイン：ログイン/サインアップ画面
   if (!session) {
     return mode === "login" ? (
       <Login onSignup={() => setMode("signup")} />
@@ -83,7 +84,7 @@ function AuthGate() {
     );
   }
 
-  // セッションはあるが承認状態を取得中 → 何も見せない（チラ見え防止）
+  // 2) セッションはあるが承認状態の判定中（null）→ 何も見せない（フラッシュ防止）
   if (approved === null) {
     return (
       <div className="min-h-screen grid place-items-center">
@@ -92,12 +93,12 @@ function AuthGate() {
     );
   }
 
-  // 承認されていない → ペンディング画面（Shellは出さない）
+  // 3) 未承認 → 専用画面（アプリ本体は描画しない）
   if (approved === false) {
     return <PendingApproval />;
   }
 
-  // 承認済み
+  // 4) 承認済み or admin → 本体
   return <Shell />;
 }
 

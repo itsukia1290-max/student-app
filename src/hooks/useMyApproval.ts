@@ -4,26 +4,56 @@ import { useAuth } from "../contexts/AuthContext";
 
 export function useMyApproval() {
   const { session } = useAuth();
-  const uid = session?.user?.id;
-  const [approved, setApproved] = useState<boolean | null>(null); // null=loading
-  const [error, setError] = useState<string | null>(null);
+  const uid = session?.user?.id ?? null;
+
+  // approved: true=承認済, false=未承認, null=判定中/未ログイン
+  const [approved, setApproved] = useState<boolean | null>(null);
 
   useEffect(() => {
     let alive = true;
-    async function run() {
-      if (!uid) { setApproved(null); return; }
-      const { data, error } = await supabase
+
+    async function check() {
+      // 未ログインなら「まだ判定できない」
+      if (!uid) {
+        if (alive) setApproved(null);
+        return;
+      }
+
+      // 1) staff_flags に居れば（teacher/admin）→ 常時許可
+      const { data: sf, error: se } = await supabase
+        .from("staff_flags")
+        .select("user_id")
+        .eq("user_id", uid)
+        .maybeSingle();
+
+      if (!alive) return;
+      if (!se && sf) {
+        setApproved(true);
+        return;
+      }
+
+      // 2) 一般ユーザーは profiles.is_approved を確認
+      const { data: pr, error: pe } = await supabase
         .from("profiles")
         .select("is_approved")
         .eq("id", uid)
         .maybeSingle();
+
       if (!alive) return;
-      if (error) { setError(error.message); setApproved(false); return; }
-      setApproved(!!data?.is_approved);
+
+      // RLSで取れない or エラー → 未承認扱い（false）
+      if (pe) {
+        setApproved(false);
+        return;
+      }
+      setApproved(!!pr?.is_approved);
     }
-    run();
-    return () => { alive = false; };
+
+    check();
+    return () => {
+      alive = false;
+    };
   }, [uid]);
 
-  return { approved, error };
+  return { approved };
 }
