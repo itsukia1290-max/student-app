@@ -12,9 +12,17 @@ export default function Signup({ onBack }: { onBack: () => void }) {
     e.preventDefault();
     setLoading(true);
     setMsg(null);
+
     const { data, error } = await supabase.auth.signUp({ email, password });
+
+    // ▼ ここが追加：既登録(422)は「ログインしてください」と案内
     if (error) {
-      setMsg("登録失敗: " + error.message);
+      // Supabase-js v2 は message に "User already registered" が入る
+      if (error.message?.toLowerCase().includes("already")) {
+        setMsg("このメールはすでに登録済みです。ログインして、教師の承認を待ってください。");
+      } else {
+        setMsg("登録失敗: " + error.message);
+      }
       setLoading(false);
       return;
     }
@@ -22,23 +30,18 @@ export default function Signup({ onBack }: { onBack: () => void }) {
     try {
       const session = data.session ?? (await supabase.auth.getSession()).data.session;
 
-      if (session) {
-        // プロフィールに名前を反映（is_approvedは既定false想定）
-        if (name.trim()) {
-          const { error: upErr } = await supabase
-            .from("profiles")
-            .update({ name: name.trim() })
-            .eq("id", session.user.id);
-          if (upErr) throw upErr;
-        }
-        // 承認待ち運用のため、いったんサインアウト
-        await supabase.auth.signOut();
-        setMsg("登録完了。教師の承認後にログインできます（承認が必要です）。");
-      } else {
-        setMsg("登録メールを送信しました。リンクを開いた後、教師の承認をお待ちください。");
+      if (session && name.trim()) {
+        const { error: upErr } = await supabase
+          .from("profiles")
+          .update({ name: name.trim() })
+          .eq("id", session.user.id);
+        if (upErr) throw upErr;
       }
+      // 承認制なのでいったんサインアウト
+      await supabase.auth.signOut();
+      setMsg("登録完了。教師の承認後にログインできます（承認が必要です）。");
     } catch (e: unknown) {
-      setMsg("プロフィール更新に失敗: " + (e instanceof Error ? e.message : "不明なエラーが発生しました"));
+      setMsg(e instanceof Error ? e.message : "不明なエラーが発生しました");
     } finally {
       setLoading(false);
     }
@@ -51,40 +54,23 @@ export default function Signup({ onBack }: { onBack: () => void }) {
 
         <label className="block mb-3">
           <span className="text-sm">氏名（任意）</span>
-          <input
-            className="mt-1 w-full border rounded px-3 py-2"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="山田 太郎"
-          />
+          <input className="mt-1 w-full border rounded px-3 py-2"
+            value={name} onChange={(e)=>setName(e.target.value)} />
         </label>
 
         <label className="block mb-3">
           <span className="text-sm">Email</span>
-          <input
-            className="mt-1 w-full border rounded px-3 py-2"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
+          <input className="mt-1 w-full border rounded px-3 py-2" type="email"
+            value={email} onChange={(e)=>setEmail(e.target.value)} required />
         </label>
 
         <label className="block mb-4">
           <span className="text-sm">Password</span>
-          <input
-            className="mt-1 w-full border rounded px-3 py-2"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
+          <input className="mt-1 w-full border rounded px-3 py-2" type="password"
+            value={password} onChange={(e)=>setPassword(e.target.value)} required />
         </label>
 
-        <button
-          disabled={loading}
-          className="w-full py-2 rounded bg-black text-white disabled:opacity-50"
-        >
+        <button disabled={loading} className="w-full py-2 rounded bg-black text-white disabled:opacity-50">
           {loading ? "登録中..." : "登録"}
         </button>
 
