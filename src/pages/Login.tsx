@@ -31,27 +31,45 @@ export default function Login({ onSignup }: { onSignup: () => void }) {
 
       const { data: profile, error: pe } = await supabase
         .from("profiles")
-        .select("id, is_approved, name, role")
+        .select("id, is_approved, name, role, phone")
         .eq("id", uid)
         .maybeSingle();
       if (pe) throw pe;
 
-      // ★ admin は常時許可（承認フローの影響を受けない）
+      // admin は常時許可
       if (profile?.role === "admin") {
         setMsg(`管理者としてログインしました。ようこそ、${profile.name ?? "Admin"} さん。`);
-        return; // サインアウトしない
+        return;
       }
 
-      // 承認済みかチェック（admin 以外）
+      // 未承認 → 承認リクエストを（未解決が無いときだけ）作成
       if (!profile || profile.is_approved !== true) {
-        await supabase.auth.signOut();
+        // 既に未解決リクエストがあるか軽く確認
+        const { data: existing } = await supabase
+          .from("approval_requests")
+          .select("id")
+          .eq("user_id", uid)
+          .is("resolved_at", null)
+          .limit(1);
+
+        if (!existing || existing.length === 0) {
+          await supabase.from("approval_requests").insert({
+            user_id: uid,
+            email,
+            name: profile?.name ?? null,
+            phone: profile?.phone ?? null,
+          });
+        }
+
         setMsg("承認待ちです。教師による承認後にログインできます。");
-      } else {
-        setMsg(`ようこそ、${profile.name ?? "ユーザー"} さん。`);
+        // ここでは signOut しない（App 側の承認ゲートが Pending を出し続けます）
+        return;
       }
+
+      // 承認済み
+      setMsg(`ようこそ、${profile.name ?? "ユーザー"} さん。`);
     } catch (err: unknown) {
       setMsg("確認中にエラー: " + getErrorMessage(err));
-      await supabase.auth.signOut();
     } finally {
       setLoading(false);
     }
@@ -64,14 +82,24 @@ export default function Login({ onSignup }: { onSignup: () => void }) {
 
         <label className="block mb-3">
           <span className="text-sm">Email</span>
-          <input className="mt-1 w-full border rounded px-3 py-2" type="email"
-                 value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <input
+            className="mt-1 w-full border rounded px-3 py-2"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
         </label>
 
         <label className="block mb-4">
           <span className="text-sm">Password</span>
-          <input className="mt-1 w-full border rounded px-3 py-2" type="password"
-                 value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <input
+            className="mt-1 w-full border rounded px-3 py-2"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
         </label>
 
         <button disabled={loading} className="w-full py-2 rounded bg-black text-white disabled:opacity-50">

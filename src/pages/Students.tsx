@@ -8,44 +8,87 @@ type Student = {
   name: string | null;
   phone: string | null;
   memo: string | null;
-  is_approved?: boolean | null;
+};
+
+type PendingReq = {
+  id: string;           // approval_requests.id
+  user_id: string;      // 対象ユーザー
+  email: string | null;
+  name: string | null;
+  phone: string | null;
+  created_at: string;
 };
 
 export default function Students() {
   const { isStaff } = useIsStaff();
   const [students, setStudents] = useState<Student[]>([]);
-  const [pending, setPending] = useState<Student[]>([]);
+  const [pending, setPending] = useState<PendingReq[]>([]);
   const [selected, setSelected] = useState<Student | null>(null);
 
   useEffect(() => {
     if (!isStaff) return;
     async function load() {
-      // 生徒（承認済み）
+      // 承認済み student のみ表示
       const { data: ok, error: e1 } = await supabase
         .from("profiles")
         .select("id, name, phone, memo, role, is_approved")
         .eq("role", "student")
-        .eq("is_approved", true);
+        .eq("is_approved", true)
+        .order("name", { ascending: true });
       if (!e1) setStudents((ok ?? []) as Student[]);
 
-      // 承認待ちの生徒
+      // 承認待ち（approval_requests の未解決）
       const { data: wait, error: e2 } = await supabase
-        .from("profiles")
-        .select("id, name, phone, memo, role, is_approved")
-        .eq("role", "student")
-        .neq("is_approved", true); // false or null
-      if (!e2) setPending((wait ?? []) as Student[]);
+        .from("approval_requests")
+        .select("id, user_id, email, name, phone, created_at")
+        .is("resolved_at", null)
+        .order("created_at", { ascending: true });
+      if (!e2) setPending((wait ?? []) as PendingReq[]);
     }
     load();
   }, [isStaff]);
 
-  async function approve(id: string) {
-    const { error } = await supabase.from("profiles").update({ is_approved: true }).eq("id", id);
-    if (error) return alert("承認失敗: " + error.message);
-    // 画面即時反映
-    setPending((prev) => prev.filter((p) => p.id !== id));
-    const { data } = await supabase.from("profiles").select("id, name, phone, memo").eq("id", id).maybeSingle();
-    if (data) setStudents((prev) => [...prev, data as Student]);
+  // ✅ RPC版：承認ボタン
+  async function approve(req: PendingReq) {
+    // 1) RPC 呼び出し（profiles更新＋リクエスト解決）
+    const { error } = await supabase.rpc("approve_student", {
+      p_user_id: req.user_id,
+      p_request_id: req.id,
+    });
+    if (error) {
+      alert("承認失敗: " + error.message);
+      return;
+    }
+
+    // 2) 承認待ちから除外
+    setPending((prev) => prev.filter((p) => p.id !== req.id));
+
+    // 3) 反映（単体取得→追加。取れなければ全件リロード）
+    const { data: prof, error: pe } = await supabase
+      .from("profiles")
+      .select("id, name, phone, memo")
+      .eq("id", req.user_id)
+      .maybeSingle();
+
+    if (!pe && prof) {
+      setStudents((prev) => [...prev, prof as Student]);
+    } else {
+      const { data: ok } = await supabase
+        .from("profiles")
+        .select("id, name, phone, memo")
+        .eq("role", "student")
+        .eq("is_approved", true);
+      setStudents((ok ?? []) as Student[]);
+    }
+  }
+
+  async function reject(req: PendingReq) {
+    const { error } = await supabase
+      .from("approval_requests")
+      .update({ approved: false, resolved_at: new Date().toISOString() })
+      .eq("id", req.id);
+    if (error) return alert("却下失敗: " + error.message);
+    setPending((prev) => prev.filter((p) => p.id !== req.id));
   }
 
   if (!isStaff) {
@@ -59,14 +102,13 @@ export default function Students() {
         onBack={() => setSelected(null)}
         onDeleted={(id) => {
           setStudents((prev) => prev.filter((s) => s.id !== id));
-          setPending((prev) => prev.filter((s) => s.id !== id));
         }}
       />
     );
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-8">
       {/* 承認待ちリスト */}
       <section>
         <h2 className="text-lg font-semibold mb-2">承認待ち</h2>
@@ -75,24 +117,30 @@ export default function Students() {
         ) : (
           <ul className="grid md:grid-cols-2 gap-3">
             {pending.map((p) => (
-              <li key={p.id} className="border rounded-lg p-3 bg-white flex items-center justify-between">
-                <div>
-                  <div className="font-medium">{p.name ?? "（未設定）"}</div>
-                  <div className="text-xs text-gray-500">{p.phone ?? "-"}</div>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => approve(p.id)}
-                    className="px-3 py-1 rounded bg-green-600 text-white text-sm"
-                  >
-                    承認
-                  </button>
-                  <button
-                    onClick={() => setSelected(p)}
-                    className="px-3 py-1 rounded border text-sm"
-                  >
-                    詳細
-                  </button>
+              <li key={p.id} className="border rounded-lg p-3 bg-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium">{p.name ?? "(氏名未設定)"}</div>
+                    <div className="text-xs text-gray-500">{p.email ?? "-"}</div>
+                    <div className="text-xs text-gray-500">{p.phone ?? "-"}</div>
+                    <div className="text-[10px] text-gray-400 mt-1">
+                      申請: {new Date(p.created_at).toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => approve(p)}
+                      className="px-3 py-1 rounded bg-green-600 text-white text-sm"
+                    >
+                      承認
+                    </button>
+                    <button
+                      onClick={() => reject(p)}
+                      className="px-3 py-1 rounded border text-sm"
+                    >
+                      却下
+                    </button>
+                  </div>
                 </div>
               </li>
             ))}
