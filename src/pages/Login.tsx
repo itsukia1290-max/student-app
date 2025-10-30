@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 function getErrorMessage(err: unknown): string {
@@ -7,11 +7,24 @@ function getErrorMessage(err: unknown): string {
   try { return JSON.stringify(err); } catch { return "不明なエラー"; }
 }
 
+// 承認待ちフラグのキー
+const PENDING_KEY = "approval_pending_msg";
+
 export default function Login({ onSignup }: { onSignup: () => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // ★ 再描画時に localStorage の承認待ちフラグを拾って表示
+  useEffect(() => {
+    const pending = localStorage.getItem(PENDING_KEY);
+    if (pending) {
+      setMsg(pending);
+      // 必要なら次回まで残す: 消したい場合は下行のコメントを外す
+      // localStorage.removeItem(PENDING_KEY);
+    }
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -29,47 +42,48 @@ export default function Login({ onSignup }: { onSignup: () => void }) {
       const uid = data.user?.id;
       if (!uid) throw new Error("ユーザーIDが取得できませんでした。");
 
-      const { data: profile, error: pe } = await supabase
+      // プロフィール参照
+      const { data: pr, error: pe } = await supabase
         .from("profiles")
-        .select("id, is_approved, name, role, phone")
+        .select("is_approved, status, role")
         .eq("id", uid)
         .maybeSingle();
       if (pe) throw pe;
 
-      // admin は常時許可
-      if (profile?.role === "admin") {
-        setMsg(`管理者としてログインしました。ようこそ、${profile.name ?? "Admin"} さん。`);
+      // admin/teacher は常時許可
+      if (pr?.role === "admin" || pr?.role === "teacher") {
+        setMsg("ログインしました。");
+        setLoading(false);
         return;
       }
 
-      // 未承認 → 承認リクエストを（未解決が無いときだけ）作成
-      if (!profile || profile.is_approved !== true) {
-        // 既に未解決リクエストがあるか軽く確認
-        const { data: existing } = await supabase
-          .from("approval_requests")
-          .select("id")
-          .eq("user_id", uid)
-          .is("resolved_at", null)
-          .limit(1);
-
-        if (!existing || existing.length === 0) {
-          await supabase.from("approval_requests").insert({
-            user_id: uid,
-            email,
-            name: profile?.name ?? null,
-            phone: profile?.phone ?? null,
-          });
-        }
-
-        setMsg("承認待ちです。教師による承認後にログインできます。");
-        // ここでは signOut しない（App 側の承認ゲートが Pending を出し続けます）
+      // 利用可否
+      const ok = !!pr?.is_approved && pr?.status === "active";
+      if (ok) {
+        setMsg("ログインしました。");
+        setLoading(false);
         return;
       }
 
-      // 承認済み
-      setMsg(`ようこそ、${profile.name ?? "ユーザー"} さん。`);
+      // ★ 未承認/停止中 → 承認リクエストを upsert
+      const { error: arErr } = await supabase
+        .from("approval_requests")
+        .insert({ user_id: uid });
+      if (arErr && !/duplicate key|already exists/i.test(arErr.message)) {
+        console.warn("approval_requests insert:", arErr.message);
+      }
+
+      // ★ 承認待ちメッセージを localStorage に保存してから signOut
+      const pendingMsg = "承認待ちです。先生の許可後にもう一度ログインしてください。";
+      localStorage.setItem(PENDING_KEY, pendingMsg);
+
+      await supabase.auth.signOut();
+
+      // signOut 後も Login に戻るが、useEffect が localStorage から表示を復元
+      setMsg(pendingMsg);
     } catch (err: unknown) {
       setMsg("確認中にエラー: " + getErrorMessage(err));
+      await supabase.auth.signOut();
     } finally {
       setLoading(false);
     }
@@ -79,6 +93,12 @@ export default function Login({ onSignup }: { onSignup: () => void }) {
     <div className="min-h-screen grid place-items-center bg-gray-100">
       <form onSubmit={onSubmit} className="bg-white shadow p-6 rounded-2xl w-full max-w-sm">
         <h1 className="text-xl font-bold mb-4">ログイン</h1>
+
+        {msg && (
+          <div className="mb-3 text-sm rounded border border-amber-300 bg-amber-50 text-amber-900 px-3 py-2">
+            {msg}
+          </div>
+        )}
 
         <label className="block mb-3">
           <span className="text-sm">Email</span>
@@ -106,11 +126,12 @@ export default function Login({ onSignup }: { onSignup: () => void }) {
           {loading ? "ログイン中..." : "ログイン"}
         </button>
 
-        {msg && <p className="mt-3 text-sm text-gray-700">{msg}</p>}
-
         <button type="button" onClick={onSignup} className="mt-4 w-full py-2 rounded border">
           新規登録へ →
         </button>
+
+        {/* 「承認待ち」通知を明示的に消したい場合のボタン（任意） */}
+        {/* <button type="button" onClick={() => { localStorage.removeItem(PENDING_KEY); setMsg(null); }} className="mt-2 text-xs text-gray-500 underline">通知を消す</button> */}
       </form>
     </div>
   );
