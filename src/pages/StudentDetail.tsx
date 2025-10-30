@@ -1,106 +1,65 @@
+import { useState } from "react";
 import { supabase } from "../lib/supabase";
-import { useIsStaff } from "../hooks/useIsStaff";
 
 type Props = {
-  student: {
-    id: string;
-    name: string | null;
-    phone: string | null;
-    memo: string | null;
-  };
+  student: { id: string; name: string | null; phone: string | null; memo: string | null };
   onBack: () => void;
-  onDeleted?: (id: string) => void; // 一覧更新用（親へ通知）
+  onDeleted?: (id: string) => void; // 利用停止後の一覧更新に使う
 };
 
 export default function StudentDetail({ student, onBack, onDeleted }: Props) {
-  const { isStaff } = useIsStaff();
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
 
-  async function approveStudent() {
-    if (!isStaff) return;
-    const { error } = await supabase
-      .from("profiles")
-      .update({ is_approved: true })
-      .eq("id", student.id);
-    if (error) return alert("承認失敗: " + error.message);
-    alert("この生徒を承認しました（ログイン可能になります）。");
-    onBack();
-  }
+  async function suspend() {
+    if (!confirm(`「${student.name ?? "（未設定）"}」を利用停止にします。よろしいですか？`)) return;
+    setBusy(true);
+    setMsg(null);
 
-  async function revokeApproval() {
-    if (!isStaff) return;
-    const ok = confirm(
-      "この生徒を『退会（利用停止）』にしますか？\n再利用には教師の再承認が必要になります。"
-    );
-    if (!ok) return;
-    const { error } = await supabase
-      .from("profiles")
-      .update({ is_approved: false })
-      .eq("id", student.id);
-    if (error) return alert("退会処理失敗: " + error.message);
-    alert("退会（利用停止）にしました。再承認されるまで閲覧不可です。");
-    onBack();
-  }
+    const { error } = await supabase.rpc("suspend_student", {
+      p_user_id: student.id,
+      p_reason: "manual_suspend_by_staff",
+    });
 
-  // 既存：完全削除（必要に応じて使用）
-  async function deleteStudent() {
-    if (!isStaff) return;
-    const ok = confirm(
-      `本当に ${student.name ?? "この生徒"} を完全削除しますか？\n※DMやメッセージも整理されます。`
-    );
-    if (!ok) return;
-
-    const { error } = await supabase
-      .from("profiles")
-      .delete()
-      .eq("id", student.id);
     if (error) {
-      alert("削除失敗: " + error.message);
+      setMsg("利用停止に失敗: " + error.message);
+      setBusy(false);
       return;
     }
-    onDeleted?.(student.id); // 親の一覧から即時除去
-    alert("削除しました。関連DMも自動的に削除されます。");
+
+    setMsg("利用停止しました。");
+    // 一覧から消す（承認済みstudent一覧には出したくないため）
+    onDeleted?.(student.id);
+    setBusy(false);
     onBack();
   }
 
   return (
-    <div className="p-6">
-      <button
-        onClick={onBack}
-        className="border rounded px-3 py-1 mb-4 hover:bg-gray-100"
-      >
-        ← 一覧に戻る
-      </button>
+    <div className="p-6 space-y-4">
+      <button onClick={onBack} className="px-3 py-1 rounded border">← 一覧へ戻る</button>
 
-      <h1 className="text-2xl font-bold mb-2">
-        {student.name ?? "（未設定）"}
-      </h1>
-      <p className="text-sm text-gray-600">電話番号: {student.phone ?? "-"}</p>
-      <p className="text-sm text-gray-600 mb-4">メモ: {student.memo ?? "-"}</p>
+      <div>
+        <h1 className="text-2xl font-bold">
+          {student.name ?? "（未設定）"}
+        </h1>
+        <div className="text-sm text-gray-600">電話番号: {student.phone ?? "-"}</div>
+        <div className="text-sm text-gray-600">メモ: {student.memo ?? "-"}</div>
+      </div>
 
-      {isStaff && (
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={approveStudent}
-            className="px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-          >
-            承認（利用許可）
-          </button>
-          <button
-            onClick={revokeApproval}
-            className="px-3 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700"
-          >
-            退会（利用停止）
-          </button>
+      <div className="flex gap-3">
+        {/* ✅ 承認ボタンは削除しました */}
+        {/* ✅ 完全削除ボタンも削除しました */}
+        <button
+          onClick={suspend}
+          disabled={busy}
+          className="px-4 py-2 rounded bg-amber-600 text-white disabled:opacity-50"
+          title="ログイン不可（データは保持）"
+        >
+          退会（利用停止）
+        </button>
+      </div>
 
-          {/* 任意：完全削除が必要な場合のみ使用 */}
-          <button
-            onClick={deleteStudent}
-            className="px-3 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-          >
-            生徒アカウントを削除（完全）
-          </button>
-        </div>
-      )}
+      {msg && <p className="text-sm text-gray-700">{msg}</p>}
     </div>
   );
 }
