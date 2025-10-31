@@ -13,6 +13,26 @@ export default function Login({ onSignup }: { onSignup: () => void }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  async function ensureApprovalRequest(uid: string) {
+  const { data: existing } = await supabase
+    .from("approval_requests")
+    .select("id")
+    .eq("user_id", uid)
+    .is("resolved_at", null)
+    .limit(1);
+
+  if (existing && existing.length > 0) return;
+
+  const { error: insErr } = await supabase
+    .from("approval_requests")
+    .insert({ user_id: uid });
+
+  // ← 409(重複)は既存未解決があるだけなので無視
+  if (insErr && !/409|duplicate key|already exists/i.test(insErr.message)) {
+    console.warn("approval_requests insert:", insErr.message);
+  }
+}
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -29,45 +49,31 @@ export default function Login({ onSignup }: { onSignup: () => void }) {
       const uid = data.user?.id;
       if (!uid) throw new Error("ユーザーIDが取得できませんでした。");
 
+      // 1) profiles で role / 承認状態を確認（admin/teacher はバイパス）
       const { data: profile, error: pe } = await supabase
         .from("profiles")
-        .select("id, is_approved, name, role, phone")
+        .select("id, is_approved, name, role, status")
         .eq("id", uid)
         .maybeSingle();
       if (pe) throw pe;
 
-      // admin は常時許可
-      if (profile?.role === "admin") {
-        setMsg(`管理者としてログインしました。ようこそ、${profile.name ?? "Admin"} さん。`);
+      if (profile?.role === "admin" || profile?.role === "teacher") {
+        setMsg("ログインしました。（管理者/教師）");
+        setLoading(false);
         return;
       }
 
-      // 未承認 → 承認リクエストを（未解決が無いときだけ）作成
-      if (!profile || profile.is_approved !== true) {
-        // 既に未解決リクエストがあるか軽く確認
-        const { data: existing } = await supabase
-          .from("approval_requests")
-          .select("id")
-          .eq("user_id", uid)
-          .is("resolved_at", null)
-          .limit(1);
-
-        if (!existing || existing.length === 0) {
-          await supabase.from("approval_requests").insert({
-            user_id: uid,
-            email,
-            name: profile?.name ?? null,
-            phone: profile?.phone ?? null,
-          });
-        }
-
-        setMsg("承認待ちです。教師による承認後にログインできます。");
-        // ここでは signOut しない（App 側の承認ゲートが Pending を出し続けます）
+      // 2) 一般ユーザーの承認チェック
+      const approved = !!profile?.is_approved && (profile?.status ?? "active") === "active";
+      if (!approved) {
+        await ensureApprovalRequest(uid);
+        setMsg("承認待ちです。教師による承認後にもう一度ログインしてください。");
+        setLoading(false);
         return;
       }
 
-      // 承認済み
-      setMsg(`ようこそ、${profile.name ?? "ユーザー"} さん。`);
+      // 3) 承認済みユーザー
+      setMsg(`ようこそ、${profile?.name ?? "ユーザー"} さん。`);
     } catch (err: unknown) {
       setMsg("確認中にエラー: " + getErrorMessage(err));
     } finally {
@@ -79,6 +85,12 @@ export default function Login({ onSignup }: { onSignup: () => void }) {
     <div className="min-h-screen grid place-items-center bg-gray-100">
       <form onSubmit={onSubmit} className="bg-white shadow p-6 rounded-2xl w-full max-w-sm">
         <h1 className="text-xl font-bold mb-4">ログイン</h1>
+
+        {msg && (
+          <div className="mb-3 text-sm rounded border border-amber-300 bg-amber-50 text-amber-900 px-3 py-2">
+            {msg}
+          </div>
+        )}
 
         <label className="block mb-3">
           <span className="text-sm">Email</span>
@@ -105,8 +117,6 @@ export default function Login({ onSignup }: { onSignup: () => void }) {
         <button disabled={loading} className="w-full py-2 rounded bg-black text-white disabled:opacity-50">
           {loading ? "ログイン中..." : "ログイン"}
         </button>
-
-        {msg && <p className="mt-3 text-sm text-gray-700">{msg}</p>}
 
         <button type="button" onClick={onSignup} className="mt-4 w-full py-2 rounded border">
           新規登録へ →

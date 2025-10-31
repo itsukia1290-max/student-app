@@ -100,7 +100,7 @@ export default function Students() {
       <StudentDetail
         student={selected}
         onBack={() => setSelected(null)}
-        onDeleted={(id) => {
+        onDeleted={(id: string) => {
           setStudents((prev) => prev.filter((s) => s.id !== id));
         }}
       />
