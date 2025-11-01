@@ -11,8 +11,8 @@ type Student = {
 };
 
 type PendingReq = {
-  id: string;           // approval_requests.id
-  user_id: string;      // 対象ユーザー
+  id: string;
+  user_id: string;
   email: string | null;
   name: string | null;
   phone: string | null;
@@ -31,9 +31,10 @@ export default function Students() {
       // 承認済み student のみ表示
       const { data: ok, error: e1 } = await supabase
         .from("profiles")
-        .select("id, name, phone, memo, role, is_approved")
+        .select("id, name, phone, memo, role, is_approved, status")
         .eq("role", "student")
         .eq("is_approved", true)
+        .eq("status", "active")
         .order("name", { ascending: true });
       if (!e1) setStudents((ok ?? []) as Student[]);
 
@@ -48,22 +49,20 @@ export default function Students() {
     load();
   }, [isStaff]);
 
-  // ✅ RPC版：承認ボタン
+  // ✅ 修正版: approve_student RPC 呼び出しを簡潔に
   async function approve(req: PendingReq) {
-    // 1) RPC 呼び出し（profiles更新＋リクエスト解決）
     const { error } = await supabase.rpc("approve_student", {
       p_user_id: req.user_id,
-      p_request_id: req.id,
     });
     if (error) {
       alert("承認失敗: " + error.message);
       return;
     }
 
-    // 2) 承認待ちから除外
+    // 承認待ち一覧から削除
     setPending((prev) => prev.filter((p) => p.id !== req.id));
 
-    // 3) 反映（単体取得→追加。取れなければ全件リロード）
+    // profiles を再取得して一覧に反映
     const { data: prof, error: pe } = await supabase
       .from("profiles")
       .select("id, name, phone, memo")
@@ -77,9 +76,12 @@ export default function Students() {
         .from("profiles")
         .select("id, name, phone, memo")
         .eq("role", "student")
-        .eq("is_approved", true);
+        .eq("is_approved", true)
+        .eq("status", "active");
       setStudents((ok ?? []) as Student[]);
     }
+
+    alert("生徒を承認しました。ログイン可能になります。");
   }
 
   async function reject(req: PendingReq) {
@@ -89,6 +91,7 @@ export default function Students() {
       .eq("id", req.id);
     if (error) return alert("却下失敗: " + error.message);
     setPending((prev) => prev.filter((p) => p.id !== req.id));
+    alert("承認リクエストを却下しました。");
   }
 
   if (!isStaff) {
