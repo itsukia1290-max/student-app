@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsStaff } from "../hooks/useIsStaff";
+import InviteMemberDialog from "../components/InviteMemberDialog";
 
 type Group = {
   id: string;
@@ -9,7 +10,6 @@ type Group = {
   type: "class" | "dm";
   owner_id: string | null;
 };
-
 
 type Message = {
   id: number;
@@ -21,72 +21,68 @@ type Message = {
 
 export default function Chat() {
   const { user } = useAuth();
-  const { isStaff } = useIsStaff();            // ★ 教師/管理者か？
+  const { isStaff } = useIsStaff();
   const [groups, setGroups] = useState<Group[]>([]);
   const [active, setActive] = useState<Group | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const myId = user?.id ?? "";
   const activeId = active?.id ?? null;
-  const canManage = isStaff;                   // ★ 作成/招待の権限
+  const canManage = isStaff;
 
   // --- グループ一覧取得 ---
-  // --- グループ一覧取得（埋め込みJOINをやめて二段階に） ---
-useEffect(() => {
-  if (!myId) return;
+  useEffect(() => {
+    if (!myId) return;
 
-  (async () => {
-    // 1) 自分が所属している group_id を取得
-    const { data: gm, error: e1 } = await supabase
-      .from("group_members")
-      .select("group_id")
-      .eq("user_id", myId);
+    (async () => {
+      const { data: gm, error: e1 } = await supabase
+        .from("group_members")
+        .select("group_id")
+        .eq("user_id", myId);
 
-    if (e1) {
-      console.error("❌ group_members load:", e1.message);
-      return;
-    }
-    const ids = (gm ?? []).map((r) => r.group_id as string);
-    if (ids.length === 0) {
-      setGroups([]);
-      setActive(null);
-      return;
-    }
+      if (e1) {
+        console.error("❌ group_members load:", e1.message);
+        return;
+      }
 
-    // 2) その group_id で groups を取得
-    const { data: gs, error: e2 } = await supabase
-      .from("groups")
-      .select("id, name, type, owner_id")
-      .in("id", ids)
-      .order("name", { ascending: true });
+      const ids = (gm ?? []).map((r) => r.group_id as string);
+      if (ids.length === 0) {
+        setGroups([]);
+        setActive(null);
+        return;
+      }
 
-    if (e2) {
-      console.error("❌ groups load:", e2.message);
-      return;
-    }
+      const { data: gs, error: e2 } = await supabase
+        .from("groups")
+        .select("id, name, type, owner_id")
+        .in("id", ids)
+        .order("name", { ascending: true });
 
-    const list = (gs ?? []).map((g) => ({
-      id: g.id as string,
-      name: g.name as string,
-      type: g.type as "class" | "dm",
-      owner_id: (g.owner_id as string) ?? null,
-    }));
+      if (e2) {
+        console.error("❌ groups load:", e2.message);
+        return;
+      }
 
-    setGroups(list);
-    if (!active && list.length > 0) setActive(list[0]);
-    if (active && !list.find((g) => g.id === active.id)) {
-      // 以前の active が一覧にない場合はリセット
-      setActive(list[0] ?? null);
-    }
-  })();
-  // active は初期選択のために参照、依存に含めてOK
-}, [myId, active]);
+      const list = (gs ?? []).map((g) => ({
+        id: g.id as string,
+        name: g.name as string,
+        type: g.type as "class" | "dm",
+        owner_id: (g.owner_id as string) ?? null,
+      }));
 
+      setGroups(list);
+      if (!active && list.length > 0) setActive(list[0]);
+      if (active && !list.find((g) => g.id === active.id)) {
+        setActive(list[0] ?? null);
+      }
+    })();
+  }, [myId, active]);
 
-  // --- メッセージ一覧取得 ---
+  // --- メッセージ一覧 ---
   useEffect(() => {
     if (!activeId) return;
     let cancelled = false;
@@ -151,7 +147,7 @@ useEffect(() => {
     setInput("");
   }
 
-  // --- グループ作成（教師/管理者のみ） ---
+  // --- グループ作成 ---
   async function createGroup() {
     if (!canManage) return;
     const name = prompt("グループ名？（例：2年A組）");
@@ -173,25 +169,11 @@ useEffect(() => {
     setActive(newGroup);
   }
 
-  // --- メンバー招待（教師/管理者のみ & オーナー） ---
-  async function inviteMember() {
-    if (!active) return;
-    if (!canManage || active.owner_id !== myId) return;
-    const uid = prompt("追加するユーザーの UUID を入力してください");
-    if (!uid) return;
-    const { error } = await supabase
-      .from("group_members")
-      .insert({ group_id: active.id, user_id: uid });
-    if (error) alert("招待失敗: " + error.message);
-    else alert("追加しました");
-  }
-
   const isActiveOwner = useMemo(
     () => active && active.owner_id === myId,
     [active, myId]
   );
 
-  // --- UI ---
   return (
     <div className="grid grid-cols-12 min-h-[70vh]">
       {/* 左側：グループ一覧 */}
@@ -235,10 +217,10 @@ useEffect(() => {
           <div className="font-bold">{active ? active.name : "グループ未選択"}</div>
           {canManage && isActiveOwner && (
             <button
-              onClick={inviteMember}
+              onClick={() => setShowInvite(true)}
               className="text-sm border rounded px-2 py-1"
             >
-              メンバー追加（UUID）
+              メンバー招待
             </button>
           )}
         </div>
@@ -292,6 +274,15 @@ useEffect(() => {
           </button>
         </div>
       </main>
+
+      {/* 生徒一覧から招待ダイアログ */}
+      {showInvite && active && (
+        <InviteMemberDialog
+          groupId={active.id}
+          onClose={() => setShowInvite(false)}
+          onInvited={() => setShowInvite(false)}
+        />
+      )}
     </div>
   );
 }
