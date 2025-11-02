@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsStaff } from "../hooks/useIsStaff";
 import InviteMemberDialog from "../components/InviteMemberDialog";
+import GroupMembersDialog from "../components/GroupMembersDialog.tsx";
 
 type Group = {
   id: string;
@@ -28,6 +29,7 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const myId = user?.id ?? "";
@@ -67,7 +69,7 @@ export default function Chat() {
         return;
       }
 
-      const list = (gs ?? []).map((g) => ({
+      const list: Group[] = (gs ?? []).map((g) => ({
         id: g.id as string,
         name: g.name as string,
         type: g.type as "class" | "dm",
@@ -82,7 +84,7 @@ export default function Chat() {
     })();
   }, [myId, active]);
 
-  // --- メッセージ一覧 ---
+  // --- メッセージ一覧取得 ---
   useEffect(() => {
     if (!activeId) return;
     let cancelled = false;
@@ -164,13 +166,13 @@ export default function Chat() {
       .insert({ group_id: id, user_id: myId });
     if (me) return alert("メンバー追加失敗: " + me.message);
 
-    const newGroup = { id, name, type: "class" as const, owner_id: myId };
+    const newGroup: Group = { id, name, type: "class", owner_id: myId };
     setGroups((prev) => [...prev, newGroup]);
     setActive(newGroup);
   }
 
-  const isActiveOwner = useMemo(
-    () => active && active.owner_id === myId,
+  const isActiveOwner = useMemo<boolean>(
+    () => !!(active && active.owner_id === myId),
     [active, myId]
   );
 
@@ -215,13 +217,22 @@ export default function Chat() {
       <main className="col-span-8 flex flex-col">
         <div className="flex items-center justify-between p-3 border-b bg-white">
           <div className="font-bold">{active ? active.name : "グループ未選択"}</div>
+
           {canManage && isActiveOwner && (
-            <button
-              onClick={() => setShowInvite(true)}
-              className="text-sm border rounded px-2 py-1"
-            >
-              メンバー招待
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowInvite(true)}
+                className="text-sm border rounded px-2 py-1"
+              >
+                メンバー招待
+              </button>
+              <button
+                onClick={() => setShowMembers(true)}
+                className="text-sm border rounded px-2 py-1"
+              >
+                メンバー管理
+              </button>
+            </div>
           )}
         </div>
 
@@ -281,6 +292,15 @@ export default function Chat() {
           groupId={active.id}
           onClose={() => setShowInvite(false)}
           onInvited={() => setShowInvite(false)}
+        />
+      )}
+
+      {/* メンバー管理ダイアログ */}
+      {showMembers && active && (
+        <GroupMembersDialog
+          groupId={active.id}
+          isOwner={isActiveOwner}
+          onClose={() => setShowMembers(false)}
         />
       )}
     </div>
