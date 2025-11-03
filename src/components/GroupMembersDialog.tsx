@@ -10,11 +10,13 @@ type Member = {
 
 export default function GroupMembersDialog({
   groupId,
-  isOwner,
+  isOwner,     // 表示中ユーザーがこのグループの作成者か
+  ownerId,     // グループのオーナーの user_id（この人は外せない）
   onClose,
 }: {
   groupId: string;
-  isOwner: boolean;   // グループ作成者かどうか（削除ボタン制御用）
+  isOwner: boolean;
+  ownerId: string | null;
   onClose: () => void;
 }) {
   const [loading, setLoading] = useState(true);
@@ -26,7 +28,6 @@ export default function GroupMembersDialog({
     setLoading(true);
     setMsg(null);
 
-    // 1) group_members から user_id を取得
     const { data: gm, error: ge } = await supabase
       .from("group_members")
       .select("user_id")
@@ -45,7 +46,6 @@ export default function GroupMembersDialog({
       return;
     }
 
-    // 2) profiles から表示用情報取得
     const { data: ps, error: pe } = await supabase
       .from("profiles")
       .select("id, name, role, phone")
@@ -72,12 +72,20 @@ export default function GroupMembersDialog({
     return members.filter((m) => {
       const name = (m.name ?? "").toLowerCase();
       const phone = (m.phone ?? "").toLowerCase();
-      return name.includes(t) || phone.includes(t) || m.id.toLowerCase().includes(t) || m.role.includes(t);
+      return (
+        name.includes(t) ||
+        phone.includes(t) ||
+        m.id.toLowerCase().includes(t) ||
+        m.role.includes(t)
+      );
     });
   }, [q, members]);
 
   async function removeMember(userId: string) {
     if (!isOwner) return;
+    // オーナー本人は外せない
+    if (ownerId && userId === ownerId) return;
+
     const ok = confirm("このメンバーをグループから外しますか？");
     if (!ok) return;
 
@@ -119,29 +127,39 @@ export default function GroupMembersDialog({
                 <th className="text-left p-2">氏名</th>
                 <th className="text-left p-2">役割</th>
                 <th className="text-left p-2">電話番号</th>
-                <th className="p-2 w-28"></th>
+                <th className="p-2 w-32"></th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((m) => (
-                <tr key={m.id} className="border-b">
-                  <td className="p-2">{m.name ?? "（未設定）"}</td>
-                  <td className="p-2 text-sm text-gray-600">{m.role}</td>
-                  <td className="p-2 text-sm text-gray-600">{m.phone ?? "-"}</td>
-                  <td className="p-2">
-                    {isOwner ? (
-                      <button
-                        onClick={() => removeMember(m.id)}
-                        className="px-3 py-1 rounded bg-red-600 text-white text-sm hover:bg-red-700"
-                      >
-                        外す
-                      </button>
-                    ) : (
-                      <span className="text-xs text-gray-400">閲覧のみ</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {filtered.map((m) => {
+                const isGroupOwner = ownerId ? m.id === ownerId : false;
+                return (
+                  <tr key={m.id} className="border-b">
+                    <td className="p-2">
+                      {m.name ?? "（未設定）"}
+                      {isGroupOwner && (
+                        <span className="ml-2 text-xs text-indigo-600 border border-indigo-200 bg-indigo-50 rounded px-1">
+                          オーナー
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-2 text-sm text-gray-600">{m.role}</td>
+                    <td className="p-2 text-sm text-gray-600">{m.phone ?? "-"}</td>
+                    <td className="p-2">
+                      {isOwner && !isGroupOwner ? (
+                        <button
+                          onClick={() => removeMember(m.id)}
+                          className="px-3 py-1 rounded bg-red-600 text-white text-sm hover:bg-red-700"
+                        >
+                          外す
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-400">閲覧のみ</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

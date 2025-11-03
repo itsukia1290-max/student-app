@@ -3,7 +3,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsStaff } from "../hooks/useIsStaff";
 import InviteMemberDialog from "../components/InviteMemberDialog";
-import GroupMembersDialog from "../components/GroupMembersDialog.tsx";
+import GroupMembersDialog from "../components/GroupMembersDialog";
 
 type Group = {
   id: string;
@@ -297,12 +297,13 @@ export default function Chat() {
 
       {/* メンバー管理ダイアログ */}
       {showMembers && active && (
-        <GroupMembersDialog
-          groupId={active.id}
-          isOwner={isActiveOwner}
-          onClose={() => setShowMembers(false)}
-        />
-      )}
+  <GroupMembersDialog
+    groupId={active.id}
+    isOwner={isActiveOwner}
+    ownerId={active.owner_id ?? null}   // ★ 追加：オーナーID
+    onClose={() => setShowMembers(false)}
+  />
+)}
     </div>
   );
 }
