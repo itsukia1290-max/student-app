@@ -7,6 +7,7 @@ type UserRow = {
   name: string | null;
   role: "student" | "teacher" | "admin";
   phone: string | null;
+  is_approved: boolean | null;
 };
 
 export default function SelectUserDialog({
@@ -16,7 +17,7 @@ export default function SelectUserDialog({
   onSelect: (userId: string, name: string | null) => void;
   onClose: () => void;
 }) {
-  const { isStaff } = useIsStaff();
+  const { isStaff } = useIsStaff(); // 教師・管理者なら true
   const [rows, setRows] = useState<UserRow[]>([]);
   const [q, setQ] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
@@ -26,10 +27,12 @@ export default function SelectUserDialog({
     (async () => {
       setLoading(true);
       setMsg(null);
-      // 教師/管理者は student を一覧、学生は teacher/admin を一覧
+
+      // 教師側：承認済みの生徒一覧を表示
+      // 生徒側：承認済みの teacher/admin 一覧を表示
       const query = supabase
         .from("profiles")
-        .select("id, name, role, phone")
+        .select("id, name, role, phone, is_approved")
         .eq("is_approved", true);
 
       if (isStaff) {
@@ -39,11 +42,13 @@ export default function SelectUserDialog({
       }
 
       const { data, error } = await query.order("name", { ascending: true });
+
       if (error) {
-        setMsg("取得に失敗: " + error.message);
+        setMsg("ユーザー取得に失敗しました: " + error.message);
       } else {
         setRows((data ?? []) as UserRow[]);
       }
+
       setLoading(false);
     })();
   }, [isStaff]);
@@ -60,36 +65,45 @@ export default function SelectUserDialog({
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40">
-      <div className="w-[min(720px,95vw)] bg-white rounded-2xl shadow-lg p-4">
+      <div className="w-[min(720px,95vw)] bg-white rounded-2xl shadow-lg p-5">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold">相手を選択</h2>
-          <button onClick={onClose} className="px-2 py-1 rounded hover:bg-gray-100">✕</button>
+          <h2 className="text-lg font-semibold">
+            {isStaff ? "生徒一覧（DM相手を選択）" : "教師一覧（DM相手を選択）"}
+          </h2>
+          <button
+            onClick={onClose}
+            className="px-2 py-1 rounded hover:bg-gray-100 text-gray-600"
+          >
+            ✕
+          </button>
         </div>
 
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="名前 / 電話 / ID で検索"
+          placeholder="名前 / 電話番号 / ID 検索..."
           className="w-full border rounded px-3 py-2 mb-3"
         />
 
         {loading ? (
           <p className="text-sm text-gray-600">読み込み中...</p>
         ) : filtered.length === 0 ? (
-          <p className="text-sm text-gray-500">該当ユーザーがいません。</p>
+          <p className="text-sm text-gray-500">該当するユーザーがいません。</p>
         ) : (
-          <ul className="max-h-[50vh] overflow-y-auto divide-y">
+          <ul className="max-h-[55vh] overflow-y-auto divide-y">
             {filtered.map((u) => (
               <li key={u.id} className="py-2 flex items-center justify-between">
                 <div className="min-w-0">
                   <div className="font-medium truncate">{u.name ?? "（未設定）"}</div>
-                  <div className="text-xs text-gray-500">{u.role} / {u.phone ?? "-"}</div>
+                  <div className="text-xs text-gray-500">
+                    {u.role} / {u.phone ?? "-"}
+                  </div>
                 </div>
                 <button
                   onClick={() => onSelect(u.id, u.name)}
-                  className="ml-3 px-3 py-1 rounded bg-black text-white text-sm"
+                  className="ml-3 px-3 py-1 rounded bg-black text-white text-sm hover:bg-gray-800"
                 >
-                  選ぶ
+                  選択
                 </button>
               </li>
             ))}
