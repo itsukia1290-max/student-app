@@ -171,6 +171,35 @@ export default function Chat() {
     setActive(newGroup);
   }
 
+  // --- グループ削除（オーナーのみ） ---
+  async function deleteGroup() {
+    if (!active) return;
+    if (!isActiveOwner) return;
+
+    const ok = confirm(
+      `グループ「${active.name}」を削除しますか？\nすべてのメッセージとメンバー関係も削除されます。`
+    );
+    if (!ok) return;
+
+    const gid = active.id;
+
+    // messages → group_members → groups の順に削除
+    const { error: em } = await supabase.from("messages").delete().eq("group_id", gid);
+    if (em) return alert("メッセージ削除に失敗: " + em.message);
+
+    const { error: egm } = await supabase.from("group_members").delete().eq("group_id", gid);
+    if (egm) return alert("メンバー削除に失敗: " + egm.message);
+
+    const { error: eg } = await supabase.from("groups").delete().eq("id", gid);
+    if (eg) return alert("グループ削除に失敗: " + eg.message);
+
+    // UI更新
+    setGroups((prev) => prev.filter((g) => g.id !== gid));
+    setActive((prev) => (prev && prev.id === gid ? null : prev));
+
+    alert("グループを削除しました。");
+  }
+
   const isActiveOwner = useMemo<boolean>(
     () => !!(active && active.owner_id === myId),
     [active, myId]
@@ -216,7 +245,9 @@ export default function Chat() {
       {/* 右側：メッセージ */}
       <main className="col-span-8 flex flex-col">
         <div className="flex items-center justify-between p-3 border-b bg-white">
-          <div className="font-bold">{active ? active.name : "グループ未選択"}</div>
+          <div className="font-bold">
+            {active ? active.name : "グループ未選択"}
+          </div>
 
           {canManage && isActiveOwner && (
             <div className="flex gap-2">
@@ -231,6 +262,12 @@ export default function Chat() {
                 className="text-sm border rounded px-2 py-1"
               >
                 メンバー管理
+              </button>
+              <button
+                onClick={deleteGroup}
+                className="text-sm rounded px-2 py-1 bg-red-600 text-white hover:bg-red-700"
+              >
+                グループ削除
               </button>
             </div>
           )}
@@ -286,7 +323,7 @@ export default function Chat() {
         </div>
       </main>
 
-      {/* 生徒一覧から招待ダイアログ */}
+      {/* 招待ダイアログ */}
       {showInvite && active && (
         <InviteMemberDialog
           groupId={active.id}
@@ -297,13 +334,13 @@ export default function Chat() {
 
       {/* メンバー管理ダイアログ */}
       {showMembers && active && (
-  <GroupMembersDialog
-    groupId={active.id}
-    isOwner={isActiveOwner}
-    ownerId={active.owner_id ?? null}   // ★ 追加：オーナーID
-    onClose={() => setShowMembers(false)}
-  />
-)}
+        <GroupMembersDialog
+          groupId={active.id}
+          isOwner={isActiveOwner}
+          ownerId={active.owner_id ?? null}
+          onClose={() => setShowMembers(false)}
+        />
+      )}
     </div>
   );
 }
