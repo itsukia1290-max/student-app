@@ -6,26 +6,35 @@ import Signup from "./pages/Signup";
 import MyPage from "./pages/MyPage";
 import Chat from "./pages/Chat";
 import Students from "./pages/Students";
+import DM from "./pages/DM";                 // ★ 追加
 import { supabase } from "./lib/supabase";
 import { useMyApproval } from "./hooks/useMyApproval";
 
-type View = "home" | "mypage" | "chat" | "students";
+type View = "home" | "mypage" | "chat" | "dm" | "students";  // ★ DM を追加
 
 function Shell() {
   const { user } = useAuth();
   const [view, setView] = useState<View>("home");
 
+  const tabs: { key: View; label: string }[] = [
+    { key: "home", label: "Home" },
+    { key: "mypage", label: "MyPage" },
+    { key: "chat", label: "Chat" },
+    { key: "dm", label: "DM" },           // ★ DM タブ
+    { key: "students", label: "Students" },
+  ];
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="flex items-center justify-between p-3 border-b bg-white">
         <nav className="flex gap-2">
-          {(["home", "mypage", "chat", "students"] as const).map((v) => (
+          {tabs.map((t) => (
             <button
-              key={v}
-              className={`px-3 py-1 rounded ${view === v ? "bg-black text-white" : "border"}`}
-              onClick={() => setView(v)}
+              key={t.key}
+              className={`px-3 py-1 rounded ${view === t.key ? "bg-black text-white" : "border"}`}
+              onClick={() => setView(t.key)}
             >
-              {v === "home" ? "Home" : v === "mypage" ? "MyPage" : v === "chat" ? "Chat" : "Students"}
+              {t.label}
             </button>
           ))}
         </nav>
@@ -41,12 +50,13 @@ function Shell() {
         <main className="grid place-items-center p-8">
           <div className="p-8 rounded-2xl shadow bg-white">
             <h1 className="text-2xl font-bold text-green-600">ログイン済み ✅</h1>
-            <p className="mt-2 text-gray-600">Chat タブからメッセージを試せます。</p>
+            <p className="mt-2 text-gray-600">Chat または DM からメッセージを試せます。</p>
           </div>
         </main>
       )}
       {view === "mypage" && <MyPage />}
       {view === "chat" && <Chat />}
+      {view === "dm" && <DM />}            {/* ★ 追加 */}
       {view === "students" && <Students />}
     </div>
   );
@@ -70,12 +80,12 @@ function PendingApproval() {
 }
 
 function AuthGate() {
-  // ★★★ Hooks は関数のトップレベルで、毎回同じ順序で呼ぶ ★★★
+  // Hooks は関数のトップレベルで、毎回同じ順序で呼ぶ
   const { session } = useAuth();
   const [mode, setMode] = useState<"login" | "signup">("login");
-  const { approved } = useMyApproval(); // ← 常に呼ぶ（未ログインでもOK）
+  const { approved } = useMyApproval(); // 未ログインでも常に呼ぶ
 
-  // 1) 未ログイン：ログイン/サインアップ画面
+  // 1) 未ログイン
   if (!session) {
     return mode === "login" ? (
       <Login onSignup={() => setMode("signup")} />
@@ -84,7 +94,7 @@ function AuthGate() {
     );
   }
 
-  // 2) セッションはあるが承認状態の判定中（null）→ 何も見せない（フラッシュ防止）
+  // 2) 判定中
   if (approved === null) {
     return (
       <div className="min-h-screen grid place-items-center">
@@ -93,12 +103,12 @@ function AuthGate() {
     );
   }
 
-  // 3) 未承認 → 専用画面（アプリ本体は描画しない）
+  // 3) 未承認
   if (approved === false) {
     return <PendingApproval />;
   }
 
-  // 4) 承認済み or admin → 本体
+  // 4) 承認済み or admin
   return <Shell />;
 }
 
