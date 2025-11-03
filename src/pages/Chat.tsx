@@ -36,11 +36,12 @@ export default function Chat() {
   const activeId = active?.id ?? null;
   const canManage = isStaff;
 
-  // --- グループ一覧取得 ---
+  // --- グループ一覧（※“class” のみ表示！） ---
   useEffect(() => {
     if (!myId) return;
 
     (async () => {
+      // 自分が入ってる group_id を取得
       const { data: gm, error: e1 } = await supabase
         .from("group_members")
         .select("group_id")
@@ -58,10 +59,12 @@ export default function Chat() {
         return;
       }
 
+      // ★ ここで “class” のみフィルタ
       const { data: gs, error: e2 } = await supabase
         .from("groups")
         .select("id, name, type, owner_id")
         .in("id", ids)
+        .eq("type", "class")
         .order("name", { ascending: true });
 
       if (e2) {
@@ -72,7 +75,7 @@ export default function Chat() {
       const list: Group[] = (gs ?? []).map((g) => ({
         id: g.id as string,
         name: g.name as string,
-        type: g.type as "class" | "dm",
+        type: "class",
         owner_id: (g.owner_id as string) ?? null,
       }));
 
@@ -84,7 +87,7 @@ export default function Chat() {
     })();
   }, [myId, active]);
 
-  // --- メッセージ一覧取得 ---
+  // --- メッセージ一覧 ---
   useEffect(() => {
     if (!activeId) return;
     let cancelled = false;
@@ -106,7 +109,7 @@ export default function Chat() {
     };
   }, [activeId]);
 
-  // --- Realtime購読 ---
+  // --- Realtime ---
   useEffect(() => {
     if (!activeId) return;
     const channel = supabase
@@ -149,7 +152,7 @@ export default function Chat() {
     setInput("");
   }
 
-  // --- グループ作成 ---
+  // --- グループ作成（class 固定） ---
   async function createGroup() {
     if (!canManage) return;
     const name = prompt("グループ名？（例：2年A組）");
@@ -171,43 +174,33 @@ export default function Chat() {
     setActive(newGroup);
   }
 
-  // --- グループ削除（オーナーのみ） ---
-  async function deleteGroup() {
-    if (!active) return;
-    if (!isActiveOwner) return;
+  // --- グループ削除（メッセージ→メンバー→グループの順） ---
+  async function deleteGroup(g: Group) {
+    if (!g || g.type !== "class") return;
+    if (!confirm(`グループ「${g.name}」を削除しますか？（メッセージも削除）`)) return;
 
-    const ok = confirm(
-      `グループ「${active.name}」を削除しますか？\nすべてのメッセージとメンバー関係も削除されます。`
-    );
-    if (!ok) return;
+    // 順序を守って削除（RLSで許可されている前提：オーナー=教師）
+    const { error: e1 } = await supabase.from("messages").delete().eq("group_id", g.id);
+    if (e1) return alert("削除失敗(messages): " + e1.message);
 
-    const gid = active.id;
+    const { error: e2 } = await supabase.from("group_members").delete().eq("group_id", g.id);
+    if (e2) return alert("削除失敗(group_members): " + e2.message);
 
-    // messages → group_members → groups の順に削除
-    const { error: em } = await supabase.from("messages").delete().eq("group_id", gid);
-    if (em) return alert("メッセージ削除に失敗: " + em.message);
+    const { error: e3 } = await supabase.from("groups").delete().eq("id", g.id);
+    if (e3) return alert("削除失敗(groups): " + e3.message);
 
-    const { error: egm } = await supabase.from("group_members").delete().eq("group_id", gid);
-    if (egm) return alert("メンバー削除に失敗: " + egm.message);
-
-    const { error: eg } = await supabase.from("groups").delete().eq("id", gid);
-    if (eg) return alert("グループ削除に失敗: " + eg.message);
-
-    // UI更新
-    setGroups((prev) => prev.filter((g) => g.id !== gid));
-    setActive((prev) => (prev && prev.id === gid ? null : prev));
-
-    alert("グループを削除しました。");
+    setGroups((prev) => prev.filter((x) => x.id !== g.id));
+    setActive((cur) => (cur?.id === g.id ? null : cur));
   }
 
-  const isActiveOwner = useMemo<boolean>(
+  const isActiveOwner = useMemo(
     () => !!(active && active.owner_id === myId),
     [active, myId]
   );
 
   return (
     <div className="grid grid-cols-12 min-h-[70vh]">
-      {/* 左側：グループ一覧 */}
+      {/* 左側：クラス用グループ一覧（DMは表示しない） */}
       <aside className="col-span-4 border-r">
         <div className="flex items-center justify-between p-3">
           <h2 className="font-bold">グループ</h2>
@@ -229,8 +222,7 @@ export default function Chat() {
                   active?.id === g.id ? "bg-gray-100 font-semibold" : ""
                 }`}
               >
-                {g.name}{" "}
-                <span className="text-xs text-gray-500">({g.type})</span>
+                {g.name}
               </button>
             </li>
           ))}
@@ -245,11 +237,9 @@ export default function Chat() {
       {/* 右側：メッセージ */}
       <main className="col-span-8 flex flex-col">
         <div className="flex items-center justify-between p-3 border-b bg-white">
-          <div className="font-bold">
-            {active ? active.name : "グループ未選択"}
-          </div>
+          <div className="font-bold">{active ? active.name : "グループ未選択"}</div>
 
-          {canManage && isActiveOwner && (
+          {canManage && isActiveOwner && active && (
             <div className="flex gap-2">
               <button
                 onClick={() => setShowInvite(true)}
@@ -264,8 +254,8 @@ export default function Chat() {
                 メンバー管理
               </button>
               <button
-                onClick={deleteGroup}
-                className="text-sm rounded px-2 py-1 bg-red-600 text-white hover:bg-red-700"
+                onClick={() => deleteGroup(active)}
+                className="text-sm border rounded px-2 py-1 text-red-600"
               >
                 グループ削除
               </button>
@@ -323,7 +313,7 @@ export default function Chat() {
         </div>
       </main>
 
-      {/* 招待ダイアログ */}
+      {/* 招待 / メンバー管理ダイアログ */}
       {showInvite && active && (
         <InviteMemberDialog
           groupId={active.id}
@@ -331,8 +321,6 @@ export default function Chat() {
           onInvited={() => setShowInvite(false)}
         />
       )}
-
-      {/* メンバー管理ダイアログ */}
       {showMembers && active && (
         <GroupMembersDialog
           groupId={active.id}
