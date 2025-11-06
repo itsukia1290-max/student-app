@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import SelectUserDialog from "../components/SelectUserDialog";
@@ -19,28 +19,96 @@ type Message = {
   created_at: string;
 };
 
-type Partner = {
-  group_id: string;
-  partner_id: string;
-  partner_name: string | null;
-};
+type LastReadRow = { group_id: string; last_read_at: string };
+type PartnerRow = { group_id: string; user_id: string };
+type ProfileMini = { id: string; name: string | null };
 
 export default function DM() {
   const { user } = useAuth();
+  const myId = user?.id ?? "";
+
   const [groups, setGroups] = useState<Group[]>([]);
-  const [partners, setPartners] = useState<Partner[]>([]);
+  const [labelByGroup, setLabelByGroup] = useState<
+    Record<string, { partnerId: string; partnerName: string | null }>
+  >({});
+  const [unreadByGroup, setUnreadByGroup] = useState<Record<string, number>>({});
   const [active, setActive] = useState<Group | null>(null);
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+
   const [showNewDm, setShowNewDm] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
-  const [activePartnerId, setActivePartnerId] = useState<string | null>(null);
+
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const myId = user?.id ?? "";
+  function scrollToBottom() {
+    requestAnimationFrame(() =>
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+    );
+  }
 
-  // --- DMグループ一覧をロード ---
+  /** 既読更新（自分の group_members.last_read_at を now に） */
+  const markRead = useCallback(
+    async (groupId: string) => {
+      if (!myId) return;
+      const { error } = await supabase
+        .from("group_members")
+        .update({ last_read_at: new Date().toISOString() })
+        .eq("group_id", groupId)
+        .eq("user_id", myId);
+      if (error) {
+        console.warn("⚠️ markRead failed:", error.message);
+        return;
+      }
+      setUnreadByGroup((prev) => ({ ...prev, [groupId]: 0 }));
+    },
+    [myId]
+  );
+
+  /** DM一覧の未読数カウントをまとめて計算 */
+  const fetchUnreadCounts = useCallback(
+    async (dmIds: string[]) => {
+      if (!myId || dmIds.length === 0) {
+        setUnreadByGroup({});
+        return;
+      }
+      // 自分の last_read_at を取得
+      const { data: myGm, error: e1 } = await supabase
+        .from("group_members")
+        .select("group_id,last_read_at")
+        .eq("user_id", myId)
+        .in("group_id", dmIds);
+      if (e1) {
+        console.error("❌ load last_read_at:", e1.message);
+        return;
+      }
+      const lastReadMap: Record<string, string> = {};
+      (myGm as LastReadRow[] | null)?.forEach((r) => {
+        lastReadMap[r.group_id] = r.last_read_at;
+      });
+
+      const next: Record<string, number> = {};
+      for (const gid of dmIds) {
+        const since = lastReadMap[gid] ?? "1970-01-01T00:00:00Z";
+        const { count, error: e2 } = await supabase
+          .from("messages")
+          .select("id", { count: "exact", head: true })
+          .eq("group_id", gid)
+          .gt("created_at", since);
+        if (e2) {
+          console.warn("⚠️ count unread failed:", e2.message);
+          continue;
+        }
+        next[gid] = count ?? 0;
+      }
+      setUnreadByGroup(next);
+    },
+    [myId]
+  );
+
+  // ---- 自分が所属するDM一覧をロード（相手名ラベルも計算） ----
   useEffect(() => {
     if (!myId) return;
     (async () => {
@@ -48,72 +116,97 @@ export default function DM() {
         .from("group_members")
         .select("group_id")
         .eq("user_id", myId);
-
       if (e1) {
         console.error("❌ group_members load:", e1.message);
         return;
       }
-
-      const ids = (gm ?? []).map((r) => r.group_id as string);
-      if (ids.length === 0) {
+      const allIds = (gm ?? []).map((r) => r.group_id as string);
+      if (allIds.length === 0) {
         setGroups([]);
         setActive(null);
+        setLabelByGroup({});
+        setUnreadByGroup({});
         return;
       }
 
       const { data: gs, error: e2 } = await supabase
         .from("groups")
-        .select("id, name, type, owner_id")
-        .in("id", ids)
+        .select("id,name,type,owner_id")
+        .in("id", allIds)
         .eq("type", "dm")
         .order("name", { ascending: true });
-
       if (e2) {
         console.error("❌ groups load:", e2.message);
         return;
       }
 
-      const list = (gs ?? []).map((g) => ({
-        id: g.id as string,
-        name: g.name as string,
-        type: "dm" as const,
-        owner_id: g.owner_id as string | null,
-      }));
+      const list: Group[] =
+        (gs ?? []).map((g) => ({
+          id: g.id as string,
+          name: (g.name as string) ?? "DM",
+          type: "dm",
+          owner_id: (g.owner_id as string) ?? null,
+        })) ?? [];
 
       setGroups(list);
       if (!active && list.length > 0) setActive(list[0]);
       if (active && !list.find((g) => g.id === active.id)) {
         setActive(list[0] ?? null);
       }
-    })();
-  }, [myId, active]);
 
-  // --- パートナー情報ロード ---
-  useEffect(() => {
-    if (!myId) return;
-    (async () => {
-      const { data, error } = await supabase.rpc("get_dm_partners", {
-        p_user_id: myId,
-      });
-      if (error) {
-        console.error("❌ get_dm_partners:", error.message);
-        return;
+      if (list.length > 0) {
+        const ids = list.map((g) => g.id);
+        const { data: others, error: e3 } = await supabase
+          .from("group_members")
+          .select("group_id,user_id")
+          .in("group_id", ids)
+          .neq("user_id", myId);
+        if (e3) {
+          console.error("❌ group_members(others) load:", e3.message);
+          return;
+        }
+
+        const partnerIds = Array.from(
+          new Set(((others ?? []) as PartnerRow[]).map((o) => o.user_id))
+        );
+        let names: Record<string, string | null> = {};
+
+        if (partnerIds.length > 0) {
+          const { data: profs, error: e4 } = await supabase
+            .from("profiles")
+            .select("id,name")
+            .in("id", partnerIds);
+          if (e4) {
+            console.error("❌ profiles load:", e4.message);
+          } else if (profs) {
+            const profArr = profs as ProfileMini[];
+            names = Object.fromEntries(profArr.map((p) => [p.id, p.name]));
+          }
+        }
+
+        const labelMap: Record<
+          string,
+          { partnerId: string; partnerName: string | null }
+        > = {};
+        ((others ?? []) as PartnerRow[]).forEach((o) => {
+          const gid = o.group_id;
+          const pid = o.user_id;
+          if (!labelMap[gid]) {
+            labelMap[gid] = { partnerId: pid, partnerName: names[pid] ?? null };
+          }
+        });
+        setLabelByGroup(labelMap);
+
+        await fetchUnreadCounts(ids);
+      } else {
+        setLabelByGroup({});
+        setUnreadByGroup({});
       }
-      setPartners(data ?? []);
     })();
-  }, [myId, groups]);
+    // active はアクティブ選択の維持に参照
+  }, [myId, active, fetchUnreadCounts]);
 
-  // --- アクティブな相手ID更新 ---
-  useEffect(() => {
-    if (!active?.id) {
-      setActivePartnerId(null);
-      return;
-    }
-    const partner = partners.find((x) => x.group_id === active.id);
-    setActivePartnerId(partner?.partner_id ?? null);
-  }, [active, partners]);
-
-  // --- メッセージロード ---
+  // ---- メッセージ読み込み（アクティブDM） ----
   useEffect(() => {
     if (!active?.id) return;
     let cancelled = false;
@@ -129,44 +222,35 @@ export default function DM() {
       }
       if (!cancelled) setMessages((data ?? []) as Message[]);
       scrollToBottom();
+      await markRead(active.id);
     })();
     return () => {
       cancelled = true;
     };
-  }, [active]);
+  }, [active?.id, markRead]);
 
-  // --- Realtime購読 ---
+  // ---- Realtime（アクティブDMのみ購読） ----
   useEffect(() => {
     if (!active?.id) return;
     const channel = supabase
       .channel(`dm:${active.id}`)
       .on(
         "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `group_id=eq.${active.id}`,
-        },
-        (payload) => {
+        { event: "INSERT", schema: "public", table: "messages", filter: `group_id=eq.${active.id}` },
+        async (payload) => {
           const row = payload.new as Message;
           setMessages((prev) => [...prev, row]);
           scrollToBottom();
+          await markRead(active.id);
         }
       )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [active]);
+  }, [active?.id, markRead]);
 
-  function scrollToBottom() {
-    requestAnimationFrame(() =>
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-    );
-  }
-
-  // --- メッセージ送信 ---
+  // ---- 送信 ----
   async function send() {
     if (!active || !myId || !input.trim()) return;
     setLoading(true);
@@ -176,54 +260,44 @@ export default function DM() {
     setLoading(false);
     if (error) return console.error("❌ send:", error.message);
     setInput("");
+    await markRead(active.id);
   }
 
-  // --- 新規DM作成 ---
+  // ---- 新規DM作成 ----
   async function createDm(partnerId: string, partnerName: string | null) {
     if (!myId) return;
-
-    // 既にDMが存在するか確認
-    const { data: existing, error: e0 } = await supabase
-      .from("groups")
-      .select("id, name, owner_id")
-      .eq("type", "dm")
-      .contains("name", [partnerId])
-      .maybeSingle();
-    if (e0) console.error("❌ DM存在確認:", e0.message);
-    // 存在していれば既存をアクティブにして終了
-    if (existing) {
-      setActive({ id: existing.id as string, name: existing.name as string, type: "dm", owner_id: existing.owner_id as string | null });
-      setShowNewDm(false);
-      return;
-    }
-
-    // 新規作成
     const id = crypto.randomUUID();
     const name = partnerName ?? "DM";
+
     const { error: ge } = await supabase
       .from("groups")
       .insert({ id, name, type: "dm", owner_id: myId });
     if (ge) return alert("DM作成失敗: " + ge.message);
 
-    await supabase.from("group_members").insert([
-      { group_id: id, user_id: myId },
-      { group_id: id, user_id: partnerId },
-    ]);
+    const { error: me } = await supabase
+      .from("group_members")
+      .insert([
+        { group_id: id, user_id: myId, last_read_at: new Date().toISOString() },
+        { group_id: id, user_id: partnerId },
+      ]);
+    if (me) return alert("メンバー追加失敗: " + me.message);
 
-    const newGroup = { id, name, type: "dm" as const, owner_id: myId };
+    const newGroup: Group = { id, name, type: "dm", owner_id: myId };
     setGroups((prev) => [...prev, newGroup]);
+    setLabelByGroup((prev) => ({
+      ...prev,
+      [id]: { partnerId, partnerName },
+    }));
+    setUnreadByGroup((prev) => ({ ...prev, [id]: 0 }));
     setActive(newGroup);
     setShowNewDm(false);
   }
 
-  const dmView = groups.map((g) => {
-    const partner = partners.find((p) => p.group_id === g.id);
-    return { ...g, label: partner?.partner_name ?? g.name };
-  });
+  const activePartner = active ? labelByGroup[active.id] : undefined;
 
   return (
     <div className="grid grid-cols-12 min-h-[70vh]">
-      {/* 左側：DM一覧 */}
+      {/* 左：DM一覧（相手名＋未読） */}
       <aside className="col-span-4 border-r">
         <div className="flex items-center justify-between p-3">
           <h2 className="font-bold">DM</h2>
@@ -235,35 +309,40 @@ export default function DM() {
           </button>
         </div>
         <ul>
-          {dmView.map((g) => (
-            <li key={g.id}>
-              <button
-                onClick={() => setActive(g)}
-                className={`w-full text-left px-3 py-2 hover:bg-gray-100 ${
-                  active?.id === g.id ? "bg-gray-100 font-semibold" : ""
-                }`}
-              >
-                {g.label}
-              </button>
-            </li>
-          ))}
-          {dmView.length === 0 && (
-            <p className="px-3 py-2 text-sm text-gray-500">
-              DMがまだありません
-            </p>
+          {groups.map((g) => {
+            const label = labelByGroup[g.id]?.partnerName ?? g.name;
+            const unread = unreadByGroup[g.id] ?? 0;
+            return (
+              <li key={g.id}>
+                <button
+                  onClick={() => setActive(g)}
+                  className={`w-full text-left px-3 py-2 hover:bg-gray-100 ${
+                    active?.id === g.id ? "bg-gray-100 font-semibold" : ""
+                  } flex items-center justify-between`}
+                >
+                  <span>{label}</span>
+                  {unread > 0 && (
+                    <span className="ml-2 inline-flex min-w-6 h-6 items-center justify-center rounded-full bg-red-600 text-white text-xs px-2">
+                      {unread}
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+          {groups.length === 0 && (
+            <p className="px-3 py-2 text-sm text-gray-500">DMがまだありません</p>
           )}
         </ul>
       </aside>
 
-      {/* 右側：メッセージ */}
+      {/* 右：メッセージ */}
       <main className="col-span-8 flex flex-col">
         <div className="flex items-center justify-between p-3 border-b bg-white">
           <div className="font-bold">
-            {active
-              ? dmView.find((x) => x.id === active.id)?.label ?? "DM"
-              : "DM未選択"}
+            {active ? labelByGroup[active.id]?.partnerName ?? "DM" : "DM未選択"}
           </div>
-          {active && activePartnerId && (
+          {active && activePartner?.partnerId && (
             <button
               onClick={() => setShowProfile(true)}
               className="text-sm border rounded px-2 py-1"
@@ -291,9 +370,7 @@ export default function DM() {
               </div>
             ))
           ) : (
-            <p className="text-sm text-gray-500">
-              左からDMを選択してください
-            </p>
+            <p className="text-sm text-gray-500">左からDMを選択してください</p>
           )}
           <div ref={bottomRef} />
         </div>
@@ -301,9 +378,7 @@ export default function DM() {
         <div className="p-3 border-t bg-white flex gap-2">
           <input
             className="flex-1 border rounded px-3 py-2"
-            placeholder={
-              active ? "メッセージを入力..." : "DMを選択してください"
-            }
+            placeholder={active ? "メッセージを入力..." : "DMを選択してください"}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) =>
@@ -323,7 +398,7 @@ export default function DM() {
         </div>
       </main>
 
-      {/* DM新規作成ダイアログ */}
+      {/* DM新規作成 */}
       {showNewDm && (
         <SelectUserDialog
           onClose={() => setShowNewDm(false)}
@@ -331,10 +406,10 @@ export default function DM() {
         />
       )}
 
-      {/* プロフィール閲覧ダイアログ */}
-      {showProfile && activePartnerId && (
+      {/* プロフィール閲覧 */}
+      {showProfile && activePartner?.partnerId && (
         <ProfileViewDialog
-          userId={activePartnerId}
+          userId={activePartner.partnerId}
           onClose={() => setShowProfile(false)}
         />
       )}

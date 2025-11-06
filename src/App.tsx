@@ -1,3 +1,4 @@
+// src/App.tsx
 import { useState } from "react";
 import AuthProvider from "./contexts/AuthProvider";
 import { useAuth } from "./contexts/AuthContext";
@@ -6,11 +7,11 @@ import Signup from "./pages/Signup";
 import MyPage from "./pages/MyPage";
 import Chat from "./pages/Chat";
 import Students from "./pages/Students";
-import DM from "./pages/DM";                 // ★ 追加
+import DM from "./pages/DM";
 import { supabase } from "./lib/supabase";
 import { useMyApproval } from "./hooks/useMyApproval";
 
-type View = "home" | "mypage" | "chat" | "dm" | "students";  // ★ DM を追加
+type View = "home" | "mypage" | "chat" | "dm" | "students";
 
 function Shell() {
   const { user } = useAuth();
@@ -19,8 +20,8 @@ function Shell() {
   const tabs: { key: View; label: string }[] = [
     { key: "home", label: "Home" },
     { key: "mypage", label: "MyPage" },
-    { key: "chat", label: "Chat" },
-    { key: "dm", label: "DM" },           // ★ DM タブ
+    { key: "chat", label: "Group" },    // ← 表示名を Group に変更
+    { key: "dm", label: "DM" },
     { key: "students", label: "Students" },
   ];
 
@@ -50,13 +51,13 @@ function Shell() {
         <main className="grid place-items-center p-8">
           <div className="p-8 rounded-2xl shadow bg-white">
             <h1 className="text-2xl font-bold text-green-600">ログイン済み ✅</h1>
-            <p className="mt-2 text-gray-600">Chat または DM からメッセージを試せます。</p>
+            <p className="mt-2 text-gray-600">Group または DM からメッセージを試せます。</p>
           </div>
         </main>
       )}
       {view === "mypage" && <MyPage />}
-      {view === "chat" && <Chat />}
-      {view === "dm" && <DM />}            {/* ★ 追加 */}
+      {view === "chat" && <Chat />}   {/* ルーティングは従来どおり */}
+      {view === "dm" && <DM />}
       {view === "students" && <Students />}
     </div>
   );
@@ -68,10 +69,7 @@ function PendingApproval() {
       <div className="bg-white shadow p-6 rounded-2xl w-full max-w-md text-center">
         <h1 className="text-xl font-bold mb-2">承認待ちです</h1>
         <p className="text-gray-600">教師による承認後にご利用いただけます。</p>
-        <button
-          onClick={() => supabase.auth.signOut()}
-          className="mt-4 px-4 py-2 border rounded"
-        >
+        <button onClick={() => supabase.auth.signOut()} className="mt-4 px-4 py-2 border rounded">
           ログアウト
         </button>
       </div>
@@ -80,12 +78,10 @@ function PendingApproval() {
 }
 
 function AuthGate() {
-  // Hooks は関数のトップレベルで、毎回同じ順序で呼ぶ
   const { session } = useAuth();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const { approved } = useMyApproval(); // 未ログインでも常に呼ぶ
 
-  // 1) 未ログイン
   if (!session) {
     return mode === "login" ? (
       <Login onSignup={() => setMode("signup")} />
@@ -94,7 +90,6 @@ function AuthGate() {
     );
   }
 
-  // 2) 判定中
   if (approved === null) {
     return (
       <div className="min-h-screen grid place-items-center">
@@ -103,12 +98,10 @@ function AuthGate() {
     );
   }
 
-  // 3) 未承認
   if (approved === false) {
     return <PendingApproval />;
   }
 
-  // 4) 承認済み or admin
   return <Shell />;
 }
 

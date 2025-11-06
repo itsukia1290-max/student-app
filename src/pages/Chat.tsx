@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsStaff } from "../hooks/useIsStaff";
@@ -20,9 +20,12 @@ type Message = {
   created_at: string;
 };
 
+type LastReadRow = { group_id: string; last_read_at: string };
+
 export default function Chat() {
   const { user } = useAuth();
   const { isStaff } = useIsStaff();
+
   const [groups, setGroups] = useState<Group[]>([]);
   const [active, setActive] = useState<Group | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -30,23 +33,92 @@ export default function Chat() {
   const [loading, setLoading] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
+
+  // ★ 未読数（group_id => 件数）
+  const [unreadByGroup, setUnreadByGroup] = useState<Record<string, number>>(
+    {}
+  );
+
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const myId = user?.id ?? "";
   const activeId = active?.id ?? null;
   const canManage = isStaff;
 
+  function scrollToBottom() {
+    requestAnimationFrame(() =>
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+    );
+  }
+
+  /** 自分の last_read_at を now にする（閲覧＝既読） */
+  const markRead = useCallback(
+    async (groupId: string) => {
+      if (!myId) return;
+      const { error } = await supabase
+        .from("group_members")
+        .update({ last_read_at: new Date().toISOString() })
+        .eq("group_id", groupId)
+        .eq("user_id", myId);
+      if (error) {
+        console.warn("⚠️ markRead failed:", error.message);
+        return;
+      }
+      setUnreadByGroup((prev) => ({ ...prev, [groupId]: 0 }));
+    },
+    [myId]
+  );
+
+  /** グループ一覧の未読数をまとめて再計算 */
+  const fetchUnreadCounts = useCallback(
+    async (groupIds: string[]) => {
+      if (!myId || groupIds.length === 0) {
+        setUnreadByGroup({});
+        return;
+      }
+      // 自分の last_read_at 一括取得
+      const { data: myGm, error: e1 } = await supabase
+        .from("group_members")
+        .select("group_id,last_read_at")
+        .eq("user_id", myId)
+        .in("group_id", groupIds);
+      if (e1) {
+        console.error("❌ load last_read_at:", e1.message);
+        return;
+      }
+      const lastReadMap: Record<string, string> = {};
+      (myGm as LastReadRow[] | null)?.forEach((r) => {
+        lastReadMap[r.group_id] = r.last_read_at;
+      });
+
+      const next: Record<string, number> = {};
+      for (const gid of groupIds) {
+        const since = lastReadMap[gid] ?? "1970-01-01T00:00:00Z";
+        const { count, error: e2 } = await supabase
+          .from("messages")
+          .select("id", { count: "exact", head: true })
+          .eq("group_id", gid)
+          .gt("created_at", since);
+        if (e2) {
+          console.warn("⚠️ count unread failed:", e2.message);
+          continue;
+        }
+        next[gid] = count ?? 0;
+      }
+      setUnreadByGroup(next);
+    },
+    [myId]
+  );
+
   // --- グループ一覧（※“class” のみ表示！） ---
   useEffect(() => {
     if (!myId) return;
 
     (async () => {
-      // 自分が入ってる group_id を取得
       const { data: gm, error: e1 } = await supabase
         .from("group_members")
         .select("group_id")
         .eq("user_id", myId);
-
       if (e1) {
         console.error("❌ group_members load:", e1.message);
         return;
@@ -56,17 +128,16 @@ export default function Chat() {
       if (ids.length === 0) {
         setGroups([]);
         setActive(null);
+        setUnreadByGroup({});
         return;
       }
 
-      // ★ ここで “class” のみフィルタ
       const { data: gs, error: e2 } = await supabase
         .from("groups")
         .select("id, name, type, owner_id")
         .in("id", ids)
         .eq("type", "class")
         .order("name", { ascending: true });
-
       if (e2) {
         console.error("❌ groups load:", e2.message);
         return;
@@ -84,8 +155,11 @@ export default function Chat() {
       if (active && !list.find((g) => g.id === active.id)) {
         setActive(list[0] ?? null);
       }
+
+      // 未読数を同期
+      await fetchUnreadCounts(list.map((g) => g.id));
     })();
-  }, [myId, active]);
+  }, [myId, active, fetchUnreadCounts]);
 
   // --- メッセージ一覧 ---
   useEffect(() => {
@@ -103,42 +177,48 @@ export default function Chat() {
       }
       if (!cancelled) setMessages((data ?? []) as Message[]);
       scrollToBottom();
+      await markRead(activeId); // 開いたら既読
     })();
     return () => {
       cancelled = true;
     };
-  }, [activeId]);
+  }, [activeId, markRead]);
 
-  // --- Realtime ---
+  // --- Realtime（新着で未読を反映） ---
   useEffect(() => {
-    if (!activeId) return;
-    const channel = supabase
-      .channel(`room:${activeId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `group_id=eq.${activeId}`,
-        },
-        (payload) => {
-          const row = payload.new as Message;
-          setMessages((prev) => [...prev, row]);
-          scrollToBottom();
-        }
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [activeId]);
+    const ids = groups.map((g) => g.id);
+    if (ids.length === 0) return;
 
-  function scrollToBottom() {
-    requestAnimationFrame(() =>
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+    // まとめて購読：各グループのINSERT
+    const channels = ids.map((gid) =>
+      supabase
+        .channel(`grp:${gid}`)
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "messages", filter: `group_id=eq.${gid}` },
+          async (payload) => {
+            const row = payload.new as Message;
+            // 表示中のグループならメッセージに追加＋既読
+            if (active?.id === gid) {
+              setMessages((prev) => [...prev, row]);
+              scrollToBottom();
+              await markRead(gid);
+            } else {
+              // 未読+1（再計算でもOKだが軽量に増分更新）
+              setUnreadByGroup((prev) => ({
+                ...prev,
+                [gid]: (prev[gid] ?? 0) + 1,
+              }));
+            }
+          }
+        )
+        .subscribe()
     );
-  }
+
+    return () => {
+      channels.forEach((ch) => supabase.removeChannel(ch));
+    };
+  }, [groups, active?.id, markRead]);
 
   // --- メッセージ送信 ---
   async function send() {
@@ -150,6 +230,7 @@ export default function Chat() {
     setLoading(false);
     if (error) return console.error("❌ send:", error.message);
     setInput("");
+    await markRead(active.id);
   }
 
   // --- グループ作成（class 固定） ---
@@ -166,11 +247,12 @@ export default function Chat() {
 
     const { error: me } = await supabase
       .from("group_members")
-      .insert({ group_id: id, user_id: myId });
+      .insert({ group_id: id, user_id: myId, last_read_at: new Date().toISOString() });
     if (me) return alert("メンバー追加失敗: " + me.message);
 
     const newGroup: Group = { id, name, type: "class", owner_id: myId };
     setGroups((prev) => [...prev, newGroup]);
+    setUnreadByGroup((prev) => ({ ...prev, [id]: 0 }));
     setActive(newGroup);
   }
 
@@ -179,7 +261,6 @@ export default function Chat() {
     if (!g || g.type !== "class") return;
     if (!confirm(`グループ「${g.name}」を削除しますか？（メッセージも削除）`)) return;
 
-    // 順序を守って削除（RLSで許可されている前提：オーナー=教師）
     const { error: e1 } = await supabase.from("messages").delete().eq("group_id", g.id);
     if (e1) return alert("削除失敗(messages): " + e1.message);
 
@@ -190,6 +271,10 @@ export default function Chat() {
     if (e3) return alert("削除失敗(groups): " + e3.message);
 
     setGroups((prev) => prev.filter((x) => x.id !== g.id));
+    setUnreadByGroup((prev) => {
+      const { [g.id]: _, ...rest } = prev;
+      return rest;
+    });
     setActive((cur) => (cur?.id === g.id ? null : cur));
   }
 
@@ -200,7 +285,7 @@ export default function Chat() {
 
   return (
     <div className="grid grid-cols-12 min-h-[70vh]">
-      {/* 左側：クラス用グループ一覧（DMは表示しない） */}
+      {/* 左：クラス用グループ一覧（未読バッジ付き） */}
       <aside className="col-span-4 border-r">
         <div className="flex items-center justify-between p-3">
           <h2 className="font-bold">グループ</h2>
@@ -214,27 +299,33 @@ export default function Chat() {
           )}
         </div>
         <ul>
-          {groups.map((g) => (
-            <li key={g.id}>
-              <button
-                onClick={() => setActive(g)}
-                className={`w-full text-left px-3 py-2 hover:bg-gray-100 ${
-                  active?.id === g.id ? "bg-gray-100 font-semibold" : ""
-                }`}
-              >
-                {g.name}
-              </button>
-            </li>
-          ))}
+          {groups.map((g) => {
+            const unread = unreadByGroup[g.id] ?? 0;
+            return (
+              <li key={g.id}>
+                <button
+                  onClick={() => setActive(g)}
+                  className={`w-full text-left px-3 py-2 hover:bg-gray-100 ${
+                    active?.id === g.id ? "bg-gray-100 font-semibold" : ""
+                  } flex items-center justify-between`}
+                >
+                  <span>{g.name}</span>
+                  {unread > 0 && (
+                    <span className="ml-2 inline-flex min-w-6 h-6 items-center justify-center rounded-full bg-red-600 text-white text-xs px-2">
+                      {unread}
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
           {groups.length === 0 && (
-            <p className="px-3 py-2 text-sm text-gray-500">
-              所属グループがありません
-            </p>
+            <p className="px-3 py-2 text-sm text-gray-500">所属グループがありません</p>
           )}
         </ul>
       </aside>
 
-      {/* 右側：メッセージ */}
+      {/* 右：メッセージ */}
       <main className="col-span-8 flex flex-col">
         <div className="flex items-center justify-between p-3 border-b bg-white">
           <div className="font-bold">{active ? active.name : "グループ未選択"}</div>
@@ -281,9 +372,7 @@ export default function Chat() {
               </div>
             ))
           ) : (
-            <p className="text-sm text-gray-500">
-              左からグループを選択してください
-            </p>
+            <p className="text-sm text-gray-500">左からグループを選択してください</p>
           )}
           <div ref={bottomRef} />
         </div>
@@ -291,9 +380,7 @@ export default function Chat() {
         <div className="p-3 border-t bg-white flex gap-2">
           <input
             className="flex-1 border rounded px-3 py-2"
-            placeholder={
-              active ? "メッセージを入力..." : "グループを選択してください"
-            }
+            placeholder={active ? "メッセージを入力..." : "グループを選択してください"}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) =>
