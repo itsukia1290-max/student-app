@@ -1,3 +1,4 @@
+// src/pages/Chat.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
@@ -34,7 +35,7 @@ export default function Chat() {
   const [showInvite, setShowInvite] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
 
-  // ★ 未読数（group_id => 件数）
+  // 未読数（group_id => 件数）
   const [unreadByGroup, setUnreadByGroup] = useState<Record<string, number>>(
     {}
   );
@@ -110,7 +111,7 @@ export default function Chat() {
     [myId]
   );
 
-  // --- グループ一覧（※“class” のみ表示！） ---
+  // --- グループ一覧（class のみ表示） ---
   useEffect(() => {
     if (!myId) return;
 
@@ -189,7 +190,6 @@ export default function Chat() {
     const ids = groups.map((g) => g.id);
     if (ids.length === 0) return;
 
-    // まとめて購読：各グループのINSERT
     const channels = ids.map((gid) =>
       supabase
         .channel(`grp:${gid}`)
@@ -198,13 +198,11 @@ export default function Chat() {
           { event: "INSERT", schema: "public", table: "messages", filter: `group_id=eq.${gid}` },
           async (payload) => {
             const row = payload.new as Message;
-            // 表示中のグループならメッセージに追加＋既読
             if (active?.id === gid) {
               setMessages((prev) => [...prev, row]);
               scrollToBottom();
               await markRead(gid);
             } else {
-              // 未読+1（再計算でもOKだが軽量に増分更新）
               setUnreadByGroup((prev) => ({
                 ...prev,
                 [gid]: (prev[gid] ?? 0) + 1,
@@ -272,7 +270,8 @@ export default function Chat() {
 
     setGroups((prev) => prev.filter((x) => x.id !== g.id));
     setUnreadByGroup((prev) => {
-      const { [g.id]: _, ...rest } = prev;
+      const rest = { ...prev };
+      delete rest[g.id]; // ← 未使用変数を作らず安全に削除
       return rest;
     });
     setActive((cur) => (cur?.id === g.id ? null : cur));
