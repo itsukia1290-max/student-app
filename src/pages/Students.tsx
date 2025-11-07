@@ -100,13 +100,15 @@ export default function Students() {
 
   if (selected) {
     return (
-      <StudentDetail
-        student={selected}
-        onBack={() => setSelected(null)}
-        onDeleted={(id: string) => {
-          setStudents((prev) => prev.filter((s) => s.id !== id));
-        }}
-      />
+      // 修正前
+// <StudentDetail student={selected} onBack={() => setSelected(null)} onDeleted={(id) => { ... }} />
+
+// 修正後
+<StudentDetail
+  student={selected}
+  onBack={() => setSelected(null)}
+/>
+
     );
   }
 
