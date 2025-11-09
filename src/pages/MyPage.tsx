@@ -3,8 +3,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsStaff } from "../hooks/useIsStaff";
-import Grades from "./Grades";
-import GoalsSection from "../components/GoalsSection";
+import StudentGrades from "../components/StudentGrades";   // ○△×トラッカー
+import StudentGoals from "../components/StudentGoals";     // 週刊/月間目標
 
 type Profile = {
   id: string;
@@ -13,11 +13,11 @@ type Profile = {
   memo: string | null;
 };
 
-type Tab = "profile" | "grades" | "goals";
+type Tab = "profile" | "goals" | "grades";
 
 export default function MyPage() {
   const { user } = useAuth();
-  const { isStaff } = useIsStaff(); // 役割判定
+  const { isStaff } = useIsStaff();
   const [tab, setTab] = useState<Tab>("profile");
 
   const [form, setForm] = useState<Profile | null>(null);
@@ -55,7 +55,7 @@ export default function MyPage() {
     setSaving(false);
   }
 
-  // ---------- 管理者/教師は従来どおり（タブなし・プロフィール編集のみ） ----------
+  // ★ スタッフは従来どおり（タブなし）：プロフィール編集のみ
   if (isStaff) {
     return (
       <div className="p-6 max-w-xl mx-auto">
@@ -102,7 +102,7 @@ export default function MyPage() {
     );
   }
 
-  // ---------- 生徒はタブ表示（プロフィール / 成績 / 目標） ----------
+  // ★ 生徒は 3 タブ（プロフィール / 目標 / 成績）
   return (
     <div className="min-h-[70vh]">
       <div className="flex gap-2 border-b bg-white p-3">
@@ -113,16 +113,16 @@ export default function MyPage() {
           プロフィール
         </button>
         <button
+          className={`px-3 py-1 rounded ${tab === "goals" ? "bg-black text-white" : "border"}`}
+          onClick={() => setTab("goals")}
+        >
+          目標
+        </button>
+        <button
           className={`px-3 py-1 rounded ${tab === "grades" ? "bg-black text-white" : "border"}`}
           onClick={() => setTab("grades")}
         >
           成績
-        </button>
-        <button
-          className={`px-3 py-1 rounded ${tab === "goals" ? "bg-black text-white" : "border"}`}
-          onClick={() => setTab("goals")}
-        >
-          目標（週・月）
         </button>
       </div>
 
@@ -170,19 +170,22 @@ export default function MyPage() {
         </div>
       )}
 
-      {tab === "grades" && (
-        <div className="p-6 max-w-3xl mx-auto">
-          {/* 成績ページ（空～今後拡張） */}
-          <Grades />
+      {tab === "goals" && user && (
+        <div className="p-6 max-w-4xl mx-auto">
+          {/* ★ 週刊/月間目標：本人は編集可 */}
+          <StudentGoals userId={user.id} editable={true} />
         </div>
       )}
 
-      {tab === "goals" && (
-        <div className="p-6 max-w-3xl mx-auto">
-          {/* 月間／週間目標（自分は編集可） */}
-          {user && <GoalsSection userId={user.id} editable />}
-        </div>
-      )}
+      {tab === "grades" && user && (
+  <div className="p-6 max-w-4xl mx-auto">
+    <div className="bg-white rounded-2xl border p-4">
+      <h2 className="text-lg font-bold mb-3">成績</h2>
+      {/* 生徒側は閲覧のみ */}
+      <StudentGrades userId={user.id} editable={false} />
+    </div>
+  </div>
+)}
     </div>
   );
 }

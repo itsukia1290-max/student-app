@@ -202,8 +202,11 @@ export default function WorkbookTracker({
 
     setWorkbooks((prev) => prev.filter((x) => x.id !== wb.id));
     setProgressMap((prev) => {
-      const { [wb.id]: _, ...rest } = prev;
-      return rest;
+      // 新しいオブジェクトを作成し、削除対象以外をコピー
+      const newMap = Object.fromEntries(
+        Object.entries(prev).filter(([key]) => key !== wb.id)
+      );
+      return newMap;
     });
   }
 
