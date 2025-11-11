@@ -108,8 +108,11 @@ export default function StudentGoals({ userId, editable = false, className }: Pr
       setMsg(null);
       await upsertGoal("weekly", weekly);
       setMsg("週刊目標を保存しました。");
-    } catch (e: any) {
-      setMsg("週刊目標の保存に失敗しました: " + (e?.message ?? e));
+    } catch (e: unknown) {
+      setMsg(
+        "週刊目標の保存に失敗しました: " +
+        (e instanceof Error ? e.message : String(e))
+      );
     } finally {
       setSavingW(false);
     }
@@ -121,8 +124,11 @@ export default function StudentGoals({ userId, editable = false, className }: Pr
       setMsg(null);
       await upsertGoal("monthly", monthly);
       setMsg("月間目標を保存しました。");
-    } catch (e: any) {
-      setMsg("月間目標の保存に失敗しました: " + (e?.message ?? e));
+    } catch (e: unknown) {
+      setMsg(
+        "月間目標の保存に失敗しました: " +
+        (e instanceof Error ? e.message : String(e))
+      );
     } finally {
       setSavingM(false);
     }

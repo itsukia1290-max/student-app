@@ -123,7 +123,9 @@ export default function StudentGrades({ userId, editable = false }: Props) {
       .update({ marks: row.marks })
       .eq("id", row.id);
     setSavingIds((s) => {
-      const { [row.id]: _drop, ...rest } = s;
+      const rest = Object.fromEntries(
+        Object.entries(s).filter(([key]) => key !== row.id)
+      );
       return rest;
     });
     if (error) alert("保存失敗: " + error.message);
