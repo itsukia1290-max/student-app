@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsStaff } from "../hooks/useIsStaff";
-import StudentGrades from "../components/StudentGrades";   // ○△×トラッカー
-import StudentGoals from "../components/StudentGoals";     // 週刊/月間目標
+import StudentGrades from "../components/StudentGrades";
+import StudentGoals from "../components/StudentGoals";
+import StudentGroups from "../components/StudentGroups";
 
 type Profile = {
   id: string;
@@ -55,7 +56,7 @@ export default function MyPage() {
     setSaving(false);
   }
 
-  // ★ スタッフは従来どおり（タブなし）：プロフィール編集のみ
+  // ★ スタッフは従来どおり（プロフィール編集のみ）
   if (isStaff) {
     return (
       <div className="p-6 max-w-xl mx-auto">
@@ -107,19 +108,25 @@ export default function MyPage() {
     <div className="min-h-[70vh]">
       <div className="flex gap-2 border-b bg-white p-3">
         <button
-          className={`px-3 py-1 rounded ${tab === "profile" ? "bg-black text-white" : "border"}`}
+          className={`px-3 py-1 rounded ${
+            tab === "profile" ? "bg-black text-white" : "border"
+          }`}
           onClick={() => setTab("profile")}
         >
           プロフィール
         </button>
         <button
-          className={`px-3 py-1 rounded ${tab === "goals" ? "bg-black text-white" : "border"}`}
+          className={`px-3 py-1 rounded ${
+            tab === "goals" ? "bg-black text-white" : "border"
+          }`}
           onClick={() => setTab("goals")}
         >
           目標
         </button>
         <button
-          className={`px-3 py-1 rounded ${tab === "grades" ? "bg-black text-white" : "border"}`}
+          className={`px-3 py-1 rounded ${
+            tab === "grades" ? "bg-black text-white" : "border"
+          }`}
           onClick={() => setTab("grades")}
         >
           成績
@@ -132,60 +139,76 @@ export default function MyPage() {
           {!form ? (
             <div className="p-4 rounded-xl border bg-white">読み込み中...</div>
           ) : (
-            <form onSubmit={onSave} className="space-y-4">
-              <div>
-                <label className="block text-sm">氏名</label>
-                <input
-                  className="mt-1 w-full border rounded px-3 py-2"
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-sm">電話番号</label>
-                <input
-                  className="mt-1 w-full border rounded px-3 py-2"
-                  value={form.phone ?? ""}
-                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-sm">メモ</label>
-                <textarea
-                  className="mt-1 w-full border rounded px-3 py-2 h-28"
-                  value={form.memo ?? ""}
-                  onChange={(e) => setForm({ ...form, memo: e.target.value })}
-                />
-              </div>
+            <>
+              <form onSubmit={onSave} className="space-y-4">
+                <div>
+                  <label className="block text-sm">氏名</label>
+                  <input
+                    className="mt-1 w-full border rounded px-3 py-2"
+                    value={form.name}
+                    onChange={(e) =>
+                      setForm({ ...form, name: e.target.value })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm">電話番号</label>
+                  <input
+                    className="mt-1 w-full border rounded px-3 py-2"
+                    value={form.phone ?? ""}
+                    onChange={(e) =>
+                      setForm({ ...form, phone: e.target.value })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm">メモ</label>
+                  <textarea
+                    className="mt-1 w-full border rounded px-3 py-2 h-28"
+                    value={form.memo ?? ""}
+                    onChange={(e) =>
+                      setForm({ ...form, memo: e.target.value })
+                    }
+                  />
+                </div>
 
-              <button
-                disabled={saving}
-                className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
-              >
-                {saving ? "保存中..." : "保存"}
-              </button>
-              {msg && <p className="text-sm text-gray-600 mt-2">{msg}</p>}
-            </form>
+                <button
+                  disabled={saving}
+                  className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
+                >
+                  {saving ? "保存中..." : "保存"}
+                </button>
+                {msg && <p className="text-sm text-gray-600 mt-2">{msg}</p>}
+              </form>
+
+              {/* 🔽 所属グループ表示（生徒自身用） */}
+              {user && (
+                <div className="mt-6">
+                  <h3 className="text-sm font-semibold mb-2">所属グループ</h3>
+                  <div className="rounded-xl border bg-white p-3">
+                    <StudentGroups userId={user.id} />
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
 
       {tab === "goals" && user && (
         <div className="p-6 max-w-4xl mx-auto">
-          {/* ★ 週刊/月間目標：本人は編集可 */}
           <StudentGoals userId={user.id} editable={true} />
         </div>
       )}
 
       {tab === "grades" && user && (
-  <div className="p-6 max-w-4xl mx-auto">
-    <div className="bg-white rounded-2xl border p-4">
-      <h2 className="text-lg font-bold mb-3">成績</h2>
-      {/* 生徒側は閲覧のみ */}
-      <StudentGrades userId={user.id} editable={false} />
-    </div>
-  </div>
-)}
+        <div className="p-6 max-w-4xl mx-auto">
+          <div className="bg-white rounded-2xl border p-4">
+            <h2 className="text-lg font-bold mb-3">成績</h2>
+            <StudentGrades userId={user.id} editable={false} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
