@@ -4,6 +4,7 @@ import { useIsStaff } from "../hooks/useIsStaff";
 import { supabase } from "../lib/supabase";
 import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
+import StudentRecords from "../components/StudentRecords"; // ★ 追加
 
 type Props = {
   student: {
@@ -66,7 +67,7 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
     setSavingProfile(false);
   }
 
-  // --- 所属グループ表示用（MyPage と同じ2段階ロジック） ---
+  // --- 所属グループ表示用 ---
   const [groups, setGroups] = useState<GroupMini[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
 
@@ -75,7 +76,6 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
     (async () => {
       setGroupsLoading(true);
 
-      // 1. group_members から group_id を取得
       const { data: gm, error: e1 } = await supabase
         .from("group_members")
         .select("group_id")
@@ -95,7 +95,6 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
         return;
       }
 
-      // 2. groups テーブルから名前などを取得
       const { data: gs, error: e2 } = await supabase
         .from("groups")
         .select("id,name,type")
@@ -271,10 +270,19 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
         </div>
       )}
 
-      {/* 成績タブ：教師は編集可 */}
+      {/* 成績タブ：教師は編集可（○△×＋テスト・模試の記録） */}
       {tab === "grades" && (
-        <div className="bg-white border rounded-2xl p-4">
-          <StudentGrades userId={student.id} editable={true} />
+        <div className="space-y-6">
+          <div className="bg-white border rounded-2xl p-4">
+            <h2 className="text-lg font-bold mb-3">問題集の成績</h2>
+            <StudentGrades userId={student.id} editable={true} />
+          </div>
+
+          <div className="bg-white border rounded-2xl p-4">
+            <h2 className="text-lg font-bold mb-3">テスト・模試の記録</h2>
+            {/* ★ 教師側は編集可能 */}
+            <StudentRecords studentId={student.id} editable={true} />
+          </div>
         </div>
       )}
 

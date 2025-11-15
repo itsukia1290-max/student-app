@@ -6,6 +6,7 @@ import { useIsStaff } from "../hooks/useIsStaff";
 import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
 import StudentGroups from "../components/StudentGroups";
+import StudentRecords from "../components/StudentRecords";
 
 type Profile = {
   id: string;
@@ -202,10 +203,18 @@ export default function MyPage() {
       )}
 
       {tab === "grades" && user && (
-        <div className="p-6 max-w-4xl mx-auto">
+        <div className="p-6 max-w-4xl mx-auto space-y-6">
+          {/* 問題集の○×△ */}
           <div className="bg-white rounded-2xl border p-4">
-            <h2 className="text-lg font-bold mb-3">成績</h2>
+            <h2 className="text-lg font-bold mb-3">問題集の成績</h2>
             <StudentGrades userId={user.id} editable={false} />
+          </div>
+
+          {/* テスト・模試の記録（画像＋コメント） */}
+          <div className="bg-white rounded-2xl border p-4">
+            <h2 className="text-lg font-bold mb-3">テスト・模試の記録</h2>
+            {/* 生徒側は閲覧のみ */}
+            <StudentRecords studentId={user.id} editable={false} />
           </div>
         </div>
       )}
