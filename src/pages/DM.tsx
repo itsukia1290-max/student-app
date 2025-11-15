@@ -1,11 +1,17 @@
 // src/pages/DM.tsx
-import { useCallback, useEffect, useRef, useState } from "react";
+// 画像のみ送信OK & Storage のパスを保存し、表示時に公開URLへ変換する版
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import type { ChangeEvent } from "react";
+
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import SelectUserDialog from "../components/SelectUserDialog";
 import ProfileViewDialog from "../components/ProfileViewDialog";
-import AsyncImage from "../components/AsyncImage";
-import { getSignedUrl } from "../utils/storage.js";
 
 type Group = {
   id: string;
@@ -18,15 +24,24 @@ type Message = {
   id: number;
   group_id: string;
   sender_id: string;
-  body: string | null;
+  body: string;
+  image_url: string | null; // Storage パス or 既存フルURL
   created_at: string;
-  type?: "text" | "image";
-  media_path?: string | null; // "dms/<dmId>/filename.jpg"
 };
 
 type LastReadRow = { group_id: string; last_read_at: string };
 type PartnerRow = { group_id: string; user_id: string };
 type ProfileMini = { id: string; name: string | null };
+
+// Storage のパスからブラウザで表示できる URL を作る
+function getImageSrc(path: string | null | undefined): string | null {
+  if (!path) return null;
+  if (path.startsWith("http://") || path.startsWith("https://")) {
+    return path;
+  }
+  const { data } = supabase.storage.from("chat-media").getPublicUrl(path);
+  return data.publicUrl ?? null;
+}
 
 export default function DM() {
   const { user } = useAuth();
@@ -36,7 +51,9 @@ export default function DM() {
   const [labelByGroup, setLabelByGroup] = useState<
     Record<string, { partnerId: string; partnerName: string | null }>
   >({});
-  const [unreadByGroup, setUnreadByGroup] = useState<Record<string, number>>({});
+  const [unreadByGroup, setUnreadByGroup] = useState<Record<string, number>>(
+    {}
+  );
   const [active, setActive] = useState<Group | null>(null);
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -46,10 +63,18 @@ export default function DM() {
   const [showNewDm, setShowNewDm] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
 
+  // 画像用
+  const [uploading, setUploading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const bottomRef = useRef<HTMLDivElement>(null);
 
   function scrollToBottom() {
-    requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
+    requestAnimationFrame(() =>
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+    );
   }
 
   /** 既読更新（自分の group_members.last_read_at を now に） */
@@ -77,7 +102,6 @@ export default function DM() {
         setUnreadByGroup({});
         return;
       }
-      // 自分の last_read_at を取得
       const { data: myGm, error: e1 } = await supabase
         .from("group_members")
         .select("group_id,last_read_at")
@@ -187,7 +211,10 @@ export default function DM() {
           }
         }
 
-        const labelMap: Record<string, { partnerId: string; partnerName: string | null }> = {};
+        const labelMap: Record<
+          string,
+          { partnerId: string; partnerName: string | null }
+        > = {};
         ((others ?? []) as PartnerRow[]).forEach((o) => {
           const gid = o.group_id;
           const pid = o.user_id;
@@ -212,7 +239,7 @@ export default function DM() {
     (async () => {
       const { data, error } = await supabase
         .from("messages")
-        .select("id,group_id,sender_id,body,created_at,type,media_path")
+        .select("id,group_id,sender_id,body,image_url,created_at")
         .eq("group_id", active.id)
         .order("created_at", { ascending: true });
       if (error) {
@@ -235,7 +262,12 @@ export default function DM() {
       .channel(`dm:${active.id}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages", filter: `group_id=eq.${active.id}` },
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `group_id=eq.${active.id}`,
+        },
         async (payload) => {
           const row = payload.new as Message;
           setMessages((prev) => [...prev, row]);
@@ -249,17 +281,65 @@ export default function DM() {
     };
   }, [active?.id, markRead]);
 
-  // ---- 送信（テキスト） ----
+  // ---- 画像選択 ----
+  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSelectedFile(file);
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+  }
+
+  function clearImageSelection() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  // ---- 送信（画像だけでもOK） ----
   async function send() {
-    if (!active || !myId || !input.trim()) return;
+    if (!active || !myId) return;
+
+    const text = input.trim();
+    if (!text && !selectedFile) return;
+
     setLoading(true);
-    const { error } = await supabase
-      .from("messages")
-      .insert({ group_id: active.id, sender_id: myId, body: input.trim(), type: "text" });
-    setLoading(false);
-    if (error) return console.error("❌ send:", error.message);
-    setInput("");
-    await markRead(active.id);
+    setUploading(true);
+
+    let imagePath: string | null = null;
+    try {
+      if (selectedFile) {
+        const ext = selectedFile.name.split(".").pop() || "jpg";
+        imagePath = `dms/${active.id}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from("chat-media")
+          .upload(imagePath, selectedFile, {
+            cacheControl: "3600",
+            upsert: false,
+          });
+        if (upErr) throw upErr;
+      }
+
+      // body は NOT NULL なので、空のときも "" を入れる
+      const { error: msgErr } = await supabase.from("messages").insert({
+        group_id: active.id,
+        sender_id: myId,
+        body: text || "",
+        image_url: imagePath,
+      });
+      if (msgErr) throw msgErr;
+
+      setInput("");
+      clearImageSelection();
+      await markRead(active.id);
+    } catch (e) {
+      console.error("❌ send failed:", e);
+      alert("送信に失敗しました: " + (e as Error).message);
+    } finally {
+      setLoading(false);
+      setUploading(false);
+    }
   }
 
   // ---- 新規DM作成 ----
@@ -268,7 +348,9 @@ export default function DM() {
     const id = crypto.randomUUID();
     const name = partnerName ?? "DM";
 
-    const { error: ge } = await supabase.from("groups").insert({ id, name, type: "dm", owner_id: myId });
+    const { error: ge } = await supabase
+      .from("groups")
+      .insert({ id, name, type: "dm", owner_id: myId });
     if (ge) return alert("DM作成失敗: " + ge.message);
 
     const { error: me } = await supabase
@@ -281,7 +363,10 @@ export default function DM() {
 
     const newGroup: Group = { id, name, type: "dm", owner_id: myId };
     setGroups((prev) => [...prev, newGroup]);
-    setLabelByGroup((prev) => ({ ...prev, [id]: { partnerId, partnerName } }));
+    setLabelByGroup((prev) => ({
+      ...prev,
+      [id]: { partnerId, partnerName },
+    }));
     setUnreadByGroup((prev) => ({ ...prev, [id]: 0 }));
     setActive(newGroup);
     setShowNewDm(false);
@@ -289,31 +374,16 @@ export default function DM() {
 
   const activePartner = active ? labelByGroup[active.id] : undefined;
 
-  // 画像 or テキストの描画
-  function renderMessage(m: Message) {
-    const mine = m.sender_id === myId;
-    return (
-      <div
-        key={m.id}
-        className={`max-w-[80%] px-3 py-2 rounded ${mine ? "bg-black text-white ml-auto" : "bg-white border"}`}
-      >
-        {m.media_path && (m.type === "image" || !m.body) ? (
-          <AsyncImage path={m.media_path} getUrl={getSignedUrl} className="max-h-80" alt="image message" />
-        ) : (
-          <p className="whitespace-pre-wrap">{m.body}</p>
-        )}
-        <div className="text-[10px] opacity-60 mt-1">{new Date(m.created_at).toLocaleString()}</div>
-      </div>
-    );
-  }
-
   return (
     <div className="grid grid-cols-12 min-h-[70vh]">
       {/* 左：DM一覧（相手名＋未読） */}
       <aside className="col-span-4 border-r">
         <div className="flex items-center justify-between p-3">
           <h2 className="font-bold">DM</h2>
-          <button className="text-sm border rounded px-2 py-1" onClick={() => setShowNewDm(true)}>
+          <button
+            className="text-sm border rounded px-2 py-1"
+            onClick={() => setShowNewDm(true)}
+          >
             ＋新しいDM
           </button>
         </div>
@@ -339,36 +409,131 @@ export default function DM() {
               </li>
             );
           })}
-          {groups.length === 0 && <p className="px-3 py-2 text-sm text-gray-500">DMがまだありません</p>}
+          {groups.length === 0 && (
+            <p className="px-3 py-2 text-sm text-gray-500">
+              DMがまだありません
+            </p>
+          )}
         </ul>
       </aside>
 
       {/* 右：メッセージ */}
       <main className="col-span-8 flex flex-col">
-        <div className="flex items-center justify-between p-3 border-b bg-white">
-          <div className="font-bold">{active ? labelByGroup[active.id]?.partnerName ?? "DM" : "DM未選択"}</div>
+        <div className="flex items-center justify_between p-3 border-b bg-white">
+          <div className="font-bold">
+            {active
+              ? labelByGroup[active.id]?.partnerName ?? "DM"
+              : "DM未選択"}
+          </div>
           {active && activePartner?.partnerId && (
-            <button onClick={() => setShowProfile(true)} className="text-sm border rounded px-2 py-1">
+            <button
+              onClick={() => setShowProfile(true)}
+              className="text-sm border rounded px-2 py-1"
+            >
               相手のプロフィール
             </button>
           )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50">
-          {active ? messages.map(renderMessage) : <p className="text-sm text-gray-500">左からDMを選択してください</p>}
+          {active ? (
+            messages.map((m) => {
+              const src = getImageSrc(m.image_url);
+              return (
+                <div
+                  key={m.id}
+                  className={`max-w-[80%] px-3 py-2 rounded ${
+                    m.sender_id === myId
+                      ? "bg-black text-white ml-auto"
+                      : "bg-white border"
+                  }`}
+                >
+                  {m.body && (
+                    <p className="whitespace-pre-wrap mb-1">{m.body}</p>
+                  )}
+                  {src && (
+                    <img
+                      src={src}
+                      alt="添付画像"
+                      className="max-w-full rounded border bg-white"
+                    />
+                  )}
+                  <div className="text-[10px] opacity-60 mt-1">
+                    {new Date(m.created_at).toLocaleString()}
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <p className="text-sm text-gray-500">
+              左からDMを選択してください
+            </p>
+          )}
           <div ref={bottomRef} />
         </div>
 
-        <div className="p-3 border-t bg-white flex gap-2">
+        {/* プレビュー */}
+        {previewUrl && (
+          <div className="px-3 pb-2 bg-white border-t">
+            <div className="inline-flex items-center gap-2 border rounded-lg p-2">
+              <img
+                src={previewUrl}
+                alt="選択中の画像"
+                className="h-16 w-16 object-cover rounded"
+              />
+              <button
+                type="button"
+                onClick={clearImageSelection}
+                className="text-xs text-red-600 border px-2 py-1 rounded"
+              >
+                削除
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="p-3 border-t bg-white flex gap-2 items-center">
+          {/* カメラボタン */}
+          <div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3 py-2 border rounded"
+              disabled={uploading || loading}
+            >
+              📷
+            </button>
+          </div>
+
           <input
             className="flex-1 border rounded px-3 py-2"
-            placeholder={active ? "メッセージを入力..." : "DMを選択してください"}
+            placeholder={
+              active
+                ? "メッセージを入力...（画像だけでも送信可）"
+                : "DMを選択してください"
+            }
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => (e.key === "Enter" && !e.shiftKey ? (e.preventDefault(), send()) : null)}
+            onKeyDown={(e) =>
+              e.key === "Enter" && !e.shiftKey
+                ? (e.preventDefault(), send())
+                : null
+            }
             disabled={!active || loading}
           />
-          <button onClick={send} disabled={!active || loading} className="px-4 py-2 rounded bg-black text-white disabled:opacity-50">
+          <button
+            onClick={send}
+            disabled={!active || loading || uploading}
+            className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
+          >
             送信
           </button>
         </div>
@@ -376,12 +541,18 @@ export default function DM() {
 
       {/* DM新規作成 */}
       {showNewDm && (
-        <SelectUserDialog onClose={() => setShowNewDm(false)} onSelect={(uid, name) => createDm(uid, name)} />
+        <SelectUserDialog
+          onClose={() => setShowNewDm(false)}
+          onSelect={(uid, name) => createDm(uid, name)}
+        />
       )}
 
       {/* プロフィール閲覧 */}
       {showProfile && activePartner?.partnerId && (
-        <ProfileViewDialog userId={activePartner.partnerId} onClose={() => setShowProfile(false)} />
+        <ProfileViewDialog
+          userId={activePartner.partnerId}
+          onClose={() => setShowProfile(false)}
+        />
       )}
     </div>
   );

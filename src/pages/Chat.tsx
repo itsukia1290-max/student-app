@@ -1,12 +1,19 @@
 // src/pages/Chat.tsx
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+// 画像のみ送信OK & Storage のパスを保存し、表示時に公開URLへ変換する版
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { ChangeEvent } from "react";
+
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsStaff } from "../hooks/useIsStaff";
 import InviteMemberDialog from "../components/InviteMemberDialog";
 import GroupMembersDialog from "../components/GroupMembersDialog";
-import AsyncImage from "../components/AsyncImage";
-import { getSignedUrl } from "../utils/storage.js";
 
 type Group = {
   id: string;
@@ -19,14 +26,23 @@ type Message = {
   id: number;
   group_id: string;
   sender_id: string;
-  body: string | null;
+  body: string;
+  image_url: string | null; // Storage のパス or 既存のフルURL
   created_at: string;
-  // 画像対応（存在しない環境でも動くよう optional）
-  type?: "text" | "image";
-  media_path?: string | null; // "groups/<groupId>/filename.jpg" など
 };
 
 type LastReadRow = { group_id: string; last_read_at: string };
+
+// Storage のパスからブラウザで表示できる URL を作る
+function getImageSrc(path: string | null | undefined): string | null {
+  if (!path) return null;
+  if (path.startsWith("http://") || path.startsWith("https://")) {
+    // 既存データでフルURLが入っている場合はそのまま使う
+    return path;
+  }
+  const { data } = supabase.storage.from("chat-media").getPublicUrl(path);
+  return data.publicUrl ?? null;
+}
 
 export default function Chat() {
   const { user } = useAuth();
@@ -41,7 +57,15 @@ export default function Chat() {
   const [showMembers, setShowMembers] = useState(false);
 
   // 未読数（group_id => 件数）
-  const [unreadByGroup, setUnreadByGroup] = useState<Record<string, number>>({});
+  const [unreadByGroup, setUnreadByGroup] = useState<Record<string, number>>(
+    {}
+  );
+
+  // 画像アップロード用
+  const [uploading, setUploading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -50,7 +74,9 @@ export default function Chat() {
   const canManage = isStaff;
 
   function scrollToBottom() {
-    requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
+    requestAnimationFrame(() =>
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+    );
   }
 
   /** 自分の last_read_at を now にする（閲覧＝既読） */
@@ -78,7 +104,6 @@ export default function Chat() {
         setUnreadByGroup({});
         return;
       }
-      // 自分の last_read_at 一括取得
       const { data: myGm, error: e1 } = await supabase
         .from("group_members")
         .select("group_id,last_read_at")
@@ -145,13 +170,12 @@ export default function Chat() {
         return;
       }
 
-      const list: Group[] =
-        (gs ?? []).map((g) => ({
-          id: g.id as string,
-          name: g.name as string,
-          type: "class",
-          owner_id: (g.owner_id as string) ?? null,
-        })) ?? [];
+      const list: Group[] = (gs ?? []).map((g) => ({
+        id: g.id as string,
+        name: g.name as string,
+        type: "class",
+        owner_id: (g.owner_id as string) ?? null,
+      }));
 
       setGroups(list);
       if (!active && list.length > 0) setActive(list[0]);
@@ -159,7 +183,6 @@ export default function Chat() {
         setActive(list[0] ?? null);
       }
 
-      // 未読数を同期
       await fetchUnreadCounts(list.map((g) => g.id));
     })();
   }, [myId, active, fetchUnreadCounts]);
@@ -171,7 +194,7 @@ export default function Chat() {
     (async () => {
       const { data, error } = await supabase
         .from("messages")
-        .select("id,group_id,sender_id,body,created_at,type,media_path")
+        .select("id,group_id,sender_id,body,image_url,created_at")
         .eq("group_id", activeId)
         .order("created_at", { ascending: true });
       if (error) {
@@ -180,7 +203,7 @@ export default function Chat() {
       }
       if (!cancelled) setMessages((data ?? []) as Message[]);
       scrollToBottom();
-      await markRead(activeId); // 開いたら既読
+      await markRead(activeId);
     })();
     return () => {
       cancelled = true;
@@ -197,7 +220,12 @@ export default function Chat() {
         .channel(`grp:${gid}`)
         .on(
           "postgres_changes",
-          { event: "INSERT", schema: "public", table: "messages", filter: `group_id=eq.${gid}` },
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "messages",
+            filter: `group_id=eq.${gid}`,
+          },
           async (payload) => {
             const row = payload.new as Message;
             if (active?.id === gid) {
@@ -220,17 +248,69 @@ export default function Chat() {
     };
   }, [groups, active?.id, markRead]);
 
-  // --- メッセージ送信（テキスト） ---
+  // ---- 画像選択（カメラ or ギャラリー） ----
+  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSelectedFile(file);
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+  }
+
+  function clearImageSelection() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  // --- メッセージ送信（テキストのみ or 画像付き or 画像だけOK） ---
   async function send() {
-    if (!active || !myId || !input.trim()) return;
+    if (!active || !myId) return;
+
+    const text = input.trim();
+    if (!text && !selectedFile) {
+      return;
+    }
+
     setLoading(true);
-    const { error } = await supabase
-      .from("messages")
-      .insert({ group_id: active.id, sender_id: myId, body: input.trim(), type: "text" });
-    setLoading(false);
-    if (error) return console.error("❌ send:", error.message);
-    setInput("");
-    await markRead(active.id);
+    setUploading(true);
+
+    let imagePath: string | null = null;
+
+    try {
+      if (selectedFile) {
+        const ext = selectedFile.name.split(".").pop() || "jpg";
+        imagePath = `groups/${active.id}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from("chat-media")
+          .upload(imagePath, selectedFile, {
+            cacheControl: "3600",
+            upsert: false,
+          });
+        if (upErr) throw upErr;
+      }
+
+      // body は NOT NULL なので、空でも "" を入れる
+      const { error: msgErr } = await supabase.from("messages").insert({
+        group_id: active.id,
+        sender_id: myId,
+        body: text || "",
+        image_url: imagePath,
+      });
+
+      if (msgErr) throw msgErr;
+
+      setInput("");
+      clearImageSelection();
+      await markRead(active.id);
+    } catch (e) {
+      console.error("❌ send failed:", e);
+      alert("送信に失敗しました。: " + (e as Error).message);
+    } finally {
+      setLoading(false);
+      setUploading(false);
+    }
   }
 
   // --- グループ作成（class 固定） ---
@@ -240,12 +320,18 @@ export default function Chat() {
     if (!name || !myId) return;
 
     const id = crypto.randomUUID();
-    const { error: ge } = await supabase.from("groups").insert({ id, name, type: "class", owner_id: myId });
+    const { error: ge } = await supabase
+      .from("groups")
+      .insert({ id, name, type: "class", owner_id: myId });
     if (ge) return alert("グループ作成失敗: " + ge.message);
 
     const { error: me } = await supabase
       .from("group_members")
-      .insert({ group_id: id, user_id: myId, last_read_at: new Date().toISOString() });
+      .insert({
+        group_id: id,
+        user_id: myId,
+        last_read_at: new Date().toISOString(),
+      });
     if (me) return alert("メンバー追加失敗: " + me.message);
 
     const newGroup: Group = { id, name, type: "class", owner_id: myId };
@@ -254,18 +340,27 @@ export default function Chat() {
     setActive(newGroup);
   }
 
-  // --- グループ削除（メッセージ→メンバー→グループの順） ---
+  // --- グループ削除 ---
   async function deleteGroup(g: Group) {
     if (!g || g.type !== "class") return;
     if (!confirm(`グループ「${g.name}」を削除しますか？（メッセージも削除）`)) return;
 
-    const { error: e1 } = await supabase.from("messages").delete().eq("group_id", g.id);
+    const { error: e1 } = await supabase
+      .from("messages")
+      .delete()
+      .eq("group_id", g.id);
     if (e1) return alert("削除失敗(messages): " + e1.message);
 
-    const { error: e2 } = await supabase.from("group_members").delete().eq("group_id", g.id);
+    const { error: e2 } = await supabase
+      .from("group_members")
+      .delete()
+      .eq("group_id", g.id);
     if (e2) return alert("削除失敗(group_members): " + e2.message);
 
-    const { error: e3 } = await supabase.from("groups").delete().eq("id", g.id);
+    const { error: e3 } = await supabase
+      .from("groups")
+      .delete()
+      .eq("id", g.id);
     if (e3) return alert("削除失敗(groups): " + e3.message);
 
     setGroups((prev) => prev.filter((x) => x.id !== g.id));
@@ -277,25 +372,10 @@ export default function Chat() {
     setActive((cur) => (cur?.id === g.id ? null : cur));
   }
 
-  const isActiveOwner = useMemo(() => !!(active && active.owner_id === myId), [active, myId]);
-
-  // 画像 or テキストの描画
-  function renderMessage(m: Message) {
-    const mine = m.sender_id === myId;
-    return (
-      <div
-        key={m.id}
-        className={`max-w-[80%] px-3 py-2 rounded ${mine ? "bg-black text-white ml-auto" : "bg-white border"}`}
-      >
-        {m.media_path && (m.type === "image" || !m.body) ? (
-          <AsyncImage path={m.media_path} getUrl={getSignedUrl} className="max-h-80" alt="image message" />
-        ) : (
-          <p className="whitespace-pre-wrap">{m.body}</p>
-        )}
-        <div className="text-[10px] opacity-60 mt-1">{new Date(m.created_at).toLocaleString()}</div>
-      </div>
-    );
-  }
+  const isActiveOwner = useMemo(
+    () => !!(active && active.owner_id === myId),
+    [active, myId]
+  );
 
   return (
     <div className="grid grid-cols-12 min-h-[70vh]">
@@ -304,7 +384,10 @@ export default function Chat() {
         <div className="flex items-center justify-between p-3">
           <h2 className="font-bold">グループ</h2>
           {canManage && (
-            <button className="text-sm border rounded px-2 py-1" onClick={createGroup}>
+            <button
+              className="text-sm border rounded px-2 py-1"
+              onClick={createGroup}
+            >
               ＋作成（教師）
             </button>
           )}
@@ -330,24 +413,39 @@ export default function Chat() {
               </li>
             );
           })}
-          {groups.length === 0 && <p className="px-3 py-2 text-sm text-gray-500">所属グループがありません</p>}
+          {groups.length === 0 && (
+            <p className="px-3 py-2 text-sm text-gray-500">
+              所属グループがありません
+            </p>
+          )}
         </ul>
       </aside>
 
       {/* 右：メッセージ */}
       <main className="col-span-8 flex flex-col">
         <div className="flex items-center justify-between p-3 border-b bg-white">
-          <div className="font-bold">{active ? active.name : "グループ未選択"}</div>
+          <div className="font-bold">
+            {active ? active.name : "グループ未選択"}
+          </div>
 
           {canManage && isActiveOwner && active && (
             <div className="flex gap-2">
-              <button onClick={() => setShowInvite(true)} className="text-sm border rounded px-2 py-1">
+              <button
+                onClick={() => setShowInvite(true)}
+                className="text-sm border rounded px-2 py-1"
+              >
                 メンバー招待
               </button>
-              <button onClick={() => setShowMembers(true)} className="text-sm border rounded px-2 py-1">
+              <button
+                onClick={() => setShowMembers(true)}
+                className="text-sm border rounded px-2 py-1"
+              >
                 メンバー管理
               </button>
-              <button onClick={() => deleteGroup(active)} className="text-sm border rounded px-2 py-1 text-red-600">
+              <button
+                onClick={() => deleteGroup(active)}
+                className="text-sm border rounded px-2 py-1 text-red-600"
+              >
                 グループ削除
               </button>
             </div>
@@ -355,20 +453,104 @@ export default function Chat() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50">
-          {active ? messages.map(renderMessage) : <p className="text-sm text-gray-500">左からグループを選択してください</p>}
+          {active ? (
+            messages.map((m) => {
+              const src = getImageSrc(m.image_url);
+              return (
+                <div
+                  key={m.id}
+                  className={`max-w-[80%] px-3 py-2 rounded ${
+                    m.sender_id === myId
+                      ? "bg-black text-white ml-auto"
+                      : "bg-white border"
+                  }`}
+                >
+                  {m.body && (
+                    <p className="whitespace-pre-wrap mb-1">{m.body}</p>
+                  )}
+                  {src && (
+                    <img
+                      src={src}
+                      alt="添付画像"
+                      className="max-w-full rounded border bg-white"
+                    />
+                  )}
+                  <div className="text-[10px] opacity-60 mt-1">
+                    {new Date(m.created_at).toLocaleString()}
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <p className="text-sm text-gray-500">
+              左からグループを選択してください
+            </p>
+          )}
           <div ref={bottomRef} />
         </div>
 
-        <div className="p-3 border-t bg-white flex gap-2">
+        {/* 画像プレビュー */}
+        {previewUrl && (
+          <div className="px-3 pb-2 bg-white border-t">
+            <div className="inline-flex items-center gap-2 border rounded-lg p-2">
+              <img
+                src={previewUrl}
+                alt="選択中の画像"
+                className="h-16 w-16 object-cover rounded"
+              />
+              <button
+                type="button"
+                onClick={clearImageSelection}
+                className="text-xs text-red-600 border px-2 py-1 rounded"
+              >
+                削除
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="p-3 border-t bg-white flex gap-2 items-center">
+          {/* カメラ / 画像ボタン */}
+          <div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3 py-2 border rounded"
+              disabled={uploading || loading}
+            >
+              📷
+            </button>
+          </div>
+
           <input
             className="flex-1 border rounded px-3 py-2"
-            placeholder={active ? "メッセージを入力..." : "グループを選択してください"}
+            placeholder={
+              active
+                ? "メッセージを入力...（画像だけでも送信可）"
+                : "グループを選択してください"
+            }
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => (e.key === "Enter" && !e.shiftKey ? (e.preventDefault(), send()) : null)}
+            onKeyDown={(e) =>
+              e.key === "Enter" && !e.shiftKey
+                ? (e.preventDefault(), send())
+                : null
+            }
             disabled={!active || loading}
           />
-          <button onClick={send} disabled={!active || loading} className="px-4 py-2 rounded bg-black text-white disabled:opacity-50">
+          <button
+            onClick={send}
+            disabled={!active || loading || uploading}
+            className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
+          >
             送信
           </button>
         </div>
@@ -376,7 +558,11 @@ export default function Chat() {
 
       {/* 招待 / メンバー管理ダイアログ */}
       {showInvite && active && (
-        <InviteMemberDialog groupId={active.id} onClose={() => setShowInvite(false)} onInvited={() => setShowInvite(false)} />
+        <InviteMemberDialog
+          groupId={active.id}
+          onClose={() => setShowInvite(false)}
+          onInvited={() => setShowInvite(false)}
+        />
       )}
       {showMembers && active && (
         <GroupMembersDialog
