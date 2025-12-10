@@ -39,13 +39,18 @@ type LastReadRow = { group_id: string; last_read_at: string };
 type PartnerRow = { group_id: string; user_id: string };
 type ProfileMini = { id: string; name: string | null };
 
-// Storage のパスからブラウザで表示できる URL を作る
-function getImageSrc(path: string | null | undefined): string | null {
+// Storage のパスからブラウザで表示できる URL を作る（リンク用）
+function getImageUrl(path: string | null | undefined): string | null {
   if (!path) return null;
   if (path.startsWith("http://") || path.startsWith("https://")) {
     return path;
   }
-  const { data } = supabase.storage.from("chat-media").getPublicUrl(path);
+  const { data } = supabase.storage
+    .from("chat-media")
+    .getPublicUrl(path);
+
+  // console.log("DM image path -> url:", path, "→", data.publicUrl);
+
   return data.publicUrl ?? null;
 }
 
@@ -445,7 +450,7 @@ export default function DM() {
         <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50">
           {active ? (
             messages.map((m) => {
-              const src = getImageSrc(m.image_url);
+              const url = getImageUrl(m.image_url);
               return (
                 <div
                   key={m.id}
@@ -458,12 +463,19 @@ export default function DM() {
                   {m.body && (
                     <p className="whitespace-pre-wrap mb-1">{m.body}</p>
                   )}
-                  {src && (
-                    <img
-                      src={src}
-                      alt="添付画像"
-                      className="max-w-full rounded border bg-white"
-                    />
+                  {url && (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`inline-flex items-center gap-1 text-xs underline ${
+                        m.sender_id === myId
+                          ? "text-blue-200"
+                          : "text-blue-600"
+                      }`}
+                    >
+                      📎 添付画像を開く
+                    </a>
                   )}
                   <div className="text-[10px] opacity-60 mt-1">
                     {new Date(m.created_at).toLocaleString()}
@@ -536,7 +548,11 @@ export default function DM() {
             }
             disabled={!active || loading}
           />
-          <Button onClick={send} disabled={!active || loading || uploading} aria-label="メッセージ送信">
+          <Button
+            onClick={send}
+            disabled={!active || loading || uploading}
+            aria-label="メッセージ送信"
+          >
             送信
           </Button>
         </div>
