@@ -31,3 +31,21 @@ input, textarea, select, button {
 /* Ensure images don't overflow their containers */
 img { max-width: 100%; height: auto; }
 
+/* Buttons / inputs consistent styles */
+.btn {
+	@apply inline-flex items-center justify-center px-4 py-2 rounded bg-black text-white disabled:opacity-50 hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black;
+}
+
+.btn-ghost {
+	@apply inline-flex items-center justify-center px-3 py-1 rounded border bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-black;
+}
+
+.form-input {
+	@apply w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-black;
+}
+
+/* focus-visible fallback for browsers */
+:focus-visible {
+	outline: none;
+}
+

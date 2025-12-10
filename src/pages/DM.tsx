@@ -381,8 +381,9 @@ export default function DM() {
         <div className="flex items-center justify-between p-3">
           <h2 className="font-bold">DM</h2>
           <button
-            className="text-sm border rounded px-2 py-1"
+            className="btn-ghost text-sm"
             onClick={() => setShowNewDm(true)}
+            aria-label="新しいDMを作成"
           >
             ＋新しいDM
           </button>
@@ -514,7 +515,7 @@ export default function DM() {
           </div>
 
           <input
-            className="flex-1 border rounded px-3 py-2"
+            className="form-input flex-1"
             placeholder={
               active
                 ? "メッセージを入力...（画像だけでも送信可）"

@@ -63,13 +63,13 @@ export default function MyPage() {
       <div className="p-6 max-w-xl mx-auto">
         <h2 className="text-xl font-bold mb-4">マイページ（スタッフ）</h2>
         {!form ? (
-          <div className="p-4 rounded-xl border bg-white">読み込み中...</div>
+          <div className="card">読み込み中...</div>
         ) : (
           <form onSubmit={onSave} className="space-y-4">
             <div>
               <label className="block text-sm">氏名</label>
               <input
-                className="mt-1 w-full border rounded px-3 py-2"
+                className="mt-1 form-input"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
@@ -77,7 +77,7 @@ export default function MyPage() {
             <div>
               <label className="block text-sm">電話番号</label>
               <input
-                className="mt-1 w-full border rounded px-3 py-2"
+                className="mt-1 form-input"
                 value={form.phone ?? ""}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
               />
@@ -85,16 +85,13 @@ export default function MyPage() {
             <div>
               <label className="block text-sm">メモ</label>
               <textarea
-                className="mt-1 w-full border rounded px-3 py-2 h-28"
+                className="mt-1 form-input h-28"
                 value={form.memo ?? ""}
                 onChange={(e) => setForm({ ...form, memo: e.target.value })}
               />
             </div>
 
-            <button
-              disabled={saving}
-              className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
-            >
+            <button disabled={saving} className="btn">
               {saving ? "保存中..." : "保存"}
             </button>
             {msg && <p className="text-sm text-gray-600 mt-2">{msg}</p>}
@@ -134,18 +131,18 @@ export default function MyPage() {
         </button>
       </div>
 
-      {tab === "profile" && (
+        {tab === "profile" && (
         <div className="p-6 max-w-xl mx-auto">
           <h2 className="text-xl font-bold mb-4">マイページ</h2>
           {!form ? (
-            <div className="p-4 rounded-xl border bg-white">読み込み中...</div>
+          <div className="card">読み込み中...</div>
           ) : (
             <>
               <form onSubmit={onSave} className="space-y-4">
                 <div>
                   <label className="block text-sm">氏名</label>
                   <input
-                    className="mt-1 w-full border rounded px-3 py-2"
+                    className="mt-1 form-input"
                     value={form.name}
                     onChange={(e) =>
                       setForm({ ...form, name: e.target.value })
@@ -155,7 +152,7 @@ export default function MyPage() {
                 <div>
                   <label className="block text-sm">電話番号</label>
                   <input
-                    className="mt-1 w-full border rounded px-3 py-2"
+                    className="mt-1 form-input"
                     value={form.phone ?? ""}
                     onChange={(e) =>
                       setForm({ ...form, phone: e.target.value })
@@ -165,7 +162,7 @@ export default function MyPage() {
                 <div>
                   <label className="block text-sm">メモ</label>
                   <textarea
-                    className="mt-1 w-full border rounded px-3 py-2 h-28"
+                    className="mt-1 form-input h-28"
                     value={form.memo ?? ""}
                     onChange={(e) =>
                       setForm({ ...form, memo: e.target.value })
@@ -173,10 +170,7 @@ export default function MyPage() {
                   />
                 </div>
 
-                <button
-                  disabled={saving}
-                  className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
-                >
+                <button disabled={saving} className="btn">
                   {saving ? "保存中..." : "保存"}
                 </button>
                 {msg && <p className="text-sm text-gray-600 mt-2">{msg}</p>}

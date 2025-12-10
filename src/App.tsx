@@ -45,6 +45,7 @@ function Shell() {
               <button
                 className="md:hidden px-2 py-1 border rounded"
                 aria-label="メニュー"
+                aria-expanded={mobileMenuOpen}
                 onClick={() => setMobileMenuOpen((s) => !s)}
               >
                 <svg
@@ -65,10 +66,11 @@ function Shell() {
                 </svg>
               </button>
 
-              <nav className="hidden md:flex gap-2">
+              <nav className="hidden md:flex gap-2" role="navigation" aria-label="Main">
                 {tabs.map((t) => (
                   <button
                     key={t.key}
+                    aria-current={effectiveView === t.key ? "page" : undefined}
                     className={`px-3 py-1 rounded ${
                       effectiveView === t.key ? "bg-black text-white" : "border"
                     }`}
@@ -97,6 +99,7 @@ function Shell() {
                 {tabs.map((t) => (
                   <button
                     key={t.key}
+                    aria-current={effectiveView === t.key ? "page" : undefined}
                     className={`text-left px-3 py-2 rounded ${
                       effectiveView === t.key ? "bg-black text-white" : "border"
                     }`}

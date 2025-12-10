@@ -133,16 +133,10 @@ export default function Students() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => approve(p)}
-                      className="px-3 py-1 rounded bg-green-600 text-white text-sm"
-                    >
+                    <button onClick={() => approve(p)} className="btn text-sm bg-green-600">
                       承認
                     </button>
-                    <button
-                      onClick={() => reject(p)}
-                      className="px-3 py-1 rounded border text-sm"
-                    >
+                    <button onClick={() => reject(p)} className="btn-ghost text-sm">
                       却下
                     </button>
                   </div>
@@ -169,15 +163,15 @@ export default function Students() {
             </thead>
             <tbody>
               {students.map((s) => (
-                <tr
-                  key={s.id}
-                  className="border-b hover:bg-gray-50 cursor-pointer"
-                  onClick={() => setSelected(s)}
-                >
-                  <td className="p-2">{s.name ?? "（未設定）"}</td>
-                  <td className="p-2 text-sm text-gray-600">{s.phone ?? "-"}</td>
-                  <td className="p-2 text-sm text-gray-600">{s.memo ?? "-"}</td>
-                </tr>
+                  <tr
+                    key={s.id}
+                    className="border-b hover:bg-gray-50 cursor-pointer"
+                    onClick={() => setSelected(s)}
+                  >
+                    <td className="p-2">{s.name ?? "（未設定）"}</td>
+                    <td className="p-2 text-sm text-gray-600">{s.phone ?? "-"}</td>
+                    <td className="p-2 text-sm text-gray-600">{s.memo ?? "-"}</td>
+                  </tr>
               ))}
             </tbody>
           </table>

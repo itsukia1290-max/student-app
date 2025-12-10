@@ -385,10 +385,11 @@ export default function Chat() {
           <h2 className="font-bold">グループ</h2>
           {canManage && (
             <button
-              className="text-sm border rounded px-2 py-1"
+              className="btn-ghost text-sm"
               onClick={createGroup}
+              aria-label="グループ作成"
             >
-              ＋作成（教師）
+              ＋作成
             </button>
           )}
         </div>
@@ -531,7 +532,7 @@ export default function Chat() {
           </div>
 
           <input
-            className="flex-1 border rounded px-3 py-2"
+            className="form-input flex-1"
             placeholder={
               active
                 ? "メッセージを入力...（画像だけでも送信可）"
@@ -549,7 +550,8 @@ export default function Chat() {
           <button
             onClick={send}
             disabled={!active || loading || uploading}
-            className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
+            className="btn"
+            aria-label="メッセージ送信"
           >
             送信
           </button>
