@@ -1,3 +1,9 @@
+/*
+ * src/components/InviteMemberDialog.tsx
+ * Responsibility: 指定したグループに生徒を招待するダイアログ
+ * - グループに未所属の承認済み生徒を検索して招待を行う
+ */
+
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 

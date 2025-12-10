@@ -1,3 +1,9 @@
+/*
+ * src/components/SelectUserDialog.tsx
+ * Responsibility: ユーザー選択ダイアログ（DM 作成やプロフィール参照のため）
+ * - 教師は生徒一覧を選択可能、一般は教師一覧を選択可能
+ */
+
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useIsStaff } from "../hooks/useIsStaff";

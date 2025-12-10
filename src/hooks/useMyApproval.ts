@@ -1,3 +1,9 @@
+/*
+ * src/hooks/useMyApproval.ts
+ * Responsibility: 自分のプロファイルが承認済みかどうかを判定するフック
+ * - 認証済みユーザーの `profiles` レコードを参照して `approved` を返す
+ */
+
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";

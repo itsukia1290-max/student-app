@@ -1,3 +1,8 @@
+/*
+ * src/components/ProfileViewDialog.tsx
+ * Responsibility: ユーザープロフィールの閲覧ダイアログ（読み取り専用）
+ */
+
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 

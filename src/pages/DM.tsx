@@ -1,5 +1,9 @@
-// src/pages/DM.tsx
-// 画像のみ送信OK & Storage のパスを保存し、表示時に公開URLへ変換する版
+/*
+ * src/pages/DM.tsx
+ * Responsibility: 1対1 のダイレクトメッセージ（DM）画面
+ * - 左カラム: DM 一覧（相手の名前ラベル・未読）
+ * - 右カラム: アクティブ DM のメッセージ表示と送信（画像対応）
+ */
 import {
   useCallback,
   useEffect,

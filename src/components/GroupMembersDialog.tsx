@@ -1,3 +1,9 @@
+/*
+ * src/components/GroupMembersDialog.tsx
+ * Responsibility: グループのメンバー一覧と管理ダイアログ
+ * - グループに所属するユーザーを一覧化し、オーナーはメンバー削除が可能
+ */
+
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 

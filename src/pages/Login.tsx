@@ -1,3 +1,10 @@
+/*
+ * src/pages/Login.tsx
+ * Responsibility: ログイン画面
+ * - Supabase によるメール/パスワードでの認証処理
+ * - 承認フローのトリガー（承認待ちユーザーの登録）
+ */
+
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
 

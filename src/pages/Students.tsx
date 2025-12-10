@@ -1,3 +1,10 @@
+/*
+ * src/pages/Students.tsx
+ * Responsibility: 管理者/教師が閲覧する生徒一覧ページ
+ * - 承認待ちリストの表示と承認操作
+ * - 承認済み生徒の一覧表示と個別詳細への導線
+ */
+
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useIsStaff } from "../hooks/useIsStaff";

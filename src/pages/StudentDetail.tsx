@@ -1,4 +1,8 @@
-// src/pages/StudentDetail.tsx
+/*
+ * src/pages/StudentDetail.tsx
+ * Responsibility: 生徒の詳細ビュー
+ * - 生徒のプロフィール、成績、目標、記録などのタブを表示する
+ */
 import { useEffect, useState } from "react";
 import { useIsStaff } from "../hooks/useIsStaff";
 import { supabase } from "../lib/supabase";

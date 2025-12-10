@@ -1,4 +1,9 @@
-// src/pages/MyPage.tsx
+/*
+ * src/pages/MyPage.tsx
+ * Responsibility: マイページ（ユーザー固有の情報表示・編集）
+ * - スタッフ用のプロフィール編集ビュー
+ * - 生徒用のタブ（プロフィール / 目標 / 成績）を提供
+ */
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";

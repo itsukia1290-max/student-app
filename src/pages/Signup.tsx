@@ -1,3 +1,10 @@
+/*
+ * src/pages/Signup.tsx
+ * Responsibility: 新規登録画面
+ * - Supabase auth の signUp を呼び出し、profile の初期更新（氏名）を行う
+ * - 承認ワークフローのため登録後は一旦サインアウトする
+ */
+
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
 

@@ -10,6 +10,12 @@ type RecordRow = {
   created_at: string;
 };
 
+/*
+ * src/components/StudentRecords.tsx
+ * Responsibility: テスト・模試などの画像つき記録を表示/編集するコンポーネント
+ * - `studentId` を受け取り、関連レコードを一覧表示する
+ */
+
 export default function StudentRecords({ studentId, editable }: { studentId: string; editable?: boolean }) {
   const { isStaff } = useIsStaff();
   const canEdit = isStaff || !!editable;

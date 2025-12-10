@@ -59,6 +59,12 @@ function labelOfPeriod(type: PeriodType, key: string): string {
 
 // ----------------------------------------------------
 
+/*
+ * src/components/StudentGoals.tsx
+ * Responsibility: 週刊/月間目標の表示と編集を行うコンポーネント
+ * - `userId` の現在期間と過去履歴を取得し、upsert による保存を行う
+ */
+
 export default function StudentGoals({ userId, editable }: Props) {
   const [periodType, setPeriodType] = useState<PeriodType>("week");
 
@@ -220,7 +226,7 @@ export default function StudentGoals({ userId, editable }: Props) {
         <div>
           <label className="block text-sm mb-1">詳細・振り返りメモ</label>
           <textarea
-            className="mt-1 w-full border rounded px-3 py-2 min-h-[80px]"
+            className="mt-1 w-full border rounded px-3 py-2 min-h-20"
             value={detail}
             onChange={(e) => setDetail(e.target.value)}
             disabled={!editable}

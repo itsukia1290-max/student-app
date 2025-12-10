@@ -1,4 +1,9 @@
-// src/utils/storage.ts
+/*
+ * src/utils/storage.ts
+ * Responsibility: Supabase Storage 周りのユーティリティ
+ * - 署名付き URL の取得、画像アップロードのラッパー等を提供
+ */
+
 import { supabase } from "../lib/supabase";
 
 /** Private バケット(chat-media)のファイルに対して署名付きURLを発行して返す。 */

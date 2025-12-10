@@ -1,4 +1,8 @@
-// src/utils/image.ts
+/*
+ * src/utils/image.ts
+ * Responsibility: 画像処理ユーティリティ（クライアントサイド）
+ * - compressImage: ブラウザで画像をリサイズ・圧縮して Blob を返す
+ */
 export async function compressImage(
   file: File,
   maxW = 1280,

@@ -19,6 +19,12 @@ type Props = {
   editable?: boolean; // 生徒: false / 教師: true
 };
 
+/*
+ * src/components/StudentGrades.tsx
+ * Responsibility: 生徒の問題集・成績表示コンポーネント
+ * - `userId` の問題集スコアや成績を一覧表示・編集する
+ */
+
 export default function StudentGrades({ userId, editable = false }: Props) {
   const [rows, setRows] = useState<GradeRow[]>([]);
   const [savingIds, setSavingIds] = useState<Record<string, boolean>>({});

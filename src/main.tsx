@@ -1,3 +1,8 @@
+/*
+ * src/main.tsx
+ * Responsibility: アプリケーションのエントリポイント。React アプリを DOM にマウントする。
+ */
+
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'

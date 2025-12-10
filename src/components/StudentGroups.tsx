@@ -14,6 +14,12 @@ type GroupRow = {
   type: "class" | "dm";
 };
 
+/*
+ * src/components/StudentGroups.tsx
+ * Responsibility: ユーザーが所属するグループ一覧を表示する小コンポーネント
+ * - `showDm` オプションでDM起動ボタンの表示制御
+ */
+
 export default function StudentGroups({ userId, showDm = false }: Props) {
   const [groups, setGroups] = useState<GroupRow[]>([]);
   const [loading, setLoading] = useState(true);

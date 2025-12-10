@@ -1,3 +1,9 @@
+/*
+ * src/contexts/AuthProvider.tsx
+ * Responsibility: 認証状態を監視して `AuthCtx` に値を供給する Provider。
+ * - supabase.auth の状態変化を購読し、session を更新する。
+ */
+
 import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";

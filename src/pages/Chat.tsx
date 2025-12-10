@@ -1,5 +1,10 @@
-// src/pages/Chat.tsx
-// 画像のみ送信OK & Storage のパスを保存し、表示時に公開URLへ変換する版
+/*
+ * src/pages/Chat.tsx
+ * Responsibility: グループチャット画面のページコンポーネント
+ * - 左カラム: 所属するクラスグループ一覧（未読バッジ付き）
+ * - 右カラム: メッセージ一覧 / 送信フォーム（画像アップロード対応）
+ * - Realtime で新着メッセージを購読し、未読数を更新する
+ */
 import {
   useCallback,
   useEffect,

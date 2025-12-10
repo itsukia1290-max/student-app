@@ -1,4 +1,7 @@
-// src/pages/Grades.tsx
+/*
+ * src/pages/Grades.tsx
+ * Responsibility: 成績ページのラッパー（StudentGrades コンポーネントを配置）
+ */
 
 import { useAuth } from "../contexts/AuthContext";
 import { useIsStaff } from "../hooks/useIsStaff";
