@@ -1,1 +1,33 @@
-@import "tailwindcss";
+@import "tailwindcss/preflight";
+@tailwind utilities;
+
+/* --- Global custom base styles --- */
+:root {
+	--content-max-w: 1280px;
+}
+
+html, body, #root {
+	height: 100%;
+}
+
+body {
+	font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	background-color: #f8fafc; /* tailwind gray-50 */
+	color: #0f172a; /* tailwind slate-900 */
+}
+
+/* Inputs/buttons default appearance for consistency */
+input, textarea, select, button {
+	font-family: inherit;
+}
+
+/* Small utility tweaks */
+.card {
+	@apply bg-white rounded-2xl border p-4;
+}
+
+/* Ensure images don't overflow their containers */
+img { max-width: 100%; height: auto; }
+

@@ -378,9 +378,9 @@ export default function Chat() {
   );
 
   return (
-    <div className="grid grid-cols-12 min-h-[70vh]">
+    <div className="grid grid-cols-1 md:grid-cols-12 min-h-[70vh] gap-4">
       {/* 左：クラス用グループ一覧（未読バッジ付き） */}
-      <aside className="col-span-4 border-r">
+      <aside className="col-span-1 md:col-span-4 md:border-r">
         <div className="flex items-center justify-between p-3">
           <h2 className="font-bold">グループ</h2>
           {canManage && (
@@ -422,7 +422,7 @@ export default function Chat() {
       </aside>
 
       {/* 右：メッセージ */}
-      <main className="col-span-8 flex flex-col">
+      <main className="col-span-1 md:col-span-8 flex flex-col">
         <div className="flex items-center justify-between p-3 border-b bg-white">
           <div className="font-bold">
             {active ? active.name : "グループ未選択"}

@@ -375,9 +375,9 @@ export default function DM() {
   const activePartner = active ? labelByGroup[active.id] : undefined;
 
   return (
-    <div className="grid grid-cols-12 min-h-[70vh]">
+    <div className="grid grid-cols-1 md:grid-cols-12 min-h-[70vh] gap-4">
       {/* 左：DM一覧（相手名＋未読） */}
-      <aside className="col-span-4 border-r">
+      <aside className="col-span-1 md:col-span-4 md:border-r">
         <div className="flex items-center justify-between p-3">
           <h2 className="font-bold">DM</h2>
           <button
@@ -418,8 +418,8 @@ export default function DM() {
       </aside>
 
       {/* 右：メッセージ */}
-      <main className="col-span-8 flex flex-col">
-        <div className="flex items-center justify_between p-3 border-b bg-white">
+      <main className="col-span-1 md:col-span-8 flex flex-col">
+        <div className="flex items-center justify-between p-3 border-b bg-white">
           <div className="font-bold">
             {active
               ? labelByGroup[active.id]?.partnerName ?? "DM"
