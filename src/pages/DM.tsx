@@ -16,6 +16,8 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import SelectUserDialog from "../components/SelectUserDialog";
 import ProfileViewDialog from "../components/ProfileViewDialog";
+import Button from "../components/ui/Button";
+import Input from "../components/ui/Input";
 
 type Group = {
   id: string;
@@ -518,15 +520,15 @@ export default function DM() {
             </button>
           </div>
 
-          <input
-            className="form-input flex-1"
+          <Input
+            className="flex-1"
             placeholder={
               active
                 ? "メッセージを入力...（画像だけでも送信可）"
                 : "DMを選択してください"
             }
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => setInput((e.target as HTMLInputElement).value)}
             onKeyDown={(e) =>
               e.key === "Enter" && !e.shiftKey
                 ? (e.preventDefault(), send())
@@ -534,13 +536,9 @@ export default function DM() {
             }
             disabled={!active || loading}
           />
-          <button
-            onClick={send}
-            disabled={!active || loading || uploading}
-            className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
-          >
+          <Button onClick={send} disabled={!active || loading || uploading} aria-label="メッセージ送信">
             送信
-          </button>
+          </Button>
         </div>
       </main>
 

@@ -12,6 +12,8 @@ import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
 import StudentGroups from "../components/StudentGroups";
 import StudentRecords from "../components/StudentRecords";
+import Button from "../components/ui/Button";
+import Input, { Textarea } from "../components/ui/Input";
 
 type Profile = {
   id: string;
@@ -73,32 +75,30 @@ export default function MyPage() {
           <form onSubmit={onSave} className="space-y-4">
             <div>
               <label className="block text-sm">氏名</label>
-              <input
-                className="mt-1 form-input"
+              <Input
+                className="mt-1"
                 value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                onChange={(e) => setForm({ ...form, name: (e.target as HTMLInputElement).value })}
               />
             </div>
             <div>
               <label className="block text-sm">電話番号</label>
-              <input
-                className="mt-1 form-input"
+              <Input
+                className="mt-1"
                 value={form.phone ?? ""}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                onChange={(e) => setForm({ ...form, phone: (e.target as HTMLInputElement).value })}
               />
             </div>
             <div>
               <label className="block text-sm">メモ</label>
-              <textarea
-                className="mt-1 form-input h-28"
+              <Textarea
+                className="mt-1 h-28"
                 value={form.memo ?? ""}
-                onChange={(e) => setForm({ ...form, memo: e.target.value })}
+                onChange={(e) => setForm({ ...form, memo: (e.target as HTMLTextAreaElement).value })}
               />
             </div>
 
-            <button disabled={saving} className="btn">
-              {saving ? "保存中..." : "保存"}
-            </button>
+            <Button disabled={saving}>{saving ? "保存中..." : "保存"}</Button>
             {msg && <p className="text-sm text-gray-600 mt-2">{msg}</p>}
           </form>
         )}
@@ -146,38 +146,36 @@ export default function MyPage() {
               <form onSubmit={onSave} className="space-y-4">
                 <div>
                   <label className="block text-sm">氏名</label>
-                  <input
-                    className="mt-1 form-input"
-                    value={form.name}
-                    onChange={(e) =>
-                      setForm({ ...form, name: e.target.value })
-                    }
-                  />
+                  <Input
+                      className="mt-1"
+                      value={form.name}
+                      onChange={(e) =>
+                        setForm({ ...form, name: (e.target as HTMLInputElement).value })
+                      }
+                    />
                 </div>
                 <div>
                   <label className="block text-sm">電話番号</label>
-                  <input
-                    className="mt-1 form-input"
+                  <Input
+                    className="mt-1"
                     value={form.phone ?? ""}
                     onChange={(e) =>
-                      setForm({ ...form, phone: e.target.value })
+                      setForm({ ...form, phone: (e.target as HTMLInputElement).value })
                     }
                   />
                 </div>
                 <div>
                   <label className="block text-sm">メモ</label>
-                  <textarea
-                    className="mt-1 form-input h-28"
-                    value={form.memo ?? ""}
-                    onChange={(e) =>
-                      setForm({ ...form, memo: e.target.value })
-                    }
-                  />
+                  <Textarea
+                      className="mt-1 h-28"
+                      value={form.memo ?? ""}
+                      onChange={(e) =>
+                        setForm({ ...form, memo: (e.target as HTMLTextAreaElement).value })
+                      }
+                    />
                 </div>
 
-                <button disabled={saving} className="btn">
-                  {saving ? "保存中..." : "保存"}
-                </button>
+                <Button disabled={saving}>{saving ? "保存中..." : "保存"}</Button>
                 {msg && <p className="text-sm text-gray-600 mt-2">{msg}</p>}
               </form>
 

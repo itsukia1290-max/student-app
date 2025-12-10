@@ -1,6 +1,8 @@
 // src/components/StudentGoals.tsx
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import Button from "./ui/Button";
+import Input, { Textarea } from "./ui/Input";
 
 type Props = {
   userId: string;
@@ -217,30 +219,24 @@ export default function StudentGoals({ userId, editable }: Props) {
         <div>
           <label className="block text-sm mb-1">一言目標（例：英単語を毎日100語）</label>
           <input
-            className="mt-1 w-full border rounded px-3 py-2"
+            className="mt-1 w-full"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => setTitle((e.target as HTMLInputElement).value)}
             disabled={!editable}
           />
         </div>
         <div>
           <label className="block text-sm mb-1">詳細・振り返りメモ</label>
-          <textarea
-            className="mt-1 w-full border rounded px-3 py-2 min-h-20"
+          <Textarea
+            className="mt-1 w-full min-h-20"
             value={detail}
-            onChange={(e) => setDetail(e.target.value)}
+            onChange={(e) => setDetail((e.target as HTMLTextAreaElement).value)}
             disabled={!editable}
           />
         </div>
 
         {editable && (
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
-          >
-            {saving ? "保存中..." : "保存"}
-          </button>
+          <Button type="submit" disabled={saving}>{saving ? "保存中..." : "保存"}</Button>
         )}
         {msg && <p className="text-xs text-gray-600 mt-1">{msg}</p>}
       </form>

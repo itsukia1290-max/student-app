@@ -15,6 +15,8 @@ import {
 import type { ChangeEvent } from "react";
 
 import { supabase } from "../lib/supabase";
+import Button from "../components/ui/Button";
+import Input from "../components/ui/Input";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsStaff } from "../hooks/useIsStaff";
 import InviteMemberDialog from "../components/InviteMemberDialog";
@@ -536,8 +538,8 @@ export default function Chat() {
             </button>
           </div>
 
-          <input
-            className="form-input flex-1"
+          <Input
+            className="flex-1"
             placeholder={
               active
                 ? "メッセージを入力...（画像だけでも送信可）"
@@ -552,14 +554,9 @@ export default function Chat() {
             }
             disabled={!active || loading}
           />
-          <button
-            onClick={send}
-            disabled={!active || loading || uploading}
-            className="btn"
-            aria-label="メッセージ送信"
-          >
+          <Button onClick={send} disabled={!active || loading || uploading} aria-label="メッセージ送信">
             送信
-          </button>
+          </Button>
         </div>
       </main>
 

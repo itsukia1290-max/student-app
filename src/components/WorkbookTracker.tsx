@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import Button from "./ui/Button";
+import Input from "./ui/Input";
 import { supabase } from "../lib/supabase";
 
 type Workbook = {
@@ -232,29 +234,23 @@ export default function WorkbookTracker({
         <div className="rounded-xl border bg-white p-4">
           <h3 className="font-semibold mb-3">問題集を追加</h3>
           <div className="flex flex-wrap gap-2">
-            <input
-              className="border rounded px-3 py-2 flex-1 min-w-[220px]"
+            <Input
+              className="flex-1 min-w-[220px]"
               placeholder="問題集の名前（例：Focus Gold 数学ⅠA）"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => setTitle((e.target as HTMLInputElement).value)}
               disabled={loading}
             />
-            <input
-              className="border rounded px-3 py-2 w-32"
+            <Input
+              className="w-32"
               type="number"
               min={1}
               placeholder="問題数"
               value={total}
-              onChange={(e) => setTotal(Number(e.target.value))}
+              onChange={(e) => setTotal(Number((e.target as HTMLInputElement).value))}
               disabled={loading}
             />
-            <button
-              onClick={addWorkbook}
-              disabled={loading}
-              className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
-            >
-              追加
-            </button>
+            <Button onClick={addWorkbook} disabled={loading}>追加</Button>
           </div>
         </div>
       )}

@@ -1,4 +1,10 @@
-// src/App.tsx
+/*
+ * src/App.tsx
+ * Responsibility: アプリケーションのルート。認証ゲート、グローバルなタブ/ナビゲーションを提供。
+ * - Auth 関連の表示切替（ログイン/サインアップ/承認待ち）
+ * - Shell コンポーネントが主要なページ（MyPage/Chat/DM/Students）を切替
+ * Note: レイアウトやヘッダーはレスポンシブ化済み。ナビのARIA属性が付与されています。
+ */
 import { useState } from "react";
 import AuthProvider from "./contexts/AuthProvider";
 import { useAuth } from "./contexts/AuthContext";

@@ -1,6 +1,8 @@
 // src/components/StudentProfileEditor.tsx
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import Button from "./ui/Button";
+import Input, { Textarea } from "./ui/Input";
 
 type Props = {
   userId: string;
@@ -51,35 +53,30 @@ export default function StudentProfileEditor({ userId }: Props) {
     <form onSubmit={onSave} className="space-y-4">
       <div>
         <label className="block text-sm">氏名</label>
-        <input
-          className="mt-1 w-full border rounded px-3 py-2"
+        <Input
+          className="mt-1 w-full"
           value={form.name ?? ""}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          onChange={(e) => setForm({ ...form, name: (e.target as HTMLInputElement).value })}
         />
       </div>
       <div>
         <label className="block text-sm">電話番号</label>
-        <input
-          className="mt-1 w-full border rounded px-3 py-2"
+        <Input
+          className="mt-1 w-full"
           value={form.phone ?? ""}
-          onChange={(e) => setForm({ ...form, phone: e.target.value })}
+          onChange={(e) => setForm({ ...form, phone: (e.target as HTMLInputElement).value })}
         />
       </div>
       <div>
         <label className="block text-sm">メモ</label>
-        <textarea
-          className="mt-1 w-full border rounded px-3 py-2 h-28"
+        <Textarea
+          className="mt-1 w-full h-28"
           value={form.memo ?? ""}
-          onChange={(e) => setForm({ ...form, memo: e.target.value })}
+          onChange={(e) => setForm({ ...form, memo: (e.target as HTMLTextAreaElement).value })}
         />
       </div>
 
-      <button
-        disabled={saving}
-        className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
-      >
-        {saving ? "保存中..." : "保存"}
-      </button>
+      <Button disabled={saving}>{saving ? "保存中..." : "保存"}</Button>
       {msg && <p className="text-sm text-gray-600 mt-2">{msg}</p>}
     </form>
   );
