@@ -8,7 +8,8 @@ import { useIsStaff } from "../hooks/useIsStaff";
 import { supabase } from "../lib/supabase";
 import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
-import StudentRecords from "../components/StudentRecords"; // ★ 追加
+import StudentRecords from "../components/StudentRecords";
+import StudentStudyLogs from "../components/StudentStudyLogs"; // ★ 追加
 
 type Props = {
   student: {
@@ -274,7 +275,7 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
         </div>
       )}
 
-      {/* 成績タブ：教師は編集可（○△×＋テスト・模試の記録） */}
+      {/* 成績タブ：教師は編集可（○△×＋テスト・模試の記録＋勉強時間） */}
       {tab === "grades" && (
         <div className="space-y-6">
           <div className="bg-white border rounded-2xl p-4">
@@ -284,8 +285,13 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
 
           <div className="bg-white border rounded-2xl p-4">
             <h2 className="text-lg font-bold mb-3">テスト・模試の記録</h2>
-            {/* ★ 教師側は編集可能 */}
             <StudentRecords studentId={student.id} editable={true} />
+          </div>
+
+          {/* ★ 勉強時間の記録（先生は閲覧のみ） */}
+          <div className="bg-white border rounded-2xl p-4">
+            <h2 className="text-lg font-bold mb-3">勉強時間の記録</h2>
+            <StudentStudyLogs userId={student.id} editable={false} />
           </div>
         </div>
       )}

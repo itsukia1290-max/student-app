@@ -2,7 +2,7 @@
  * src/pages/MyPage.tsx
  * Responsibility: マイページ（ユーザー固有の情報表示・編集）
  * - スタッフ用のプロフィール編集ビュー
- * - 生徒用のタブ（プロフィール / 目標 / 成績）を提供
+ * - 生徒用のタブ（プロフィール / 目標 / 成績 / 記録）を提供
  */
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
@@ -12,6 +12,7 @@ import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
 import StudentGroups from "../components/StudentGroups";
 import StudentRecords from "../components/StudentRecords";
+import StudentStudyLogs from "../components/StudentStudyLogs"; // ★ 追加
 import Button from "../components/ui/Button";
 import Input, { Textarea } from "../components/ui/Input";
 
@@ -22,7 +23,7 @@ type Profile = {
   memo: string | null;
 };
 
-type Tab = "profile" | "goals" | "grades";
+type Tab = "profile" | "goals" | "grades" | "records";
 
 export default function MyPage() {
   const { user } = useAuth();
@@ -78,7 +79,12 @@ export default function MyPage() {
               <Input
                 className="mt-1"
                 value={form.name}
-                onChange={(e) => setForm({ ...form, name: (e.target as HTMLInputElement).value })}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    name: (e.target as HTMLInputElement).value,
+                  })
+                }
               />
             </div>
             <div>
@@ -86,7 +92,12 @@ export default function MyPage() {
               <Input
                 className="mt-1"
                 value={form.phone ?? ""}
-                onChange={(e) => setForm({ ...form, phone: (e.target as HTMLInputElement).value })}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    phone: (e.target as HTMLInputElement).value,
+                  })
+                }
               />
             </div>
             <div>
@@ -94,11 +105,18 @@ export default function MyPage() {
               <Textarea
                 className="mt-1 h-28"
                 value={form.memo ?? ""}
-                onChange={(e) => setForm({ ...form, memo: (e.target as HTMLTextAreaElement).value })}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    memo: (e.target as HTMLTextAreaElement).value,
+                  })
+                }
               />
             </div>
 
-            <Button disabled={saving}>{saving ? "保存中..." : "保存"}</Button>
+            <Button disabled={saving}>
+              {saving ? "保存中..." : "保存"}
+            </Button>
             {msg && <p className="text-sm text-gray-600 mt-2">{msg}</p>}
           </form>
         )}
@@ -106,7 +124,7 @@ export default function MyPage() {
     );
   }
 
-  // ★ 生徒は 3 タブ（プロフィール / 目標 / 成績）
+  // ★ 生徒は 4 タブ（プロフィール / 目標 / 成績 / 記録）
   return (
     <div className="min-h-[70vh]">
       <div className="flex gap-2 border-b bg-white p-3">
@@ -134,25 +152,36 @@ export default function MyPage() {
         >
           成績
         </button>
+        <button
+          className={`px-3 py-1 rounded ${
+            tab === "records" ? "bg-black text-white" : "border"
+          }`}
+          onClick={() => setTab("records")}
+        >
+          記録
+        </button>
       </div>
 
-        {tab === "profile" && (
+      {tab === "profile" && (
         <div className="p-6 max-w-xl mx-auto">
           <h2 className="text-xl font-bold mb-4">マイページ</h2>
           {!form ? (
-          <div className="card">読み込み中...</div>
+            <div className="card">読み込み中...</div>
           ) : (
             <>
               <form onSubmit={onSave} className="space-y-4">
                 <div>
                   <label className="block text-sm">氏名</label>
                   <Input
-                      className="mt-1"
-                      value={form.name}
-                      onChange={(e) =>
-                        setForm({ ...form, name: (e.target as HTMLInputElement).value })
-                      }
-                    />
+                    className="mt-1"
+                    value={form.name}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        name: (e.target as HTMLInputElement).value,
+                      })
+                    }
+                  />
                 </div>
                 <div>
                   <label className="block text-sm">電話番号</label>
@@ -160,29 +189,41 @@ export default function MyPage() {
                     className="mt-1"
                     value={form.phone ?? ""}
                     onChange={(e) =>
-                      setForm({ ...form, phone: (e.target as HTMLInputElement).value })
+                      setForm({
+                        ...form,
+                        phone: (e.target as HTMLInputElement).value,
+                      })
                     }
                   />
                 </div>
                 <div>
                   <label className="block text-sm">メモ</label>
                   <Textarea
-                      className="mt-1 h-28"
-                      value={form.memo ?? ""}
-                      onChange={(e) =>
-                        setForm({ ...form, memo: (e.target as HTMLTextAreaElement).value })
-                      }
-                    />
+                    className="mt-1 h-28"
+                    value={form.memo ?? ""}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        memo: (e.target as HTMLTextAreaElement).value,
+                      })
+                    }
+                  />
                 </div>
 
-                <Button disabled={saving}>{saving ? "保存中..." : "保存"}</Button>
-                {msg && <p className="text-sm text-gray-600 mt-2">{msg}</p>}
+                <Button disabled={saving}>
+                  {saving ? "保存中..." : "保存"}
+                </Button>
+                {msg && (
+                  <p className="text-sm text-gray-600 mt-2">{msg}</p>
+                )}
               </form>
 
-              {/* 🔽 所属グループ表示（生徒自身用） */}
+              {/* 所属グループ表示（生徒自身用） */}
               {user && (
                 <div className="mt-6">
-                  <h3 className="text-sm font-semibold mb-2">所属グループ</h3>
+                  <h3 className="text-sm font-semibold mb-2">
+                    所属グループ
+                  </h3>
                   <div className="rounded-xl border bg-white p-3">
                     <StudentGroups userId={user.id} />
                   </div>
@@ -213,6 +254,12 @@ export default function MyPage() {
             {/* 生徒側は閲覧のみ */}
             <StudentRecords studentId={user.id} editable={false} />
           </div>
+        </div>
+      )}
+
+      {tab === "records" && user && (
+        <div className="p-6 max-w-4xl mx-auto">
+          <StudentStudyLogs userId={user.id} />
         </div>
       )}
     </div>
