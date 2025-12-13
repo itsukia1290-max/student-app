@@ -1,9 +1,8 @@
+// src/App.tsx
 /*
- * src/App.tsx
  * Responsibility: アプリケーションのルート。認証ゲート、グローバルなタブ/ナビゲーションを提供。
  * - Auth 関連の表示切替（ログイン/サインアップ/承認待ち）
- * - Shell コンポーネントが主要なページ（MyPage/Chat/DM/Students）を切替
- * Note: レイアウトやヘッダーはレスポンシブ化済み。ナビのARIA属性が付与されています。
+ * - Shell コンポーネントが主要なページ（Home / MyPage / Chat / DM / Students）を切替
  */
 import { useState } from "react";
 import AuthProvider from "./contexts/AuthProvider";
@@ -14,11 +13,12 @@ import MyPage from "./pages/MyPage";
 import Chat from "./pages/Chat";
 import Students from "./pages/Students";
 import DM from "./pages/DM";
+import Home from "./pages/Home"; // ★ 追加
 import { supabase } from "./lib/supabase";
 import { useMyApproval } from "./hooks/useMyApproval";
 import { useIsStaff } from "./hooks/useIsStaff";
 
-type View = "home" | "mypage" | "chat" | "dm" | "students";
+export type View = "home" | "mypage" | "chat" | "dm" | "students";
 
 function Shell() {
   const { user } = useAuth();
@@ -44,10 +44,12 @@ function Shell() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* ヘッダー */}
       <header className="border-b bg-white">
         <div className="max-w-5xl mx-auto px-4">
           <div className="flex items-center justify-between p-3">
             <div className="flex items-center gap-3">
+              {/* モバイル用メニューボタン */}
               <button
                 className="md:hidden px-2 py-1 border rounded"
                 aria-label="メニュー"
@@ -67,18 +69,33 @@ function Shell() {
                       clipRule="evenodd"
                     />
                   ) : (
-                    <path d="M3 5h14M3 10h14M3 15h14" strokeWidth={2} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+                    <path
+                      d="M3 5h14M3 10h14M3 15h14"
+                      strokeWidth={2}
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
                   )}
                 </svg>
               </button>
 
-              <nav className="hidden md:flex gap-2" role="navigation" aria-label="Main">
+              {/* PC用ナビ */}
+              <nav
+                className="hidden md:flex gap-2"
+                role="navigation"
+                aria-label="Main"
+              >
                 {tabs.map((t) => (
                   <button
                     key={t.key}
-                    aria-current={effectiveView === t.key ? "page" : undefined}
+                    aria-current={
+                      effectiveView === t.key ? "page" : undefined
+                    }
                     className={`px-3 py-1 rounded ${
-                      effectiveView === t.key ? "bg-black text-white" : "border"
+                      effectiveView === t.key
+                        ? "bg-black text-white"
+                        : "border"
                     }`}
                     onClick={() => setView(t.key)}
                   >
@@ -89,7 +106,9 @@ function Shell() {
             </div>
 
             <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-600 hidden sm:inline">{user?.email}</span>
+              <span className="text-sm text-gray-600 hidden sm:inline">
+                {user?.email}
+              </span>
               <button
                 className="px-3 py-1 rounded border"
                 onClick={() => supabase.auth.signOut()}
@@ -98,16 +117,21 @@ function Shell() {
               </button>
             </div>
           </div>
-          {/* mobile nav */}
+
+          {/* モバイルナビ */}
           {mobileMenuOpen && (
             <div className="md:hidden pb-3">
               <div className="flex flex-col gap-2">
                 {tabs.map((t) => (
                   <button
                     key={t.key}
-                    aria-current={effectiveView === t.key ? "page" : undefined}
+                    aria-current={
+                      effectiveView === t.key ? "page" : undefined
+                    }
                     className={`text-left px-3 py-2 rounded ${
-                      effectiveView === t.key ? "bg-black text-white" : "border"
+                      effectiveView === t.key
+                        ? "bg-black text-white"
+                        : "border"
                     }`}
                     onClick={() => {
                       setView(t.key);
@@ -123,14 +147,13 @@ function Shell() {
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-4 py-6">
+      {/* コンテンツ */}
+      <div className="max-w-5xl mx-auto px-4 py-4">
         {effectiveView === "home" && (
-          <main className="grid place-items-center p-8">
-            <div className="p-8 rounded-2xl shadow bg-white">
-              <h1 className="text-2xl font-bold text-green-600">ログイン済み ✅</h1>
-              <p className="mt-2 text-gray-600">Group または DM からメッセージを試せます。</p>
-            </div>
-          </main>
+          <Home
+            onNavigate={setView}
+            isStaff={isStaff}
+          />
         )}
 
         {effectiveView === "mypage" && <MyPage />}
