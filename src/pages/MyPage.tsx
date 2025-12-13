@@ -11,7 +11,7 @@ import { useIsStaff } from "../hooks/useIsStaff";
 import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
 import StudentGroups from "../components/StudentGroups";
-import StudentRecords from "../components/StudentRecords";
+// StudentRecords intentionally removed: test/exam record feature temporarily disabled
 import StudentStudyLogs from "../components/StudentStudyLogs"; // ★ 追加
 import Button from "../components/ui/Button";
 import Input, { Textarea } from "../components/ui/Input";
@@ -248,12 +248,7 @@ export default function MyPage() {
             <StudentGrades userId={user.id} editable={false} />
           </div>
 
-          {/* テスト・模試の記録（画像＋コメント） */}
-          <div className="bg-white rounded-2xl border p-4">
-            <h2 className="text-lg font-bold mb-3">テスト・模試の記録</h2>
-            {/* 生徒側は閲覧のみ */}
-            <StudentRecords studentId={user.id} editable={false} />
-          </div>
+          {/* テスト・模試の記録（機能一時停止） */}
         </div>
       )}
 

@@ -8,7 +8,7 @@ import { useIsStaff } from "../hooks/useIsStaff";
 import { supabase } from "../lib/supabase";
 import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
-import StudentRecords from "../components/StudentRecords";
+// StudentRecords removed: test/exam records temporarily disabled
 import StudentStudyLogs from "../components/StudentStudyLogs"; // ★ 追加
 
 type Props = {
@@ -283,10 +283,7 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
             <StudentGrades userId={student.id} editable={true} />
           </div>
 
-          <div className="bg-white border rounded-2xl p-4">
-            <h2 className="text-lg font-bold mb-3">テスト・模試の記録</h2>
-            <StudentRecords studentId={student.id} editable={true} />
-          </div>
+          {/* テスト・模試の記録は一時的に削除しています */}
 
           {/* ★ 勉強時間の記録（先生は閲覧のみ） */}
           <div className="bg-white border rounded-2xl p-4">
