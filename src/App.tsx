@@ -46,19 +46,16 @@ function Shell() {
 
       {/* スマホ下部固定ナビ（文字のみ・横幅100%） */}
       <nav
-        className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t z-50
-                   pb-[env(safe-area-inset-bottom)]"
+        className="md:hidden fixed inset-x-0 bottom-0 z-50 bg-white border-t shadow-md backdrop-blur/0"
       >
         <div
-          className={`grid ${
-            isStaff ? "grid-cols-5" : "grid-cols-4"
-          } text-xs`}
+          className={`grid ${isStaff ? "grid-cols-5" : "grid-cols-4"} text-xs h-16 items-center px-1 pb-[env(safe-area-inset-bottom)]`}
         >
           {tabs.map((t) => (
             <button
               key={t.key}
               onClick={() => setView(t.key)}
-              className={`py-3 ${
+              className={`h-full flex flex-col items-center justify-center text-center ${
                 effectiveView === t.key
                   ? "text-black font-semibold border-t-2 border-black"
                   : "text-gray-500"
