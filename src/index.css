@@ -1,4 +1,5 @@
-@import "tailwindcss/preflight";
+@tailwind base;
+@tailwind components;
 @tailwind utilities;
 
 /* --- Global custom base styles --- */
@@ -25,7 +26,10 @@ input, textarea, select, button {
 
 /* Small utility tweaks */
 .card {
-	@apply bg-white rounded-2xl border p-4;
+	background-color: #ffffff; /* bg-white */
+	border-radius: 1rem; /* rounded-2xl */
+	border: 1px solid #e5e7eb; /* border */
+	padding: 1rem; /* p-4 */
 }
 
 /* Ensure images don't overflow their containers */
@@ -33,16 +37,42 @@ img { max-width: 100%; height: auto; }
 
 /* Buttons / inputs consistent styles */
 .btn {
-	@apply inline-flex items-center justify-center px-4 py-2 rounded bg-black text-white disabled:opacity-50 hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0.5rem 1rem; /* py-2 px-4 */
+	border-radius: 0.5rem; /* rounded */
+	background-color: #000000; /* bg-black */
+	color: #ffffff; /* text-white */
 }
+@media (hover: hover) {
+	.btn:hover { background-color: #111827; /* hover:bg-gray-900 */ }
+}
+/* Disabled state styling */
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn:focus { outline: none; box-shadow: 0 0 0 2px rgba(0,0,0,0.1); }
 
 .btn-ghost {
-	@apply inline-flex items-center justify-center px-3 py-1 rounded border bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-black;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0.25rem 0.75rem; /* py-1 px-3 */
+	border-radius: 0.25rem; /* rounded */
+	border: 1px solid #e5e7eb; /* border */
+	background-color: #ffffff; /* bg-white */
 }
+@media (hover: hover) {
+	.btn-ghost:hover { background-color: #f8fafc; /* hover:bg-gray-50 */ }
+}
+.btn-ghost:focus { outline: none; box-shadow: 0 0 0 2px rgba(0,0,0,0.05); }
 
 .form-input {
-	@apply w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-black;
+	width: 100%;
+	border: 1px solid #e5e7eb;
+	border-radius: 0.375rem; /* rounded */
+	padding: 0.5rem 0.75rem; /* py-2 px-3 */
 }
+.form-input:focus { outline: none; box-shadow: 0 0 0 2px rgba(0,0,0,0.05); }
 
 /* focus-visible fallback for browsers */
 :focus-visible {

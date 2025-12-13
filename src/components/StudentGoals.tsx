@@ -218,7 +218,7 @@ export default function StudentGoals({ userId, editable }: Props) {
 
         <div>
           <label className="block text-sm mb-1">一言目標（例：英単語を毎日100語）</label>
-          <input
+          <Input
             className="mt-1 w-full"
             value={title}
             onChange={(e) => setTitle((e.target as HTMLInputElement).value)}
