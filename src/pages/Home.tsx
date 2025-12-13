@@ -206,7 +206,7 @@ export default function Home() {
                 <span className={`text-[11px] ${isToday ? "text-green-700 font-semibold" : "text-gray-700"}`}>
                   {c.day}
                 </span>
-                {hasStudy && <span className="mt-[1px] text-[8px] text-green-600">●</span>}
+                {hasStudy && <span className="mt-px text-[8px] text-green-600">●</span>}
               </div>
             );
           })}
