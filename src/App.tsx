@@ -16,7 +16,8 @@ import { useIsStaff } from "./hooks/useIsStaff";
 type View = "home" | "mypage" | "chat" | "dm" | "students";
 
 function Shell() {
-  const { user } = useAuth();
+  // We don't currently use `user` in Shell, but AuthGate reads session via useAuth.
+  // Keep the import available for AuthGate, but don't destructure here to avoid unused variable errors.
   const { isStaff } = useIsStaff();
   const [view, setView] = useState<View>("home");
 
