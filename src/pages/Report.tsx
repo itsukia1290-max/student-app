@@ -117,52 +117,58 @@ export default function Report() {
 
       {/* ===== Content ===== */}
       {tab === "timeline" ? (
-        <div className="px-4 mt-6">
+        <div style={{ padding: "0 16px", marginTop: "24px" }}>
           {/* 今は箱だけOK */}
-          <div className="rounded-2xl bg-gray-100 p-5">
-            <div className="text-gray-500 text-sm">（タイムラインは後で実装）</div>
+          <div style={{ borderRadius: "1rem", backgroundColor: "#f3f4f6", padding: "20px" }}>
+            <div style={{ color: "#9ca3af", fontSize: "14px" }}>（タイムラインは後で実装）</div>
           </div>
         </div>
       ) : (
-        <div className="px-4 mt-4 space-y-4">
+        <div style={{ padding: "0 16px", marginTop: "16px", display: "flex", flexDirection: "column", gap: "16px" }}>
           {/* ===== 学習推移（薄灰カード／枠線なし） ===== */}
-          <section className="rounded-2xl bg-gray-100 p-4">
-            <div className="text-sm font-bold text-gray-800 mb-3">学習推移</div>
+          <section style={{
+            borderRadius: "1rem",
+            backgroundColor: "#f3f4f6",
+            padding: "16px",
+          }}>
+            <div style={{ fontSize: "14px", fontWeight: 700, color: "#1f2937", marginBottom: "12px" }}>学習推移</div>
 
-            {/* 画像のような “3分割” */}
-            <div className="rounded-2xl bg-white/60">
-              <div className="grid grid-cols-3">
-                <div className="py-3 text-center">
-                  <div className="text-xs text-gray-500">今日</div>
-                  <div className="mt-1 text-lg font-extrabold text-gray-900">
-                    {minToLabel(summary.todayMin)}
-                  </div>
+            {/* 画像のような "3分割" */}
+            <div style={{ borderRadius: "1rem", backgroundColor: "rgba(255, 255, 255, 0.6)", display: "grid", gridTemplateColumns: "repeat(3, 1fr)" }}>
+              <div style={{ padding: "12px 0", textAlign: "center" }}>
+                <div style={{ fontSize: "12px", color: "#6b7280" }}>今日</div>
+                <div style={{ marginTop: "4px", fontSize: "18px", fontWeight: 800, color: "#111827" }}>
+                  {minToLabel(summary.todayMin)}
                 </div>
-                <div className="py-3 text-center border-x border-white/70">
-                  <div className="text-xs text-gray-500">今月</div>
-                  <div className="mt-1 text-lg font-extrabold text-gray-900">
-                    {minToLabel(summary.monthMin)}
-                  </div>
+              </div>
+              <div style={{ padding: "12px 0", textAlign: "center", borderLeft: "1px solid rgba(255, 255, 255, 0.7)", borderRight: "1px solid rgba(255, 255, 255, 0.7)" }}>
+                <div style={{ fontSize: "12px", color: "#6b7280" }}>今月</div>
+                <div style={{ marginTop: "4px", fontSize: "18px", fontWeight: 800, color: "#111827" }}>
+                  {minToLabel(summary.monthMin)}
                 </div>
-                <div className="py-3 text-center">
-                  <div className="text-xs text-gray-500">総学習時間</div>
-                  <div className="mt-1 text-lg font-extrabold text-gray-900">
-                    {minToLabel(summary.totalMin)}
-                  </div>
+              </div>
+              <div style={{ padding: "12px 0", textAlign: "center" }}>
+                <div style={{ fontSize: "12px", color: "#6b7280" }}>総学習時間</div>
+                <div style={{ marginTop: "4px", fontSize: "18px", fontWeight: 800, color: "#111827" }}>
+                  {minToLabel(summary.totalMin)}
                 </div>
               </div>
             </div>
           </section>
 
           {/* ===== 週目標 / 月間目標（薄灰カード2つ、間に余白） ===== */}
-          <section className="space-y-3">
+          <section style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             <GoalCard title="週刊目標" targetLabel="目標：10時間" progress={0} />
             <GoalCard title="月間目標" targetLabel="目標：40時間" progress={0} />
           </section>
 
           {/* ===== カレンダー（薄灰カード） ===== */}
-          <section className="rounded-2xl bg-gray-100 p-4">
-            <div className="text-sm font-bold text-gray-800 mb-3">カレンダー</div>
+          <section style={{
+            borderRadius: "1rem",
+            backgroundColor: "#f3f4f6",
+            padding: "16px",
+          }}>
+            <div style={{ fontSize: "14px", fontWeight: 700, color: "#1f2937", marginBottom: "12px" }}>カレンダー</div>
 
             <CalendarBoard
               viewerRole={viewerRole}
@@ -188,17 +194,34 @@ function GoalCard({
 }) {
   const p = Math.max(0, Math.min(100, progress));
   return (
-    <div className="rounded-2xl bg-gray-100 p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-sm font-bold text-gray-800">{title}</div>
-          <div className="mt-2 text-sm text-gray-700">{targetLabel}</div>
+    <div style={{
+      borderRadius: "1rem",
+      backgroundColor: "#f3f4f6",
+      padding: "20px",
+      display: "flex",
+      flexDirection: "column",
+      gap: "16px",
+    }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px" }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: "14px", fontWeight: 700, color: "#1f2937" }}>{title}</div>
+          <div style={{ marginTop: "12px", fontSize: "14px", color: "#374151" }}>{targetLabel}</div>
         </div>
-        <div className="text-sm font-semibold text-gray-700">{p}%</div>
+        <div style={{ fontSize: "14px", fontWeight: 600, color: "#374151", whiteSpace: "nowrap" }}>{p}%</div>
       </div>
 
-      <div className="mt-3 h-2 rounded-full bg-white/70 overflow-hidden">
-        <div className="h-2 bg-blue-500" style={{ width: `${p}%` }} />
+      <div style={{
+        height: "8px",
+        borderRadius: "9999px",
+        backgroundColor: "rgba(255, 255, 255, 0.5)",
+        overflow: "hidden",
+      }}>
+        <div style={{
+          height: "8px",
+          backgroundColor: "#3b82f6",
+          width: `${p}%`,
+          transition: "width 0.3s ease",
+        }} />
       </div>
     </div>
   );
