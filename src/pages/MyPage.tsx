@@ -2,8 +2,9 @@
  * src/pages/MyPage.tsx
  * Responsibility: マイページ（ユーザー固有の情報表示・編集）
  * - スタッフ用のプロフィール編集ビュー
- * - 生徒用のタブ（プロフィール / 目標 / 成績 / カレンダー）を提供
+ * - 生徒用のタブ（プロフィール / 目標 / 成績 / 記録 / カレンダー）を提供
  */
+
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
@@ -11,7 +12,7 @@ import { useIsStaff } from "../hooks/useIsStaff";
 import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
 import StudentGroups from "../components/StudentGroups";
-import StudentRecords from "../components/StudentRecords";
+import StudentStudyLogs from "../components/StudentStudyLogs";
 import StudentCalendar from "../components/StudentCalendar";
 import Button from "../components/ui/Button";
 import Input, { Textarea } from "../components/ui/Input";
@@ -23,7 +24,7 @@ type Profile = {
   memo: string | null;
 };
 
-type Tab = "profile" | "goals" | "grades" | "calendar";
+type Tab = "profile" | "goals" | "grades" | "records" | "calendar";
 
 export default function MyPage() {
   const { user } = useAuth();
@@ -65,11 +66,11 @@ export default function MyPage() {
     setSaving(false);
   }
 
-  // ★ スタッフは従来どおり（プロフィール編集のみ）
+  // スタッフ：従来どおり
   if (isStaff) {
     return (
       <div className="p-6 max-w-xl mx-auto">
-        <h2 className="text-xl font-bold mb-4">マイページ（教師）</h2>
+        <h2 className="text-xl font-bold mb-4">マイページ（スタッフ）</h2>
         {!form ? (
           <div className="card">読み込み中...</div>
         ) : (
@@ -80,7 +81,10 @@ export default function MyPage() {
                 className="mt-1"
                 value={form.name}
                 onChange={(e) =>
-                  setForm({ ...form, name: (e.target as HTMLInputElement).value })
+                  setForm({
+                    ...form,
+                    name: (e.target as HTMLInputElement).value,
+                  })
                 }
               />
             </div>
@@ -90,7 +94,10 @@ export default function MyPage() {
                 className="mt-1"
                 value={form.phone ?? ""}
                 onChange={(e) =>
-                  setForm({ ...form, phone: (e.target as HTMLInputElement).value })
+                  setForm({
+                    ...form,
+                    phone: (e.target as HTMLInputElement).value,
+                  })
                 }
               />
             </div>
@@ -100,7 +107,10 @@ export default function MyPage() {
                 className="mt-1 h-28"
                 value={form.memo ?? ""}
                 onChange={(e) =>
-                  setForm({ ...form, memo: (e.target as HTMLTextAreaElement).value })
+                  setForm({
+                    ...form,
+                    memo: (e.target as HTMLTextAreaElement).value,
+                  })
                 }
               />
             </div>
@@ -113,10 +123,10 @@ export default function MyPage() {
     );
   }
 
-  // ★ 生徒：タブ（プロフィール / 目標 / 成績 / カレンダー）
+  // 生徒：タブ
   return (
     <div className="min-h-[70vh]">
-      <div className="flex gap-2 border-b bg-white p-3 overflow-x-auto">
+      <div className="flex gap-2 border-b bg-white p-3 flex-wrap">
         <button
           className={`px-3 py-1 rounded ${
             tab === "profile" ? "bg-black text-white" : "border"
@@ -125,6 +135,7 @@ export default function MyPage() {
         >
           プロフィール
         </button>
+
         <button
           className={`px-3 py-1 rounded ${
             tab === "goals" ? "bg-black text-white" : "border"
@@ -133,6 +144,7 @@ export default function MyPage() {
         >
           目標
         </button>
+
         <button
           className={`px-3 py-1 rounded ${
             tab === "grades" ? "bg-black text-white" : "border"
@@ -141,6 +153,16 @@ export default function MyPage() {
         >
           成績
         </button>
+
+        <button
+          className={`px-3 py-1 rounded ${
+            tab === "records" ? "bg-black text-white" : "border"
+          }`}
+          onClick={() => setTab("records")}
+        >
+          記録
+        </button>
+
         <button
           className={`px-3 py-1 rounded ${
             tab === "calendar" ? "bg-black text-white" : "border"
@@ -165,27 +187,38 @@ export default function MyPage() {
                     className="mt-1"
                     value={form.name}
                     onChange={(e) =>
-                      setForm({ ...form, name: (e.target as HTMLInputElement).value })
+                      setForm({
+                        ...form,
+                        name: (e.target as HTMLInputElement).value,
+                      })
                     }
                   />
                 </div>
+
                 <div>
                   <label className="block text-sm">電話番号</label>
                   <Input
                     className="mt-1"
                     value={form.phone ?? ""}
                     onChange={(e) =>
-                      setForm({ ...form, phone: (e.target as HTMLInputElement).value })
+                      setForm({
+                        ...form,
+                        phone: (e.target as HTMLInputElement).value,
+                      })
                     }
                   />
                 </div>
+
                 <div>
                   <label className="block text-sm">メモ</label>
                   <Textarea
                     className="mt-1 h-28"
                     value={form.memo ?? ""}
                     onChange={(e) =>
-                      setForm({ ...form, memo: (e.target as HTMLTextAreaElement).value })
+                      setForm({
+                        ...form,
+                        memo: (e.target as HTMLTextAreaElement).value,
+                      })
                     }
                   />
                 </div>
@@ -219,17 +252,22 @@ export default function MyPage() {
             <h2 className="text-lg font-bold mb-3">問題集の成績</h2>
             <StudentGrades userId={user.id} editable={false} />
           </div>
+        </div>
+      )}
 
-          <div className="bg-white rounded-2xl border p-4">
-            <h2 className="text-lg font-bold mb-3">テスト・模試の記録</h2>
-            <StudentRecords studentId={user.id} editable={false} />
-          </div>
+      {tab === "records" && user && (
+        <div className="p-6 max-w-4xl mx-auto">
+          <StudentStudyLogs userId={user.id} />
         </div>
       )}
 
       {tab === "calendar" && user && (
-        <div className="p-6 max-w-4xl mx-auto">
-          <StudentCalendar userId={user.id} canEditPersonal={true} title="自分のカレンダー" />
+        <div className="p-6 max-w-4xl mx-auto space-y-6">
+          <div className="bg-white rounded-2xl border p-4">
+            <h2 className="text-lg font-bold mb-3">自分の予定</h2>
+            {/* 生徒本人：編集できる */}
+            <StudentCalendar ownerId={user.id} editable={true} scope="student" />
+          </div>
         </div>
       )}
     </div>

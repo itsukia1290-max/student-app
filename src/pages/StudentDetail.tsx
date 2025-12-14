@@ -1,14 +1,14 @@
 /*
  * src/pages/StudentDetail.tsx
- * Responsibility: 生徒の詳細ビュー
- * - 生徒のプロフィール、成績、目標、記録、カレンダーなどのタブを表示する
+ * Responsibility: 生徒の詳細ビュー（教師用）
  */
+
 import { useEffect, useState } from "react";
 import { useIsStaff } from "../hooks/useIsStaff";
 import { supabase } from "../lib/supabase";
 import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
-import StudentRecords from "../components/StudentRecords";
+import StudentStudyLogs from "../components/StudentStudyLogs";
 import StudentCalendar from "../components/StudentCalendar";
 
 type Props = {
@@ -19,10 +19,9 @@ type Props = {
     memo: string | null;
   };
   onBack: () => void;
-  onDeleted?: (id: string) => void;
 };
 
-type Tab = "profile" | "grades" | "goals" | "calendar";
+type Tab = "profile" | "grades" | "goals" | "records" | "calendar";
 
 type GroupMini = {
   id: string;
@@ -30,20 +29,21 @@ type GroupMini = {
   type: "class" | "dm" | string;
 };
 
-export default function StudentDetail({ student, onBack, onDeleted }: Props) {
+export default function StudentDetail({ student, onBack }: Props) {
   const { isStaff } = useIsStaff();
   const [tab, setTab] = useState<Tab>("profile");
 
-  const [formName, setFormName] = useState(student.name ?? "");
-  const [formPhone, setFormPhone] = useState(student.phone ?? "");
-  const [formMemo, setFormMemo] = useState(student.memo ?? "");
+  // --- プロフィール編集用 ---
+  const [name, setName] = useState(student.name ?? "");
+  const [phone, setPhone] = useState(student.phone ?? "");
+  const [memo, setMemo] = useState(student.memo ?? "");
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    setFormName(student.name ?? "");
-    setFormPhone(student.phone ?? "");
-    setFormMemo(student.memo ?? "");
+    setName(student.name ?? "");
+    setPhone(student.phone ?? "");
+    setMemo(student.memo ?? "");
   }, [student]);
 
   async function saveProfile(e: React.FormEvent) {
@@ -56,9 +56,9 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
     const { error } = await supabase
       .from("profiles")
       .update({
-        name: formName,
-        phone: formPhone || null,
-        memo: formMemo || null,
+        name,
+        phone: phone || null,
+        memo: memo || null,
       })
       .eq("id", student.id);
 
@@ -68,11 +68,13 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
     setSavingProfile(false);
   }
 
+  // --- 所属グループ表示用 ---
   const [groups, setGroups] = useState<GroupMini[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+
     (async () => {
       setGroupsLoading(true);
 
@@ -125,54 +127,58 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
     };
   }, [student.id]);
 
-  async function revokeApproval() {
-    if (!isStaff) return;
-    const ok = confirm(
-      `この生徒 (${student.name ?? "未設定"}) を『退会（利用停止）』にしますか？\n再利用には教師の再承認が必要になります。`
-    );
-    if (!ok) return;
-
-    const { error } = await supabase.rpc("suspend_student", { uid: student.id });
-    if (error) {
-      alert("退会処理失敗: " + error.message);
-    } else {
-      alert("退会（利用停止）にしました。");
-      if (onDeleted) onDeleted(student.id);
-      onBack();
-    }
-  }
-
   return (
     <div className="p-6 space-y-4">
-      <button onClick={onBack} className="border rounded px-3 py-1 hover:bg-gray-100">
+      <button
+        onClick={onBack}
+        className="border rounded px-3 py-1 hover:bg-gray-100"
+      >
         ← 一覧に戻る
       </button>
 
       <h1 className="text-2xl font-bold">{student.name ?? "（未設定）"}</h1>
-      <p className="text-sm text-gray-600">電話番号: {student.phone ?? "-"}</p>
-      <p className="text-sm text-gray-600">メモ: {student.memo ?? "-"}</p>
 
-      <div className="flex gap-2 border-b mt-4 overflow-x-auto">
+      <div className="flex gap-2 border-b mt-4 flex-wrap">
         <button
-          className={`px-3 py-1 rounded-t ${tab === "profile" ? "bg-black text-white" : "border"}`}
+          className={`px-3 py-1 rounded-t ${
+            tab === "profile" ? "bg-black text-white" : "border"
+          }`}
           onClick={() => setTab("profile")}
         >
           プロフィール
         </button>
+
         <button
-          className={`px-3 py-1 rounded-t ${tab === "grades" ? "bg-black text-white" : "border"}`}
+          className={`px-3 py-1 rounded-t ${
+            tab === "grades" ? "bg-black text-white" : "border"
+          }`}
           onClick={() => setTab("grades")}
         >
           成績
         </button>
+
         <button
-          className={`px-3 py-1 rounded-t ${tab === "goals" ? "bg-black text-white" : "border"}`}
+          className={`px-3 py-1 rounded-t ${
+            tab === "goals" ? "bg-black text-white" : "border"
+          }`}
           onClick={() => setTab("goals")}
         >
           目標
         </button>
+
         <button
-          className={`px-3 py-1 rounded-t ${tab === "calendar" ? "bg-black text-white" : "border"}`}
+          className={`px-3 py-1 rounded-t ${
+            tab === "records" ? "bg-black text-white" : "border"
+          }`}
+          onClick={() => setTab("records")}
+        >
+          学習記録
+        </button>
+
+        <button
+          className={`px-3 py-1 rounded-t ${
+            tab === "calendar" ? "bg-black text-white" : "border"
+          }`}
           onClick={() => setTab("calendar")}
         >
           カレンダー
@@ -186,45 +192,38 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
               <label className="block text-sm">氏名</label>
               <input
                 className="mt-1 w-full border rounded px-3 py-2"
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
               />
             </div>
             <div>
               <label className="block text-sm">電話番号</label>
               <input
                 className="mt-1 w-full border rounded px-3 py-2"
-                value={formPhone}
-                onChange={(e) => setFormPhone(e.target.value)}
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
               />
             </div>
             <div>
               <label className="block text-sm">メモ</label>
               <textarea
                 className="mt-1 w-full border rounded px-3 py-2 h-28"
-                value={formMemo}
-                onChange={(e) => setFormMemo(e.target.value)}
+                value={memo}
+                onChange={(e) => setMemo(e.target.value)}
               />
             </div>
 
-            <div className="flex gap-3 items-center">
-              <button
-                type="submit"
-                disabled={savingProfile}
-                className="px-4 py-2 bg-black text-white rounded disabled:opacity-50"
-              >
-                {savingProfile ? "保存中..." : "保存"}
-              </button>
-              <button
-                type="button"
-                onClick={revokeApproval}
-                className="px-3 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700"
-              >
-                退会（利用停止）
-              </button>
-            </div>
+            <button
+              type="submit"
+              disabled={savingProfile}
+              className="px-4 py-2 bg-black text-white rounded disabled:opacity-50"
+            >
+              {savingProfile ? "保存中..." : "保存"}
+            </button>
 
-            {profileMsg && <p className="text-sm text-gray-700 mt-1">{profileMsg}</p>}
+            {profileMsg && (
+              <p className="text-sm text-gray-700 mt-1">{profileMsg}</p>
+            )}
           </form>
 
           <section className="max-w-xl">
@@ -250,16 +249,8 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
       )}
 
       {tab === "grades" && (
-        <div className="space-y-6">
-          <div className="bg-white border rounded-2xl p-4">
-            <h2 className="text-lg font-bold mb-3">問題集の成績</h2>
-            <StudentGrades userId={student.id} editable={true} />
-          </div>
-
-          <div className="bg-white border rounded-2xl p-4">
-            <h2 className="text-lg font-bold mb-3">テスト・模試の記録</h2>
-            <StudentRecords studentId={student.id} editable={true} />
-          </div>
+        <div className="bg-white border rounded-2xl p-4">
+          <StudentGrades userId={student.id} editable={true} />
         </div>
       )}
 
@@ -269,13 +260,18 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
         </div>
       )}
 
-      {tab === "calendar" && (
+      {tab === "records" && (
         <div className="bg-white border rounded-2xl p-4">
-          <StudentCalendar
-            userId={student.id}
-            canEditPersonal={false}
-            title="生徒のカレンダー（閲覧）"
-          />
+          <StudentStudyLogs userId={student.id} />
+        </div>
+      )}
+
+      {tab === "calendar" && (
+        <div className="bg-white border rounded-2xl p-4 space-y-4">
+          <h2 className="text-lg font-bold">生徒の予定</h2>
+
+          {/* 先生は閲覧できる（RLSで teacher/admin select を許可済み） */}
+          <StudentCalendar ownerId={student.id} editable={false} scope="student" />
         </div>
       )}
     </div>
