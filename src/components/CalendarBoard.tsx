@@ -321,17 +321,15 @@ export default function CalendarBoard({
               key={c.dateISO}
               onClick={() => selectDate(c.dateISO)}
               className={[
-                  "min-h-[54px] rounded border px-1 py-1 text-left",
-                  c.inMonth ? "bg-white" : "bg-gray-50 text-gray-400",
-                  isSelected ? "ring-2 ring-blue-500 bg-blue-50" : "",
+                  "min-h-[54px] rounded border text-center px-1 py-1",
+                  c.inMonth ? "bg-white border-gray-200" : "bg-gray-50 text-gray-400 border-gray-100",
+                  isSelected ? "ring-2 ring-blue-500 border-blue-500 bg-blue-50" : "",
                 ].join(" ")}
             >
-              <div className="flex items-center justify-between">
-                <div className="text-xs font-semibold">{dayNum}</div>
-                {evs.length > 0 && (
-                  <div className="text-[10px] text-gray-500">{evs.length}件</div>
-                )}
-              </div>
+              <div className="text-xs font-semibold">{dayNum}</div>
+              {evs.length > 0 && (
+                <div className="text-[10px] text-gray-500 mt-1">{evs.length}件</div>
+              )}
 
               {/* 予定の簡易表示（最大2件） */}
               <div className="mt-1 space-y-1">

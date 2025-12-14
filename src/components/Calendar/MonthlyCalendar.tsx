@@ -89,14 +89,14 @@ export default function MonthlyCalendar({
               type="button"
               onClick={() => onSelectDate?.(c.date)}
               className={[
-                "text-left border rounded-lg p-2 min-h-[74px] active:scale-[0.99]",
-                c.date === todayDate ? "border-black" : "border-gray-200",
+                "bg-white text-center border rounded-lg p-2 min-h-[74px]",
+                c.date === todayDate ? "border-blue-500 bg-blue-50" : "border-gray-200",
               ].join(" ")}
             >
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col items-center justify-center h-full">
                 <div className="text-xs font-bold">{c.day}</div>
                 {c.items.length > 0 && (
-                  <div className="text-[10px] text-gray-500">
+                  <div className="text-[10px] text-gray-500 mt-1">
                     {c.items.length}件
                   </div>
                 )}
