@@ -279,22 +279,44 @@ export default function CalendarBoard({
   return (
     <div className="space-y-6">
       {/* Header（矢印を大きく＆中央寄せ） */}
-      <div className="bg-white rounded-2xl">
-        <div className="flex items-center justify-center gap-6 px-3 py-3">
+      <div style={{ backgroundColor: "#ffffff", borderRadius: "1rem" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "24px", padding: "12px" }}>
           <button
-            className="w-12 h-10 rounded-xl border bg-white text-2xl text-blue-600 grid place-items-center"
+            style={{
+              width: "48px",
+              height: "40px",
+              borderRadius: "0.75rem",
+              border: "1px solid #e5e7eb",
+              backgroundColor: "#ffffff",
+              fontSize: "24px",
+              color: "#3b82f6",
+              display: "grid",
+              placeItems: "center",
+              cursor: "pointer",
+            }}
             aria-label="前の月"
             onClick={() => setMonth(addMonths(month, -1))}
           >
             ‹
           </button>
 
-          <div className="text-center font-extrabold text-gray-900 min-w-[120px]">
+          <div style={{ textAlign: "center", fontWeight: 800, color: "#111827", minWidth: "120px" }}>
             {monthRange.label}
           </div>
 
           <button
-            className="w-12 h-10 rounded-xl border bg-white text-2xl text-blue-600 grid place-items-center"
+            style={{
+              width: "48px",
+              height: "40px",
+              borderRadius: "0.75rem",
+              border: "1px solid #e5e7eb",
+              backgroundColor: "#ffffff",
+              fontSize: "24px",
+              color: "#3b82f6",
+              display: "grid",
+              placeItems: "center",
+              cursor: "pointer",
+            }}
             aria-label="次の月"
             onClick={() => setMonth(addMonths(month, 1))}
           >
@@ -320,26 +342,43 @@ export default function CalendarBoard({
             <button
               key={c.dateISO}
               onClick={() => selectDate(c.dateISO)}
-              className={[
-                  "min-h-[54px] rounded border text-center px-1 py-1",
-                  c.inMonth ? "bg-white border-gray-200" : "bg-gray-50 text-gray-400 border-gray-100",
-                  isSelected ? "ring-2 ring-blue-500 border-blue-500 bg-blue-50" : "",
-                ].join(" ")}
+              style={{
+                minHeight: "54px",
+                borderRadius: "0.375rem",
+                border: "1px solid",
+                borderColor: c.inMonth 
+                  ? (isSelected ? "#3b82f6" : "#e5e7eb")
+                  : "#e5e7eb",
+                padding: "4px 4px",
+                textAlign: "center",
+                backgroundColor: isSelected ? "#eff6ff" : (c.inMonth ? "#ffffff" : "#f9fafb"),
+                color: c.inMonth ? "#000000" : "#9ca3af",
+                cursor: "pointer",
+                fontSize: "12px",
+                fontWeight: 600,
+                boxShadow: isSelected ? "0 0 0 2px rgba(59, 130, 246, 0.4)" : "none",
+              }}
             >
-              <div className="text-xs font-semibold">{dayNum}</div>
+              <div style={{ fontSize: "12px", fontWeight: 600 }}>{dayNum}</div>
               {evs.length > 0 && (
-                <div className="text-[10px] text-gray-500 mt-1">{evs.length}件</div>
+                <div style={{ fontSize: "10px", color: "#6b7280", marginTop: "4px" }}>{evs.length}件</div>
               )}
 
               {/* 予定の簡易表示（最大2件） */}
-              <div className="mt-1 space-y-1">
+              <div style={{ marginTop: "4px", display: "flex", flexDirection: "column", gap: "4px" }}>
                 {evs.slice(0, 2).map((e) => (
                   <div
                     key={e.id}
-                    className={[
-                      "text-[10px] truncate rounded px-1 py-px",
-                        e.scope === "school" ? "bg-blue-100 text-blue-700" : "bg-black text-white",
-                    ].join(" ")}
+                    style={{
+                      fontSize: "10px",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      borderRadius: "0.25rem",
+                      padding: "2px 4px",
+                      backgroundColor: e.scope === "school" ? "#dbeafe" : "#000000",
+                      color: e.scope === "school" ? "#1d4ed8" : "#ffffff",
+                    }}
                   >
                     {e.title}
                   </div>

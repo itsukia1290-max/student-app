@@ -66,19 +66,33 @@ export default function Report() {
         {/* ===== Tabs (記録 / タイムライン) ===== */}
         <div className="mt-4 flex">
           <button
-            className={[
-              "flex-1 py-3 text-center font-semibold bg-transparent border-0 hover:bg-transparent",
-              tab === "record" ? "text-gray-900" : "text-gray-400",
-            ].join(" ")}
+            style={{
+              flex: 1,
+              padding: "12px 0",
+              textAlign: "center",
+              fontSize: "16px",
+              fontWeight: 600,
+              backgroundColor: "transparent",
+              border: "none",
+              color: tab === "record" ? "#111827" : "#9ca3af",
+              cursor: "pointer",
+            }}
             onClick={() => setTab("record")}
           >
             記録
           </button>
           <button
-            className={[
-              "flex-1 py-3 text-center font-semibold bg-transparent border-0 hover:bg-transparent",
-              tab === "timeline" ? "text-gray-900" : "text-gray-400",
-            ].join(" ")}
+            style={{
+              flex: 1,
+              padding: "12px 0",
+              textAlign: "center",
+              fontSize: "16px",
+              fontWeight: 600,
+              backgroundColor: "transparent",
+              border: "none",
+              color: tab === "timeline" ? "#111827" : "#9ca3af",
+              cursor: "pointer",
+            }}
             onClick={() => setTab("timeline")}
           >
             タイムライン
@@ -86,12 +100,17 @@ export default function Report() {
         </div>
 
         {/* 下線（青） */}
-        <div className="relative h-[2px] bg-gray-100 rounded-full overflow-hidden">
+        <div style={{ position: "relative", height: "2px", backgroundColor: "#f3f4f6", borderRadius: "9999px", overflow: "hidden" }}>
           <div
-            className={[
-              "absolute top-0 h-[2px] w-1/2 bg-blue-500 transition-transform duration-200",
-              tab === "record" ? "translate-x-0" : "translate-x-full",
-            ].join(" ")}
+            style={{
+              position: "absolute",
+              top: 0,
+              height: "2px",
+              width: "50%",
+              backgroundColor: "#3b82f6",
+              transform: tab === "record" ? "translateX(0)" : "translateX(100%)",
+              transition: "transform 0.2s ease",
+            }}
           />
         </div>
       </div>
