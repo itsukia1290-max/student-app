@@ -9,11 +9,12 @@ import Chat from "./pages/Chat";
 import Students from "./pages/Students";
 import SchoolCalendar from "./pages/SchoolCalendar";
 import DM from "./pages/DM";
-import Home from "./pages/Home";
 import { supabase } from "./lib/supabase";
 import { useMyApproval } from "./hooks/useMyApproval";
 import { useIsStaff } from "./hooks/useIsStaff";
 import BottomNav from "./components/ui/BottomNav";
+import Report from "./pages/Report";
+
 
 type View = "home" | "mypage" | "chat" | "dm" | "students" | "schoolCalendar";
 
@@ -40,7 +41,8 @@ function Shell() {
     <div className="min-h-screen bg-gray-50 pb-28">
       {/* メイン */}
       <main className="max-w-5xl mx-auto px-4 py-6">
-        {effectiveView === "home" && <Home />}
+        {effectiveView === "home" && <Report />}
+
         {effectiveView === "mypage" && <MyPage />}
         {effectiveView === "chat" && <Chat />}
         {effectiveView === "dm" && <DM />}

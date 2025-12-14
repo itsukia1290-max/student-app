@@ -26,6 +26,9 @@ type Props = {
   ownerUserId: string; // 表示対象ユーザー（生徒なら自分、先生なら選択した生徒）
   canEditPersonal: boolean; // 生徒本人ならtrue
   canEditSchool: boolean;   // teacher/adminならtrue
+  // optional control from parent
+  selectedDay?: string;
+  onSelectDay?: (ymd: string) => void;
 };
 
 function toISODate(d: Date): string {
@@ -60,6 +63,8 @@ export default function CalendarBoard({
   ownerUserId,
   canEditPersonal,
   canEditSchool,
+  selectedDay,
+  onSelectDay,
 }: Props) {
   // viewerRole is accepted for future logic (permissions/UI) but currently unused
   void viewerRole;
@@ -132,6 +137,18 @@ export default function CalendarBoard({
     loadEvents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerUserId, monthRange.start, monthRange.end]);
+
+  // If parent controls selectedDay, sync it into local state
+  useEffect(() => {
+    if (selectedDay && selectedDay !== selectedDate) setSelectedDate(selectedDay);
+  }, [selectedDay, selectedDate]);
+
+  function selectDate(ymd: string) {
+    setSelectedDate(ymd);
+    if (onSelectDay) onSelectDay(ymd);
+  }
+
+  // (no-op removed)
 
   function openNew(scope: Scope) {
     setEditing(null);
@@ -269,7 +286,7 @@ export default function CalendarBoard({
         <button
           className="border rounded px-3 py-2 text-sm"
           onClick={() => {
-            setSelectedDate(toISODate(new Date()));
+            selectDate(toISODate(new Date()));
             openNew("personal");
           }}
           disabled={!canCreatePersonal}
@@ -279,7 +296,7 @@ export default function CalendarBoard({
         <button
           className="border rounded px-3 py-2 text-sm"
           onClick={() => {
-            setSelectedDate(toISODate(new Date()));
+            selectDate(toISODate(new Date()));
             openNew("school");
           }}
           disabled={!canCreateSchool}
@@ -301,7 +318,7 @@ export default function CalendarBoard({
           return (
             <button
               key={c.dateISO}
-              onClick={() => setSelectedDate(c.dateISO)}
+              onClick={() => selectDate(c.dateISO)}
               className={[
                 "min-h-[54px] rounded border px-1 py-1 text-left",
                 c.inMonth ? "bg-white" : "bg-gray-50 text-gray-400",
@@ -320,7 +337,7 @@ export default function CalendarBoard({
                   <div
                     key={e.id}
                     className={[
-                      "text-[10px] truncate rounded px-1 py-[1px]",
+                      "text-[10px] truncate rounded px-1 py-px",
                       e.scope === "school" ? "bg-gray-100" : "bg-black text-white",
                     ].join(" ")}
                   >
