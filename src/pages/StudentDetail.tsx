@@ -1,15 +1,16 @@
 /*
  * src/pages/StudentDetail.tsx
- * Responsibility: 生徒の詳細ビュー（教師用）
+ * - プロフィールタブ内に: 名前/電話/メモ編集 + 所属グループ + 生徒カレンダー閲覧
+ * - 成績タブ: StudentGrades + (必要ならRecords)
+ * - 目標タブ: StudentGoals
+ * - 先生は塾予定(school)を編集でき、生徒personalは閲覧のみ
  */
-
 import { useEffect, useState } from "react";
 import { useIsStaff } from "../hooks/useIsStaff";
 import { supabase } from "../lib/supabase";
 import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
-import StudentStudyLogs from "../components/StudentStudyLogs";
-import StudentCalendar from "../components/StudentCalendar";
+import CalendarBoard from "../components/CalendarBoard";
 
 type Props = {
   student: {
@@ -21,7 +22,7 @@ type Props = {
   onBack: () => void;
 };
 
-type Tab = "profile" | "grades" | "goals" | "records" | "calendar";
+type Tab = "profile" | "grades" | "goals";
 
 type GroupMini = {
   id: string;
@@ -33,17 +34,16 @@ export default function StudentDetail({ student, onBack }: Props) {
   const { isStaff } = useIsStaff();
   const [tab, setTab] = useState<Tab>("profile");
 
-  // --- プロフィール編集用 ---
-  const [name, setName] = useState(student.name ?? "");
-  const [phone, setPhone] = useState(student.phone ?? "");
-  const [memo, setMemo] = useState(student.memo ?? "");
+  const [formName, setFormName] = useState(student.name ?? "");
+  const [formPhone, setFormPhone] = useState(student.phone ?? "");
+  const [formMemo, setFormMemo] = useState(student.memo ?? "");
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    setName(student.name ?? "");
-    setPhone(student.phone ?? "");
-    setMemo(student.memo ?? "");
+    setFormName(student.name ?? "");
+    setFormPhone(student.phone ?? "");
+    setFormMemo(student.memo ?? "");
   }, [student]);
 
   async function saveProfile(e: React.FormEvent) {
@@ -56,25 +56,23 @@ export default function StudentDetail({ student, onBack }: Props) {
     const { error } = await supabase
       .from("profiles")
       .update({
-        name,
-        phone: phone || null,
-        memo: memo || null,
+        name: formName,
+        phone: formPhone || null,
+        memo: formMemo || null,
       })
       .eq("id", student.id);
 
     if (error) setProfileMsg("プロフィール保存に失敗しました: " + error.message);
     else setProfileMsg("プロフィールを保存しました。");
-
     setSavingProfile(false);
   }
 
-  // --- 所属グループ表示用 ---
+  // groups
   const [groups, setGroups] = useState<GroupMini[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-
     (async () => {
       setGroupsLoading(true);
 
@@ -84,13 +82,13 @@ export default function StudentDetail({ student, onBack }: Props) {
         .eq("user_id", student.id);
 
       if (e1) {
-        console.error("❌ load student groups (step1):", e1.message);
+        console.error("❌ load student groups step1:", e1.message);
         if (!cancelled) setGroups([]);
         setGroupsLoading(false);
         return;
       }
 
-      const ids = (gm ?? []).map((r) => r.group_id as string);
+      const ids = (gm ?? []).map((r: any) => r.group_id as string);
       if (ids.length === 0) {
         if (!cancelled) setGroups([]);
         setGroupsLoading(false);
@@ -104,7 +102,7 @@ export default function StudentDetail({ student, onBack }: Props) {
         .order("name", { ascending: true });
 
       if (e2) {
-        console.error("❌ load student groups (step2):", e2.message);
+        console.error("❌ load student groups step2:", e2.message);
         if (!cancelled) setGroups([]);
         setGroupsLoading(false);
         return;
@@ -112,7 +110,7 @@ export default function StudentDetail({ student, onBack }: Props) {
 
       if (!cancelled) {
         setGroups(
-          (gs ?? []).map((g) => ({
+          (gs ?? []).map((g: any) => ({
             id: g.id as string,
             name: (g.name as string) ?? "(名称未設定)",
             type: (g.type as string) ?? "class",
@@ -136,97 +134,73 @@ export default function StudentDetail({ student, onBack }: Props) {
         ← 一覧に戻る
       </button>
 
-      <h1 className="text-2xl font-bold">{student.name ?? "（未設定）"}</h1>
-
-      <div className="flex gap-2 border-b mt-4 flex-wrap">
+      {/* タブ */}
+      <div className="flex gap-2 border-b mt-4">
         <button
-          className={`px-3 py-1 rounded-t ${
-            tab === "profile" ? "bg-black text-white" : "border"
-          }`}
+          className={`px-3 py-1 rounded-t ${tab === "profile" ? "bg-black text-white" : "border"}`}
           onClick={() => setTab("profile")}
         >
           プロフィール
         </button>
-
         <button
-          className={`px-3 py-1 rounded-t ${
-            tab === "grades" ? "bg-black text-white" : "border"
-          }`}
+          className={`px-3 py-1 rounded-t ${tab === "grades" ? "bg-black text-white" : "border"}`}
           onClick={() => setTab("grades")}
         >
           成績
         </button>
-
         <button
-          className={`px-3 py-1 rounded-t ${
-            tab === "goals" ? "bg-black text-white" : "border"
-          }`}
+          className={`px-3 py-1 rounded-t ${tab === "goals" ? "bg-black text-white" : "border"}`}
           onClick={() => setTab("goals")}
         >
           目標
         </button>
-
-        <button
-          className={`px-3 py-1 rounded-t ${
-            tab === "records" ? "bg-black text-white" : "border"
-          }`}
-          onClick={() => setTab("records")}
-        >
-          学習記録
-        </button>
-
-        <button
-          className={`px-3 py-1 rounded-t ${
-            tab === "calendar" ? "bg-black text-white" : "border"
-          }`}
-          onClick={() => setTab("calendar")}
-        >
-          カレンダー
-        </button>
       </div>
 
+      {/* プロフィールタブ：ここに全部集約 */}
       {tab === "profile" && (
         <div className="space-y-6">
-          <form onSubmit={saveProfile} className="space-y-4 max-w-xl">
+          <h1 className="text-2xl font-bold">{student.name ?? "（未設定）"}</h1>
+
+          <form onSubmit={saveProfile} className="space-y-4 max-w-xl bg-white border rounded-2xl p-4">
             <div>
               <label className="block text-sm">氏名</label>
               <input
                 className="mt-1 w-full border rounded px-3 py-2"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={formName}
+                onChange={(e) => setFormName(e.target.value)}
               />
             </div>
             <div>
               <label className="block text-sm">電話番号</label>
               <input
                 className="mt-1 w-full border rounded px-3 py-2"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                value={formPhone}
+                onChange={(e) => setFormPhone(e.target.value)}
               />
             </div>
             <div>
               <label className="block text-sm">メモ</label>
               <textarea
                 className="mt-1 w-full border rounded px-3 py-2 h-28"
-                value={memo}
-                onChange={(e) => setMemo(e.target.value)}
+                value={formMemo}
+                onChange={(e) => setFormMemo(e.target.value)}
               />
             </div>
 
-            <button
-              type="submit"
-              disabled={savingProfile}
-              className="px-4 py-2 bg-black text-white rounded disabled:opacity-50"
-            >
-              {savingProfile ? "保存中..." : "保存"}
-            </button>
+            <div className="flex gap-3 items-center">
+              <button
+                type="submit"
+                disabled={savingProfile}
+                className="px-4 py-2 bg-black text-white rounded disabled:opacity-50"
+              >
+                {savingProfile ? "保存中..." : "保存"}
+              </button>
+            </div>
 
-            {profileMsg && (
-              <p className="text-sm text-gray-700 mt-1">{profileMsg}</p>
-            )}
+            {profileMsg && <p className="text-sm text-gray-700 mt-1">{profileMsg}</p>}
           </form>
 
-          <section className="max-w-xl">
+          <section className="max-w-xl bg-white border rounded-2xl p-4">
             <h2 className="font-semibold mb-2">所属グループ</h2>
             {groupsLoading ? (
               <p className="text-sm text-gray-500">読み込み中...</p>
@@ -237,41 +211,38 @@ export default function StudentDetail({ student, onBack }: Props) {
                 {groups.map((g) => (
                   <li key={g.id}>
                     {g.name}
-                    {g.type === "dm" && (
-                      <span className="ml-2 text-xs text-gray-500">（DM）</span>
-                    )}
+                    {g.type === "dm" && <span className="ml-2 text-xs text-gray-500">（DM）</span>}
                   </li>
                 ))}
               </ul>
             )}
           </section>
+
+          {/* 生徒カレンダー（先生は閲覧＋塾予定編集） */}
+          <section className="bg-white border rounded-2xl p-4">
+            <h2 className="text-lg font-bold mb-3">カレンダー</h2>
+            <CalendarBoard
+              viewerRole="teacher"
+              ownerUserId={student.id}
+              canEditPersonal={false}  // 生徒personalは閲覧のみ
+              canEditSchool={true}     // 塾予定は先生が編集
+            />
+          </section>
         </div>
       )}
 
       {tab === "grades" && (
-        <div className="bg-white border rounded-2xl p-4">
-          <StudentGrades userId={student.id} editable={true} />
+        <div className="space-y-6">
+          <div className="bg-white border rounded-2xl p-4">
+            <h2 className="text-lg font-bold mb-3">問題集の成績</h2>
+            <StudentGrades userId={student.id} editable={true} />
+          </div>
         </div>
       )}
 
       {tab === "goals" && (
         <div className="bg-white border rounded-2xl p-4">
           <StudentGoals userId={student.id} editable={true} />
-        </div>
-      )}
-
-      {tab === "records" && (
-        <div className="bg-white border rounded-2xl p-4">
-          <StudentStudyLogs userId={student.id} />
-        </div>
-      )}
-
-      {tab === "calendar" && (
-        <div className="bg-white border rounded-2xl p-4 space-y-4">
-          <h2 className="text-lg font-bold">生徒の予定</h2>
-
-          {/* 先生は閲覧できる（RLSで teacher/admin select を許可済み） */}
-          <StudentCalendar ownerId={student.id} editable={false} scope="student" />
         </div>
       )}
     </div>

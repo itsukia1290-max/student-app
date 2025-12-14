@@ -1,10 +1,8 @@
 /*
  * src/pages/MyPage.tsx
- * Responsibility: マイページ（ユーザー固有の情報表示・編集）
- * - スタッフ用のプロフィール編集ビュー
- * - 生徒用のタブ（プロフィール / 目標 / 成績 / 記録 / カレンダー）を提供
+ * - スタッフ用: プロフィール編集のみ
+ * - 生徒用: プロフィール / 目標 / 成績 / 記録（StudyLogs + Calendar）
  */
-
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
@@ -13,7 +11,7 @@ import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
 import StudentGroups from "../components/StudentGroups";
 import StudentStudyLogs from "../components/StudentStudyLogs";
-import StudentCalendar from "../components/StudentCalendar";
+import CalendarBoard from "../components/CalendarBoard";
 import Button from "../components/ui/Button";
 import Input, { Textarea } from "../components/ui/Input";
 
@@ -24,7 +22,7 @@ type Profile = {
   memo: string | null;
 };
 
-type Tab = "profile" | "goals" | "grades" | "records" | "calendar";
+type Tab = "profile" | "goals" | "grades" | "records";
 
 export default function MyPage() {
   const { user } = useAuth();
@@ -66,7 +64,7 @@ export default function MyPage() {
     setSaving(false);
   }
 
-  // スタッフ：従来どおり
+  // Staff view
   if (isStaff) {
     return (
       <div className="p-6 max-w-xl mx-auto">
@@ -81,10 +79,7 @@ export default function MyPage() {
                 className="mt-1"
                 value={form.name}
                 onChange={(e) =>
-                  setForm({
-                    ...form,
-                    name: (e.target as HTMLInputElement).value,
-                  })
+                  setForm({ ...form, name: (e.target as HTMLInputElement).value })
                 }
               />
             </div>
@@ -94,10 +89,7 @@ export default function MyPage() {
                 className="mt-1"
                 value={form.phone ?? ""}
                 onChange={(e) =>
-                  setForm({
-                    ...form,
-                    phone: (e.target as HTMLInputElement).value,
-                  })
+                  setForm({ ...form, phone: (e.target as HTMLInputElement).value })
                 }
               />
             </div>
@@ -107,10 +99,7 @@ export default function MyPage() {
                 className="mt-1 h-28"
                 value={form.memo ?? ""}
                 onChange={(e) =>
-                  setForm({
-                    ...form,
-                    memo: (e.target as HTMLTextAreaElement).value,
-                  })
+                  setForm({ ...form, memo: (e.target as HTMLTextAreaElement).value })
                 }
               />
             </div>
@@ -123,54 +112,21 @@ export default function MyPage() {
     );
   }
 
-  // 生徒：タブ
+  // Student view
   return (
     <div className="min-h-[70vh]">
-      <div className="flex gap-2 border-b bg-white p-3 flex-wrap">
-        <button
-          className={`px-3 py-1 rounded ${
-            tab === "profile" ? "bg-black text-white" : "border"
-          }`}
-          onClick={() => setTab("profile")}
-        >
-          プロフィール
-        </button>
-
-        <button
-          className={`px-3 py-1 rounded ${
-            tab === "goals" ? "bg-black text-white" : "border"
-          }`}
-          onClick={() => setTab("goals")}
-        >
-          目標
-        </button>
-
-        <button
-          className={`px-3 py-1 rounded ${
-            tab === "grades" ? "bg-black text-white" : "border"
-          }`}
-          onClick={() => setTab("grades")}
-        >
-          成績
-        </button>
-
-        <button
-          className={`px-3 py-1 rounded ${
-            tab === "records" ? "bg-black text-white" : "border"
-          }`}
-          onClick={() => setTab("records")}
-        >
-          記録
-        </button>
-
-        <button
-          className={`px-3 py-1 rounded ${
-            tab === "calendar" ? "bg-black text-white" : "border"
-          }`}
-          onClick={() => setTab("calendar")}
-        >
-          カレンダー
-        </button>
+      <div className="flex gap-2 border-b bg-white p-3">
+        {(["profile","goals","grades","records"] as Tab[]).map((k) => (
+          <button
+            key={k}
+            className={`px-3 py-1 rounded ${
+              tab === k ? "bg-black text-white" : "border"
+            }`}
+            onClick={() => setTab(k)}
+          >
+            {k === "profile" ? "プロフィール" : k === "goals" ? "目標" : k === "grades" ? "成績" : "記録"}
+          </button>
+        ))}
       </div>
 
       {tab === "profile" && (
@@ -187,38 +143,27 @@ export default function MyPage() {
                     className="mt-1"
                     value={form.name}
                     onChange={(e) =>
-                      setForm({
-                        ...form,
-                        name: (e.target as HTMLInputElement).value,
-                      })
+                      setForm({ ...form, name: (e.target as HTMLInputElement).value })
                     }
                   />
                 </div>
-
                 <div>
                   <label className="block text-sm">電話番号</label>
                   <Input
                     className="mt-1"
                     value={form.phone ?? ""}
                     onChange={(e) =>
-                      setForm({
-                        ...form,
-                        phone: (e.target as HTMLInputElement).value,
-                      })
+                      setForm({ ...form, phone: (e.target as HTMLInputElement).value })
                     }
                   />
                 </div>
-
                 <div>
                   <label className="block text-sm">メモ</label>
                   <Textarea
                     className="mt-1 h-28"
                     value={form.memo ?? ""}
                     onChange={(e) =>
-                      setForm({
-                        ...form,
-                        memo: (e.target as HTMLTextAreaElement).value,
-                      })
+                      setForm({ ...form, memo: (e.target as HTMLTextAreaElement).value })
                     }
                   />
                 </div>
@@ -256,17 +201,20 @@ export default function MyPage() {
       )}
 
       {tab === "records" && user && (
-        <div className="p-6 max-w-4xl mx-auto">
-          <StudentStudyLogs userId={user.id} />
-        </div>
-      )}
-
-      {tab === "calendar" && user && (
         <div className="p-6 max-w-4xl mx-auto space-y-6">
           <div className="bg-white rounded-2xl border p-4">
-            <h2 className="text-lg font-bold mb-3">自分の予定</h2>
-            {/* 生徒本人：編集できる */}
-            <StudentCalendar ownerId={user.id} editable={true} scope="student" />
+            <h2 className="text-lg font-bold mb-3">勉強時間の記録</h2>
+            <StudentStudyLogs userId={user.id} />
+          </div>
+
+          <div className="bg-white rounded-2xl border p-4">
+            <h2 className="text-lg font-bold mb-3">カレンダー</h2>
+            <CalendarBoard
+              viewerRole="student"
+              ownerUserId={user.id}
+              canEditPersonal={true}
+              canEditSchool={false}
+            />
           </div>
         </div>
       )}

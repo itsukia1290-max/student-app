@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 
-type View = 'home' | 'mypage' | 'chat' | 'dm' | 'students';
+type View = 'home' | 'mypage' | 'chat' | 'dm' | 'students' | 'schoolCalendar';
 
 export default function BottomNav({
   tabs,
@@ -57,7 +57,7 @@ export default function BottomNav({
       style={{ visibility: 'hidden' }}
     >
       <div
-        className={`grid ${tabs.length === 5 ? 'grid-cols-5' : 'grid-cols-4'} text-xs h-16 items-center px-1 pb-[env(safe-area-inset-bottom)]`}
+        className={`grid ${tabs.length === 6 ? 'grid-cols-6' : tabs.length === 5 ? 'grid-cols-5' : 'grid-cols-4'} text-xs h-16 items-center px-1 pb-[env(safe-area-inset-bottom)]`}
       >
         {tabs.map((t) => (
           <button

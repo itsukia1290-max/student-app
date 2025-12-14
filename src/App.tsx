@@ -7,6 +7,7 @@ import Signup from "./pages/Signup";
 import MyPage from "./pages/MyPage";
 import Chat from "./pages/Chat";
 import Students from "./pages/Students";
+import SchoolCalendar from "./pages/SchoolCalendar";
 import DM from "./pages/DM";
 import Home from "./pages/Home";
 import { supabase } from "./lib/supabase";
@@ -14,7 +15,7 @@ import { useMyApproval } from "./hooks/useMyApproval";
 import { useIsStaff } from "./hooks/useIsStaff";
 import BottomNav from "./components/ui/BottomNav";
 
-type View = "home" | "mypage" | "chat" | "dm" | "students";
+type View = "home" | "mypage" | "chat" | "dm" | "students" | "schoolCalendar";
 
 function Shell() {
   // We don't currently use `user` in Shell, but AuthGate reads session via useAuth.
@@ -29,10 +30,11 @@ function Shell() {
     { key: "mypage", label: "マイページ" },
   ];
 
-  if (isStaff) tabs.splice(3, 0, { key: "students", label: "生徒" });
+  if (isStaff)
+    tabs.splice(3, 0, { key: "students", label: "生徒" }, { key: "schoolCalendar", label: "塾カレンダー" });
 
   const effectiveView: View =
-    !isStaff && view === "students" ? "home" : view;
+    !isStaff && (view === "students" || view === "schoolCalendar") ? "home" : view;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-28">
@@ -43,6 +45,7 @@ function Shell() {
         {effectiveView === "chat" && <Chat />}
         {effectiveView === "dm" && <DM />}
         {effectiveView === "students" && isStaff && <Students />}
+        {effectiveView === "schoolCalendar" && isStaff && <SchoolCalendar />}
       </main>
 
       {/* スマホ下部固定ナビ（ポータル経由で body に配置して VC の影響を受けないようにする） */}
