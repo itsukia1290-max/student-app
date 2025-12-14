@@ -53,19 +53,48 @@ export default function BottomNav({
     return ReactDOM.createPortal(
     <nav
       ref={(el) => { navRef.current = el; }}
-      className="fixed inset-x-0 bottom-0 z-50 bg-white border-t shadow-md backdrop-blur/0"
-      style={{ visibility: 'hidden' }}
+      style={{
+        position: 'fixed',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 50,
+        backgroundColor: '#ffffff',
+        borderTop: '1px solid #e5e7eb',
+        boxShadow: '0 -1px 3px 0 rgba(0, 0, 0, 0.1)',
+        visibility: 'hidden',
+      }}
     >
       <div
-        className={`grid ${tabs.length === 6 ? 'grid-cols-6' : tabs.length === 5 ? 'grid-cols-5' : 'grid-cols-4'} text-xs h-16 items-center px-1 pb-[env(safe-area-inset-bottom)]`}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${tabs.length}, 1fr)`,
+          fontSize: '12px',
+          height: '64px',
+          alignItems: 'center',
+          padding: '0 4px',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+        }}
       >
         {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setView(t.key)}
-            className={`h-full flex flex-col items-center justify-center text-center ${
-              effectiveView === t.key ? 'text-black font-semibold border-t-2 border-black' : 'text-gray-500'
-            }`}
+            style={{
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textAlign: 'center',
+              backgroundColor: 'transparent',
+              border: 'none',
+              borderTop: effectiveView === t.key ? '2px solid #000000' : 'none',
+              color: effectiveView === t.key ? '#000000' : '#9ca3af',
+              fontWeight: effectiveView === t.key ? 600 : 400,
+              cursor: 'pointer',
+              padding: '4px',
+            }}
           >
             {t.label}
           </button>
