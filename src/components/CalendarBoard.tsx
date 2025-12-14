@@ -13,11 +13,11 @@ type EventRow = {
   title: string;
   description: string | null;
   start_at: string; // timestamptz
-  end_at: string;   // timestamptz
+  end_at: string; // timestamptz
   all_day: boolean;
-  day: string | null;       // date
+  day: string | null; // date
   start_time: string | null; // time
-  end_time: string | null;   // time
+  end_time: string | null; // time
   created_at: string;
 };
 
@@ -25,7 +25,7 @@ type Props = {
   viewerRole: "student" | "teacher" | "admin";
   ownerUserId: string; // 表示対象ユーザー（生徒なら自分、先生なら選択した生徒）
   canEditPersonal: boolean; // 生徒本人ならtrue
-  canEditSchool: boolean;   // teacher/adminならtrue
+  canEditSchool: boolean; // teacher/adminならtrue
   // optional control from parent
   selectedDay?: string;
   onSelectDay?: (ymd: string) => void;
@@ -41,10 +41,11 @@ function toISODate(d: Date): string {
 function startOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
-// endOfMonth was removed because it is not used in current logic
+
 function addMonths(d: Date, n: number): Date {
   return new Date(d.getFullYear(), d.getMonth() + n, 1);
 }
+
 function startOfCalendarGrid(month: Date): Date {
   const first = startOfMonth(month);
   const dow = first.getDay(); // 0 Sun
@@ -68,11 +69,14 @@ export default function CalendarBoard({
 }: Props) {
   // viewerRole is accepted for future logic (permissions/UI) but currently unused
   void viewerRole;
+
   const [month, setMonth] = useState<Date>(() => startOfMonth(new Date()));
   const [events, setEvents] = useState<EventRow[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const [selectedDate, setSelectedDate] = useState<string>(() => toISODate(new Date()));
+  const [selectedDate, setSelectedDate] = useState<string>(() =>
+    toISODate(new Date())
+  );
   const [openForm, setOpenForm] = useState(false);
   const [editing, setEditing] = useState<EventRow | null>(null);
 
@@ -86,7 +90,11 @@ export default function CalendarBoard({
   const monthRange = useMemo(() => {
     // grid 用に少し広めに取る
     const gridStart = startOfCalendarGrid(month);
-    const gridEnd = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + 41);
+    const gridEnd = new Date(
+      gridStart.getFullYear(),
+      gridStart.getMonth(),
+      gridStart.getDate() + 41
+    );
     return {
       start: gridStart.toISOString(),
       end: new Date(gridEnd.getTime() + 24 * 60 * 60 * 1000).toISOString(),
@@ -106,7 +114,9 @@ export default function CalendarBoard({
       map[day].push(ev);
     }
     Object.values(map).forEach((arr) =>
-      arr.sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
+      arr.sort(
+        (a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()
+      )
     );
     return map;
   }, [events]);
@@ -118,7 +128,9 @@ export default function CalendarBoard({
     // personal(ownerUserId) + school(全員分)
     const { data, error } = await supabase
       .from("calendar_events")
-      .select("id,scope,owner_id,title,description,start_at,end_at,all_day,day,details,start_time,end_time,created_at")
+      .select(
+        "id,scope,owner_id,title,description,start_at,end_at,all_day,day,details,start_time,end_time,created_at"
+      )
       .or(`and(scope.eq.personal,owner_id.eq.${ownerUserId}),scope.eq.school`)
       .gte("start_at", monthRange.start)
       .lte("start_at", monthRange.end)
@@ -147,8 +159,6 @@ export default function CalendarBoard({
     setSelectedDate(ymd);
     if (onSelectDay) onSelectDay(ymd);
   }
-
-  // (no-op removed)
 
   function openNew(scope: Scope) {
     setEditing(null);
@@ -203,7 +213,10 @@ export default function CalendarBoard({
       scope: formScope,
       // personal は ownerUserId（=生徒本人）で固定
       // school は作成者をowner_idにする（teacher/adminのuid）
-      owner_id: formScope === "personal" ? ownerUserId : (await supabase.auth.getUser()).data.user?.id ?? ownerUserId,
+      owner_id:
+        formScope === "personal"
+          ? ownerUserId
+          : (await supabase.auth.getUser()).data.user?.id ?? ownerUserId,
       title: formTitle.trim() || "(無題)",
       description: formDesc.trim() || null,
       all_day: formAllDay,
@@ -264,66 +277,54 @@ export default function CalendarBoard({
   const selectedEvents = dateToEvents[selectedDate] ?? [];
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="font-bold text-lg">{monthRange.label}</div>
-        <div className="flex gap-2">
-          <button className="border rounded px-3 py-1" onClick={() => setMonth(addMonths(month, -1))}>
-            ←
+    <div className="space-y-6">
+      {/* Header（矢印を大きく＆中央寄せ） */}
+      <div className="bg-white rounded-2xl">
+        <div className="flex items-center justify-center gap-6 px-3 py-3">
+          <button
+            className="w-12 h-10 rounded-xl border bg-white text-2xl text-blue-600 grid place-items-center"
+            aria-label="前の月"
+            onClick={() => setMonth(addMonths(month, -1))}
+          >
+            ‹
           </button>
-          <button className="border rounded px-3 py-1" onClick={() => setMonth(startOfMonth(new Date()))}>
-            今月
-          </button>
-          <button className="border rounded px-3 py-1" onClick={() => setMonth(addMonths(month, 1))}>
-            →
+
+          <div className="text-center font-extrabold text-gray-900 min-w-[120px]">
+            {monthRange.label}
+          </div>
+
+          <button
+            className="w-12 h-10 rounded-xl border bg-white text-2xl text-blue-600 grid place-items-center"
+            aria-label="次の月"
+            onClick={() => setMonth(addMonths(month, 1))}
+          >
+            ›
           </button>
         </div>
-      </div>
-
-      {/* Create buttons */}
-      <div className="flex flex-wrap gap-2">
-        <button
-          className="border rounded px-3 py-2 text-sm"
-          onClick={() => {
-            selectDate(toISODate(new Date()));
-            openNew("personal");
-          }}
-          disabled={!canCreatePersonal}
-        >
-          ＋ 個人予定を追加
-        </button>
-        <button
-          className="border rounded px-3 py-2 text-sm"
-          onClick={() => {
-            selectDate(toISODate(new Date()));
-            openNew("school");
-          }}
-          disabled={!canCreateSchool}
-        >
-          ＋ 塾予定を追加（先生）
-        </button>
-        {loading && <span className="text-sm text-gray-500">読み込み中...</span>}
       </div>
 
       {/* Calendar grid */}
       <div className="grid grid-cols-7 gap-1 text-center text-xs">
         {["日", "月", "火", "水", "木", "金", "土"].map((w) => (
-          <div key={w} className="py-2 font-semibold text-gray-600">{w}</div>
+          <div key={w} className="py-2 font-semibold text-gray-600">
+            {w}
+          </div>
         ))}
+
         {cells.map((c) => {
           const evs = dateToEvents[c.dateISO] ?? [];
           const isSelected = c.dateISO === selectedDate;
           const dayNum = Number(c.dateISO.split("-")[2]);
+
           return (
             <button
               key={c.dateISO}
               onClick={() => selectDate(c.dateISO)}
               className={[
-                "min-h-[54px] rounded border px-1 py-1 text-left",
-                c.inMonth ? "bg-white" : "bg-gray-50 text-gray-400",
-                isSelected ? "ring-2 ring-black" : "",
-              ].join(" ")}
+                  "min-h-[54px] rounded border px-1 py-1 text-left",
+                  c.inMonth ? "bg-white" : "bg-gray-50 text-gray-400",
+                  isSelected ? "ring-2 ring-blue-500 bg-blue-50" : "",
+                ].join(" ")}
             >
               <div className="flex items-center justify-between">
                 <div className="text-xs font-semibold">{dayNum}</div>
@@ -331,6 +332,7 @@ export default function CalendarBoard({
                   <div className="text-[10px] text-gray-500">{evs.length}件</div>
                 )}
               </div>
+
               {/* 予定の簡易表示（最大2件） */}
               <div className="mt-1 space-y-1">
                 {evs.slice(0, 2).map((e) => (
@@ -338,7 +340,7 @@ export default function CalendarBoard({
                     key={e.id}
                     className={[
                       "text-[10px] truncate rounded px-1 py-px",
-                      e.scope === "school" ? "bg-gray-100" : "bg-black text-white",
+                        e.scope === "school" ? "bg-blue-100 text-blue-700" : "bg-black text-white",
                     ].join(" ")}
                   >
                     {e.title}
@@ -350,11 +352,40 @@ export default function CalendarBoard({
         })}
       </div>
 
+      {/* Create buttons（カレンダーの下側に移動） */}
+      <div className="flex flex-wrap gap-2 pt-2">
+        <button
+          className={["btn-ghost px-3 py-2 text-sm font-semibold", !canCreatePersonal ? "opacity-50 cursor-not-allowed" : ""].join(" ")}
+          onClick={() => {
+            selectDate(toISODate(new Date()));
+            openNew("personal");
+          }}
+          disabled={!canCreatePersonal}
+        >
+          ＋ 個人予定を追加
+        </button>
+
+        <button
+          className={["btn-ghost px-3 py-2 text-sm font-semibold text-blue-600", !canCreateSchool ? "opacity-50 cursor-not-allowed" : ""].join(" ")}
+          onClick={() => {
+            selectDate(toISODate(new Date()));
+            openNew("school");
+          }}
+          disabled={!canCreateSchool}
+        >
+          ＋ 塾予定を追加（先生）
+        </button>
+
+        {loading && (
+          <span className="text-sm text-gray-500 ml-1">読み込み中...</span>
+        )}
+      </div>
+
       {/* Selected day panel */}
       <div className="bg-white border rounded-2xl p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <div className="font-bold">{selectedDate}</div>
+            <div className="font-bold text-blue-700">{selectedDate}</div>
             <StudySummaryForDate userId={ownerUserId} dateISO={selectedDate} />
           </div>
         </div>
@@ -376,7 +407,9 @@ export default function CalendarBoard({
                         <span
                           className={[
                             "text-[10px] px-2 py-1 rounded-full",
-                            e.scope === "school" ? "bg-gray-100" : "bg-black text-white",
+                            e.scope === "school"
+                              ? "bg-gray-100"
+                              : "bg-black text-white",
                           ].join(" ")}
                         >
                           {e.scope === "school" ? "塾" : "個人"}
@@ -385,7 +418,9 @@ export default function CalendarBoard({
                       </div>
 
                       <div className="text-xs text-gray-600 mt-1">
-                        {e.all_day ? "終日" : `${formatHM(e.start_at)} - ${formatHM(e.end_at)}`}
+                        {e.all_day
+                          ? "終日"
+                          : `${formatHM(e.start_at)} - ${formatHM(e.end_at)}`}
                       </div>
 
                       {e.description && (
@@ -397,10 +432,16 @@ export default function CalendarBoard({
 
                     {editable && (
                       <div className="flex gap-2 shrink-0">
-                        <button className="border rounded px-3 py-1 text-sm" onClick={() => openEdit(e)}>
+                        <button
+                          className="border rounded px-3 py-1 text-sm"
+                          onClick={() => openEdit(e)}
+                        >
                           編集
                         </button>
-                        <button className="border rounded px-3 py-1 text-sm text-red-600" onClick={() => remove(e)}>
+                        <button
+                          className="border rounded px-3 py-1 text-sm text-red-600"
+                          onClick={() => remove(e)}
+                        >
                           削除
                         </button>
                       </div>
@@ -428,14 +469,18 @@ export default function CalendarBoard({
 
             <div className="flex gap-2">
               <button
-                className={`px-3 py-2 rounded border text-sm ${formScope === "personal" ? "bg-black text-white" : ""}`}
+                className={`px-3 py-2 rounded border text-sm ${
+                  formScope === "personal" ? "bg-black text-white" : ""
+                }`}
                 onClick={() => setFormScope("personal")}
                 disabled={!canCreatePersonal}
               >
                 個人
               </button>
               <button
-                className={`px-3 py-2 rounded border text-sm ${formScope === "school" ? "bg-black text-white" : ""}`}
+                className={`px-3 py-2 rounded border text-sm ${
+                  formScope === "school" ? "bg-black text-white" : ""
+                }`}
                 onClick={() => setFormScope("school")}
                 disabled={!canCreateSchool}
               >
@@ -445,12 +490,24 @@ export default function CalendarBoard({
 
             <div>
               <label className="block text-sm">タイトル</label>
-              <Input className="mt-1" value={formTitle} onChange={(e) => setFormTitle((e.target as HTMLInputElement).value)} />
+              <Input
+                className="mt-1"
+                value={formTitle}
+                onChange={(e) =>
+                  setFormTitle((e.target as HTMLInputElement).value)
+                }
+              />
             </div>
 
             <div>
               <label className="block text-sm">詳細</label>
-              <Textarea className="mt-1 h-24" value={formDesc} onChange={(e) => setFormDesc((e.target as HTMLTextAreaElement).value)} />
+              <Textarea
+                className="mt-1 h-24"
+                value={formDesc}
+                onChange={(e) =>
+                  setFormDesc((e.target as HTMLTextAreaElement).value)
+                }
+              />
             </div>
 
             <div className="flex items-center gap-2">
@@ -460,7 +517,9 @@ export default function CalendarBoard({
                 checked={formAllDay}
                 onChange={(e) => setFormAllDay(e.target.checked)}
               />
-              <label htmlFor="allDay" className="text-sm">終日</label>
+              <label htmlFor="allDay" className="text-sm">
+                終日
+              </label>
             </div>
 
             {!formAllDay && (
