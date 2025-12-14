@@ -12,6 +12,7 @@ import Home from "./pages/Home";
 import { supabase } from "./lib/supabase";
 import { useMyApproval } from "./hooks/useMyApproval";
 import { useIsStaff } from "./hooks/useIsStaff";
+import BottomNav from "./components/ui/BottomNav";
 
 type View = "home" | "mypage" | "chat" | "dm" | "students";
 
@@ -44,28 +45,8 @@ function Shell() {
         {effectiveView === "students" && isStaff && <Students />}
       </main>
 
-      {/* スマホ下部固定ナビ（文字のみ・横幅100%） */}
-      <nav
-        className="md:hidden fixed inset-x-0 bottom-0 z-50 bg-white border-t shadow-md backdrop-blur/0"
-      >
-        <div
-          className={`grid ${isStaff ? "grid-cols-5" : "grid-cols-4"} text-xs h-16 items-center px-1 pb-[env(safe-area-inset-bottom)]`}
-        >
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setView(t.key)}
-              className={`h-full flex flex-col items-center justify-center text-center ${
-                effectiveView === t.key
-                  ? "text-black font-semibold border-t-2 border-black"
-                  : "text-gray-500"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </nav>
+      {/* スマホ下部固定ナビ（ポータル経由で body に配置して VC の影響を受けないようにする） */}
+      <BottomNav tabs={tabs} effectiveView={effectiveView} setView={setView} />
     </div>
   );
 }
