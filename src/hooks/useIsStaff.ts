@@ -29,7 +29,7 @@ export function useIsStaff() {
     }
     run();
     return () => { alive = false; };
-  }, [user?.id]);
+  }, [user]);
 
   return { isStaff, loading };
 }

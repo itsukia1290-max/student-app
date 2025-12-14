@@ -36,7 +36,7 @@ export default function StudySummaryForDate({ userId, dateISO }: Props) {
           console.warn("⚠️ load study_logs failed:", error.message);
           setMinutes(0);
         } else {
-          const total = (data ?? []).reduce((sum, r: any) => sum + (r.minutes ?? 0), 0);
+          const total = (data ?? []).reduce((sum, r: { minutes?: number }) => sum + (r.minutes ?? 0), 0);
           setMinutes(total);
         }
       }

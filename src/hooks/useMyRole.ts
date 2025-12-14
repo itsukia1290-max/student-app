@@ -26,7 +26,7 @@ export function useMyRole() {
     }
     run();
     return () => { alive = false; };
-  }, [user?.id]);
+  }, [user]);
 
   return { role, loading };
 }

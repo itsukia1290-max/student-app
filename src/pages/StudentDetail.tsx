@@ -88,7 +88,7 @@ export default function StudentDetail({ student, onBack }: Props) {
         return;
       }
 
-      const ids = (gm ?? []).map((r: any) => r.group_id as string);
+      const ids = (gm ?? []).map((r: { group_id?: string }) => r.group_id as string);
       if (ids.length === 0) {
         if (!cancelled) setGroups([]);
         setGroupsLoading(false);
@@ -110,10 +110,10 @@ export default function StudentDetail({ student, onBack }: Props) {
 
       if (!cancelled) {
         setGroups(
-          (gs ?? []).map((g: any) => ({
+          (gs ?? []).map((g: { id: string; name?: string; type?: string }) => ({
             id: g.id as string,
-            name: (g.name as string) ?? "(名称未設定)",
-            type: (g.type as string) ?? "class",
+            name: g.name ?? "(名称未設定)",
+            type: g.type ?? "class",
           }))
         );
       }

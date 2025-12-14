@@ -24,7 +24,7 @@ export default function BottomNav({
       try {
         const navHeight = navRef.current.getBoundingClientRect().height;
         document.body.style.paddingBottom = `${navHeight}px`;
-      } catch (e) {
+      } catch {
         // ignoring in environments without document
       }
     }
@@ -50,9 +50,9 @@ export default function BottomNav({
 
   if (typeof document === 'undefined') return null;
 
-  return ReactDOM.createPortal(
+    return ReactDOM.createPortal(
     <nav
-      ref={navRef as any}
+      ref={(el) => { navRef.current = el; }}
       className="fixed inset-x-0 bottom-0 z-50 bg-white border-t shadow-md backdrop-blur/0"
       style={{ visibility: 'hidden' }}
     >

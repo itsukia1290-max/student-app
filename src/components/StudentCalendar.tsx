@@ -55,7 +55,7 @@ export default function StudentCalendar({ ownerId, editable, scope }: Props) {
     // 月が変わったら1日を選択
     const d = new Date(month.getFullYear(), month.getMonth(), 1);
     setSelectedDay(toYmd(d));
-  }, [monthKey]);
+  }, [month]);
 
   async function loadMonth() {
     setLoading(true);
