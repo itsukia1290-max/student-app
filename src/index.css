@@ -27,7 +27,8 @@ input, textarea, select, button {
 .card {
 	background-color: #ffffff; /* bg-white */
 	border-radius: 1rem; /* rounded-2xl */
-	border: 1px solid #e5e7eb; /* border */
+	/* slightly stronger border for better contrast */
+	border: 1px solid #d1d5db; /* tailwind gray-300 */
 	padding: 1rem; /* p-4 */
 }
 
@@ -49,7 +50,7 @@ img { max-width: 100%; height: auto; }
 }
 /* Disabled state styling */
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn:focus { outline: none; box-shadow: 0 0 0 2px rgba(0,0,0,0.1); }
+.btn:focus { outline: none; box-shadow: 0 0 0 4px rgba(59,130,246,0.12); }
 
 .btn-ghost {
 	display: inline-flex;
@@ -63,7 +64,7 @@ img { max-width: 100%; height: auto; }
 @media (hover: hover) {
 	.btn-ghost:hover { background-color: #f8fafc; /* hover:bg-gray-50 */ }
 }
-.btn-ghost:focus { outline: none; box-shadow: 0 0 0 2px rgba(0,0,0,0.05); }
+.btn-ghost:focus { outline: none; box-shadow: 0 0 0 4px rgba(59,130,246,0.12); }
 
 .form-input {
 	width: 100%;
@@ -71,10 +72,23 @@ img { max-width: 100%; height: auto; }
 	border-radius: 0.375rem; /* rounded */
 	padding: 0.5rem 0.75rem; /* py-2 px-3 */
 }
-.form-input:focus { outline: none; box-shadow: 0 0 0 2px rgba(0,0,0,0.05); }
+.form-input:focus { outline: none; box-shadow: 0 0 0 4px rgba(59,130,246,0.12); }
 
-/* focus-visible fallback for browsers */
+/* focus-visible behavior: prefer visible focus rings for keyboard users */
 :focus-visible {
-	outline: none;
+	outline: none; /* we use box-shadow-based focus rings instead */
+}
+
+/* Global link styles to ensure clear blue links and underlines */
+a {
+	color: #2563eb; /* tailwind blue-600 */
+	text-decoration-color: currentColor;
+	text-decoration-thickness: 1.2px;
+	text-underline-offset: 2px;
+}
+
+a:hover {
+	color: #1d4ed8; /* tailwind blue-700 */
+	text-decoration-color: currentColor;
 }
 
