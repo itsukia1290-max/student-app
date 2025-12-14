@@ -93,3 +93,11 @@ a:hover {
 	text-decoration-color: currentColor;
 }
 
+/* Make browser-native buttons appear unstyled unless they use our btn classes or explicit border utilities
+	 This avoids mobile browsers rendering default grayed buttons while preserving explicit bordered buttons. */
+button:not(.btn):not(.btn-ghost):not([class*="border"]) {
+	background: transparent;
+	border: none;
+	padding: 0;
+}
+

@@ -10,7 +10,8 @@ type Props = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "ghost";
 };
 
-export default function Button({ variant = "primary", className, children, ...rest }: Props) {
+// Make the default variant `ghost` so most buttons are visually subtle by default
+export default function Button({ variant = "ghost", className, children, ...rest }: Props) {
   const base = variant === "ghost" ? "btn-ghost" : "btn";
   return (
     <button {...rest} className={[base, className].filter(Boolean).join(" ")}>

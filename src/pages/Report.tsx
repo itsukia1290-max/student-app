@@ -67,7 +67,7 @@ export default function Report() {
         <div className="mt-4 flex">
           <button
             className={[
-              "flex-1 py-3 text-center font-semibold",
+              "flex-1 py-3 text-center font-semibold bg-transparent border-0 hover:bg-transparent",
               tab === "record" ? "text-gray-900" : "text-gray-400",
             ].join(" ")}
             onClick={() => setTab("record")}
@@ -76,7 +76,7 @@ export default function Report() {
           </button>
           <button
             className={[
-              "flex-1 py-3 text-center font-semibold",
+              "flex-1 py-3 text-center font-semibold bg-transparent border-0 hover:bg-transparent",
               tab === "timeline" ? "text-gray-900" : "text-gray-400",
             ].join(" ")}
             onClick={() => setTab("timeline")}
