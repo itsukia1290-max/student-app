@@ -1,15 +1,15 @@
 /*
  * src/pages/StudentDetail.tsx
  * Responsibility: 生徒の詳細ビュー
- * - 生徒のプロフィール、成績、目標、記録などのタブを表示する
+ * - 生徒のプロフィール、成績、目標、記録、カレンダーなどのタブを表示する
  */
 import { useEffect, useState } from "react";
 import { useIsStaff } from "../hooks/useIsStaff";
 import { supabase } from "../lib/supabase";
 import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
-// StudentRecords removed: test/exam records temporarily disabled
-import StudentStudyLogs from "../components/StudentStudyLogs"; // ★ 追加
+import StudentRecords from "../components/StudentRecords";
+import StudentCalendar from "../components/StudentCalendar";
 
 type Props = {
   student: {
@@ -22,7 +22,7 @@ type Props = {
   onDeleted?: (id: string) => void;
 };
 
-type Tab = "profile" | "grades" | "goals";
+type Tab = "profile" | "grades" | "goals" | "calendar";
 
 type GroupMini = {
   id: string;
@@ -34,7 +34,6 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
   const { isStaff } = useIsStaff();
   const [tab, setTab] = useState<Tab>("profile");
 
-  // --- プロフィール編集用 ---
   const [formName, setFormName] = useState(student.name ?? "");
   const [formPhone, setFormPhone] = useState(student.phone ?? "");
   const [formMemo, setFormMemo] = useState(student.memo ?? "");
@@ -42,7 +41,6 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    // 生徒が切り替わったとき用に同期
     setFormName(student.name ?? "");
     setFormPhone(student.phone ?? "");
     setFormMemo(student.memo ?? "");
@@ -64,15 +62,12 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
       })
       .eq("id", student.id);
 
-    if (error) {
-      setProfileMsg("プロフィール保存に失敗しました: " + error.message);
-    } else {
-      setProfileMsg("プロフィールを保存しました。");
-    }
+    if (error) setProfileMsg("プロフィール保存に失敗しました: " + error.message);
+    else setProfileMsg("プロフィールを保存しました。");
+
     setSavingProfile(false);
   }
 
-  // --- 所属グループ表示用 ---
   const [groups, setGroups] = useState<GroupMini[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
 
@@ -130,7 +125,6 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
     };
   }, [student.id]);
 
-  // --- 退会（利用停止） ---
   async function revokeApproval() {
     if (!isStaff) return;
     const ok = confirm(
@@ -138,9 +132,7 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
     );
     if (!ok) return;
 
-    const { error } = await supabase.rpc("suspend_student", {
-      uid: student.id,
-    });
+    const { error } = await supabase.rpc("suspend_student", { uid: student.id });
     if (error) {
       alert("退会処理失敗: " + error.message);
     } else {
@@ -152,55 +144,43 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
 
   return (
     <div className="p-6 space-y-4">
-      <button
-        onClick={onBack}
-        className="border rounded px-3 py-1 hover:bg-gray-100"
-      >
+      <button onClick={onBack} className="border rounded px-3 py-1 hover:bg-gray-100">
         ← 一覧に戻る
       </button>
 
-      <h1 className="text-2xl font-bold">
-        {student.name ?? "（未設定）"}
-      </h1>
-      <p className="text-sm text-gray-600">
-        電話番号: {student.phone ?? "-"}
-      </p>
-      <p className="text-sm text-gray-600">
-        メモ: {student.memo ?? "-"}
-      </p>
+      <h1 className="text-2xl font-bold">{student.name ?? "（未設定）"}</h1>
+      <p className="text-sm text-gray-600">電話番号: {student.phone ?? "-"}</p>
+      <p className="text-sm text-gray-600">メモ: {student.memo ?? "-"}</p>
 
-      {/* タブ */}
-      <div className="flex gap-2 border-b mt-4">
+      <div className="flex gap-2 border-b mt-4 overflow-x-auto">
         <button
-          className={`px-3 py-1 rounded-t ${
-            tab === "profile" ? "bg-black text-white" : "border"
-          }`}
+          className={`px-3 py-1 rounded-t ${tab === "profile" ? "bg-black text-white" : "border"}`}
           onClick={() => setTab("profile")}
         >
           プロフィール
         </button>
         <button
-          className={`px-3 py-1 rounded-t ${
-            tab === "grades" ? "bg-black text-white" : "border"
-          }`}
+          className={`px-3 py-1 rounded-t ${tab === "grades" ? "bg-black text-white" : "border"}`}
           onClick={() => setTab("grades")}
         >
           成績
         </button>
         <button
-          className={`px-3 py-1 rounded-t ${
-            tab === "goals" ? "bg-black text-white" : "border"
-          }`}
+          className={`px-3 py-1 rounded-t ${tab === "goals" ? "bg-black text-white" : "border"}`}
           onClick={() => setTab("goals")}
         >
           目標
         </button>
+        <button
+          className={`px-3 py-1 rounded-t ${tab === "calendar" ? "bg-black text-white" : "border"}`}
+          onClick={() => setTab("calendar")}
+        >
+          カレンダー
+        </button>
       </div>
 
-      {/* プロフィール＋所属グループ */}
       {tab === "profile" && (
         <div className="space-y-6">
-          {/* 編集フォーム */}
           <form onSubmit={saveProfile} className="space-y-4 max-w-xl">
             <div>
               <label className="block text-sm">氏名</label>
@@ -243,29 +223,23 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
                 退会（利用停止）
               </button>
             </div>
-            {profileMsg && (
-              <p className="text-sm text-gray-700 mt-1">{profileMsg}</p>
-            )}
+
+            {profileMsg && <p className="text-sm text-gray-700 mt-1">{profileMsg}</p>}
           </form>
 
-          {/* 所属グループ一覧 */}
           <section className="max-w-xl">
             <h2 className="font-semibold mb-2">所属グループ</h2>
             {groupsLoading ? (
               <p className="text-sm text-gray-500">読み込み中...</p>
             ) : groups.length === 0 ? (
-              <p className="text-sm text-gray-500">
-                所属グループはありません。
-              </p>
+              <p className="text-sm text-gray-500">所属グループはありません。</p>
             ) : (
               <ul className="list-disc pl-5 space-y-1 text-sm">
                 {groups.map((g) => (
                   <li key={g.id}>
                     {g.name}
                     {g.type === "dm" && (
-                      <span className="ml-2 text-xs text-gray-500">
-                        （DM）
-                      </span>
+                      <span className="ml-2 text-xs text-gray-500">（DM）</span>
                     )}
                   </li>
                 ))}
@@ -275,7 +249,6 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
         </div>
       )}
 
-      {/* 成績タブ：教師は編集可（○△×＋テスト・模試の記録＋勉強時間） */}
       {tab === "grades" && (
         <div className="space-y-6">
           <div className="bg-white border rounded-2xl p-4">
@@ -283,20 +256,26 @@ export default function StudentDetail({ student, onBack, onDeleted }: Props) {
             <StudentGrades userId={student.id} editable={true} />
           </div>
 
-          {/* テスト・模試の記録は一時的に削除しています */}
-
-          {/* ★ 勉強時間の記録（先生は閲覧のみ） */}
           <div className="bg-white border rounded-2xl p-4">
-            <h2 className="text-lg font-bold mb-3">勉強時間の記録</h2>
-            <StudentStudyLogs userId={student.id} editable={false} />
+            <h2 className="text-lg font-bold mb-3">テスト・模試の記録</h2>
+            <StudentRecords studentId={student.id} editable={true} />
           </div>
         </div>
       )}
 
-      {/* 目標タブ：教師編集可 */}
       {tab === "goals" && (
         <div className="bg-white border rounded-2xl p-4">
           <StudentGoals userId={student.id} editable={true} />
+        </div>
+      )}
+
+      {tab === "calendar" && (
+        <div className="bg-white border rounded-2xl p-4">
+          <StudentCalendar
+            userId={student.id}
+            canEditPersonal={false}
+            title="生徒のカレンダー（閲覧）"
+          />
         </div>
       )}
     </div>
