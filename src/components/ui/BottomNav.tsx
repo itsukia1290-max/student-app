@@ -1,8 +1,47 @@
 import { useEffect, useMemo, useRef } from "react";
 import ReactDOM from "react-dom";
+import type { ReactElement } from "react";
 
 type View = "home" | "mypage" | "chat" | "dm" | "students" | "schoolCalendar";
 type Tab = { key: View; label: string };
+
+const icons: Record<View, ReactElement> = {
+  home: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1v-10.5z" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  ),
+  chat: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  ),
+  dm: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path d="M4 4h16v16H4z" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M4 4l8 7 8-7" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  ),
+  mypage: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="8" r="4" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M4 21c1.5-4 14.5-4 16 0" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  ),
+  students: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <circle cx="9" cy="8" r="3" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="17" cy="8" r="3" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M3 21c1-3 10-3 12 0M13 21c.5-2 6-2 7 0" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  ),
+  schoolCalendar: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <rect x="3" y="4" width="18" height="17" rx="2" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M3 9h18" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  ),
+};
 
 export default function BottomNav({
   tabs,
@@ -15,138 +54,73 @@ export default function BottomNav({
 }) {
   const navRef = useRef<HTMLElement | null>(null);
 
-  // 空/重複を除外して「表示する分だけ」で割る
   const safeTabs = useMemo(() => {
     const seen = new Set<string>();
-    return (tabs ?? [])
-      .filter((t) => t && typeof t.key === "string")
-      .map((t) => ({ key: t.key, label: String(t.label ?? "").trim() }))
-      .filter((t) => t.label.length > 0)
-      .filter((t) => {
-        if (seen.has(t.key)) return false;
-        seen.add(t.key);
-        return true;
-      });
+    return tabs.filter(t => {
+      if (seen.has(t.key)) return false;
+      seen.add(t.key);
+      return true;
+    });
   }, [tabs]);
 
   useEffect(() => {
-    function applyLayout() {
-      if (!navRef.current) return;
-
-      // ✅ 画面下に固定
-      navRef.current.style.bottom = "0px";
-      navRef.current.style.visibility = "visible";
-
-      // ✅ コンテンツがナビの下に潜らないように body に padding を付与
-      try {
-        const h = navRef.current.getBoundingClientRect().height;
-        document.body.style.paddingBottom = `${h}px`;
-      } catch {
-        // ignore
-      }
-    }
-
-    applyLayout();
-    window.addEventListener("resize", applyLayout);
-    window.addEventListener("orientationchange", applyLayout);
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", applyLayout);
-      window.visualViewport.addEventListener("scroll", applyLayout);
-    }
-
+    if (!navRef.current) return;
+    const h = navRef.current.getBoundingClientRect().height;
+    document.body.style.paddingBottom = `${h}px`;
     return () => {
-      window.removeEventListener("resize", applyLayout);
-      window.removeEventListener("orientationchange", applyLayout);
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener("resize", applyLayout);
-        window.visualViewport.removeEventListener("scroll", applyLayout);
-      }
       document.body.style.paddingBottom = "";
     };
   }, []);
 
-  if (typeof document === "undefined") return null;
-  if (safeTabs.length === 0) return null;
-
   return ReactDOM.createPortal(
     <nav
-      ref={(el) => {
-        navRef.current = el;
-      }}
-      className="fixed bottom-0 z-50 border-t shadow-md"
+      ref={el => { navRef.current = el; }}
       style={{
-        // ✅ ここが重要：body幅ではなく「画面幅」に固定（右の空白問題を潰す）
+        position: "fixed",
+        bottom: 0,
         left: 0,
         width: "100vw",
-        backgroundColor: "#ffffff",
-        opacity: 1,
-        visibility: "hidden",
+        background: "#ffffff",
+        boxShadow: "0 -1px 6px rgba(0,0,0,0.06)", // ← 上枠線の代替
+        zIndex: 50,
         paddingBottom: "env(safe-area-inset-bottom)",
       }}
     >
       <div
-        className="w-full"
         style={{
           display: "grid",
-          gridTemplateColumns: `repeat(${safeTabs.length}, minmax(0, 1fr))`,
+          gridTemplateColumns: `repeat(${safeTabs.length}, 1fr)`,
           height: "56px",
-          width: "100%",
-          alignItems: "stretch",
         }}
       >
-        {safeTabs.map((t) => {
+        {safeTabs.map(t => {
           const active = effectiveView === t.key;
           return (
             <button
               key={t.key}
               onClick={() => setView(t.key)}
               style={{
-                width: "100%",
-                height: "100%",
-                backgroundColor: "#ffffff", // ✅ ボタン側も白にして「透けて見える」を防ぐ
+                background: "none",
                 border: "none",
-                padding: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "4px",
+                color: active ? "#3b82f6" : "#9ca3af",
+                fontWeight: active ? 600 : 500,
               }}
             >
+              {icons[t.key]}
+              <span style={{ fontSize: "11px" }}>{t.label}</span>
               <div
                 style={{
-                  height: "100%",
-                  width: "100%",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "6px",
-                  minWidth: 0,
+                  width: "28px",
+                  height: "2px",
+                  borderRadius: "9999px",
+                  background: active ? "#3b82f6" : "transparent",
                 }}
-              >
-                <div
-                  style={{
-                    color: active ? "#3b82f6" : "#6b7280",
-                    fontWeight: active ? 700 : 500,
-                    fontSize: "12px",
-                    lineHeight: "1",
-                    width: "100%",
-                    textAlign: "center",
-                    paddingLeft: "6px",
-                    paddingRight: "6px",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {t.label}
-                </div>
-
-                <div
-                  style={{
-                    height: "2px",
-                    width: "40px",
-                    borderRadius: "9999px",
-                    backgroundColor: active ? "#3b82f6" : "transparent",
-                  }}
-                />
-              </div>
+              />
             </button>
           );
         })}
