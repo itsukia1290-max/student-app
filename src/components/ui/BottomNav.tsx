@@ -15,7 +15,7 @@ export default function BottomNav({
 }) {
   const navRef = useRef<HTMLElement | null>(null);
 
-  // ✅ 空白/重複/変な要素を除外 → 「表示する分だけ」で均等割り
+  // 空/重複を除外して「表示する分だけ」で割る
   const safeTabs = useMemo(() => {
     const seen = new Set<string>();
     return (tabs ?? [])
@@ -30,35 +30,36 @@ export default function BottomNav({
   }, [tabs]);
 
   useEffect(() => {
-    function setBottom() {
+    function applyLayout() {
       if (!navRef.current) return;
 
+      // ✅ 画面下に固定
       navRef.current.style.bottom = "0px";
       navRef.current.style.visibility = "visible";
 
+      // ✅ コンテンツがナビの下に潜らないように body に padding を付与
       try {
-        const navHeight = navRef.current.getBoundingClientRect().height;
-        document.body.style.paddingBottom = `${navHeight}px`;
+        const h = navRef.current.getBoundingClientRect().height;
+        document.body.style.paddingBottom = `${h}px`;
       } catch {
         // ignore
       }
     }
 
-    setBottom();
-    window.addEventListener("resize", setBottom);
-    window.addEventListener("orientationchange", setBottom);
-
+    applyLayout();
+    window.addEventListener("resize", applyLayout);
+    window.addEventListener("orientationchange", applyLayout);
     if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", setBottom);
-      window.visualViewport.addEventListener("scroll", setBottom);
+      window.visualViewport.addEventListener("resize", applyLayout);
+      window.visualViewport.addEventListener("scroll", applyLayout);
     }
 
     return () => {
-      window.removeEventListener("resize", setBottom);
-      window.removeEventListener("orientationchange", setBottom);
+      window.removeEventListener("resize", applyLayout);
+      window.removeEventListener("orientationchange", applyLayout);
       if (window.visualViewport) {
-        window.visualViewport.removeEventListener("resize", setBottom);
-        window.visualViewport.removeEventListener("scroll", setBottom);
+        window.visualViewport.removeEventListener("resize", applyLayout);
+        window.visualViewport.removeEventListener("scroll", applyLayout);
       }
       document.body.style.paddingBottom = "";
     };
@@ -72,18 +73,24 @@ export default function BottomNav({
       ref={(el) => {
         navRef.current = el;
       }}
-      className="fixed inset-x-0 bottom-0 z-50 border-t bg-white"
+      className="fixed bottom-0 z-50 border-t shadow-md"
       style={{
+        // ✅ ここが重要：body幅ではなく「画面幅」に固定（右の空白問題を潰す）
+        left: 0,
+        width: "100vw",
+        backgroundColor: "#ffffff",
+        opacity: 1,
         visibility: "hidden",
         paddingBottom: "env(safe-area-inset-bottom)",
       }}
     >
       <div
+        className="w-full"
         style={{
           display: "grid",
-          // ✅ ここが重要：safeTabs.length で割る（空白枠が出ない）
           gridTemplateColumns: `repeat(${safeTabs.length}, minmax(0, 1fr))`,
           height: "56px",
+          width: "100%",
           alignItems: "stretch",
         }}
       >
@@ -93,12 +100,18 @@ export default function BottomNav({
             <button
               key={t.key}
               onClick={() => setView(t.key)}
-              className="h-full w-full"
-              style={{ background: "transparent", border: "none", padding: 0 }}
+              style={{
+                width: "100%",
+                height: "100%",
+                backgroundColor: "#ffffff", // ✅ ボタン側も白にして「透けて見える」を防ぐ
+                border: "none",
+                padding: 0,
+              }}
             >
               <div
                 style={{
                   height: "100%",
+                  width: "100%",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
