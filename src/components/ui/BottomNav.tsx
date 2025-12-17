@@ -53,8 +53,8 @@ export default function BottomNav({
     return ReactDOM.createPortal(
     <nav
       ref={(el) => { navRef.current = el; }}
-      className="fixed inset-x-0 bottom-0 z-50 bg-white border-t shadow-md backdrop-blur/0"
-      style={{ visibility: 'hidden' }}
+      className="fixed inset-x-0 bottom-0 z-50 border-t shadow-md"
+      style={{ visibility: 'hidden', backgroundColor: '#ffffff', opacity: 1 }}
     >
       <div
         className={`grid ${tabs.length === 6 ? 'grid-cols-6' : tabs.length === 5 ? 'grid-cols-5' : 'grid-cols-4'} text-xs h-16 items-center px-1 pb-[env(safe-area-inset-bottom)]`}
