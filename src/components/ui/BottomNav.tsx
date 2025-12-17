@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react';
-import ReactDOM from 'react-dom';
+import { useEffect, useRef } from "react";
+import ReactDOM from "react-dom";
 
-type View = 'home' | 'mypage' | 'chat' | 'dm' | 'students' | 'schoolCalendar';
+type View = "home" | "mypage" | "chat" | "dm" | "students" | "schoolCalendar";
 
 export default function BottomNav({
   tabs,
@@ -17,71 +17,117 @@ export default function BottomNav({
   useEffect(() => {
     function setBottom() {
       if (!navRef.current) return;
-      // Reset bottom to 0 to override any layout/resizing quirks
-      navRef.current.style.bottom = '0px';
-      navRef.current.style.visibility = 'visible';
-      // Ensure the body has enough bottom padding so content doesn't go under nav
+
+      navRef.current.style.bottom = "0px";
+      navRef.current.style.visibility = "visible";
+
       try {
         const navHeight = navRef.current.getBoundingClientRect().height;
         document.body.style.paddingBottom = `${navHeight}px`;
       } catch {
-        // ignoring in environments without document
+        // ignore
       }
     }
 
     setBottom();
-    window.addEventListener('resize', setBottom);
-    window.addEventListener('orientationchange', setBottom);
+    window.addEventListener("resize", setBottom);
+    window.addEventListener("orientationchange", setBottom);
+
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', setBottom);
-      window.visualViewport.addEventListener('scroll', setBottom);
+      window.visualViewport.addEventListener("resize", setBottom);
+      window.visualViewport.addEventListener("scroll", setBottom);
     }
+
     return () => {
-      window.removeEventListener('resize', setBottom);
-      window.removeEventListener('orientationchange', setBottom);
+      window.removeEventListener("resize", setBottom);
+      window.removeEventListener("orientationchange", setBottom);
       if (window.visualViewport) {
-        window.visualViewport.removeEventListener('resize', setBottom);
-        window.visualViewport.removeEventListener('scroll', setBottom);
+        window.visualViewport.removeEventListener("resize", setBottom);
+        window.visualViewport.removeEventListener("scroll", setBottom);
       }
-      // reset body padding
-      document.body.style.paddingBottom = '';
+      document.body.style.paddingBottom = "";
     };
   }, []);
 
-  if (typeof document === 'undefined') return null;
+  if (typeof document === "undefined") return null;
 
-    return ReactDOM.createPortal(
+  return ReactDOM.createPortal(
     <nav
-      ref={(el) => { navRef.current = el; }}
-      className="fixed inset-x-0 bottom-0 z-50 border-t shadow-md"
-      style={{ visibility: 'hidden', backgroundColor: '#ffffff', opacity: 1 }}
+      ref={(el) => {
+        navRef.current = el;
+      }}
+      className="fixed inset-x-0 bottom-0 z-50 border-t"
+      style={{
+        visibility: "hidden",
+        backgroundColor: "#ffffff",
+        opacity: 0.98,
+        paddingBottom: "env(safe-area-inset-bottom)",
+      }}
     >
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: `repeat(${tabs.length}, 1fr)`,
-          fontSize: '0.75rem',
-          height: '4rem',
-          alignItems: 'center',
-          paddingLeft: '0.25rem',
-          paddingRight: '0.25rem',
-          paddingBottom: 'env(safe-area-inset-bottom)',
+          display: "grid",
+          gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))`,
+          height: "56px",
+          alignItems: "stretch",
         }}
       >
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setView(t.key)}
-            className="h-full flex flex-col items-center justify-center text-center"
-            style={{
-              color: effectiveView === t.key ? '#3b82f6' : '#6b7280',
-              fontWeight: effectiveView === t.key ? '600' : 'normal',
-              borderTop: effectiveView === t.key ? '2px solid #3b82f6' : 'none',
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
+        {tabs.map((t) => {
+          const active = effectiveView === t.key;
+
+          return (
+            <button
+              key={t.key}
+              onClick={() => setView(t.key)}
+              className="h-full w-full"
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 0,
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "6px",
+                  minWidth: 0, // ← truncate効かせるために重要
+                }}
+              >
+                <div
+                  style={{
+                    color: active ? "#3b82f6" : "#6b7280",
+                    fontWeight: active ? 700 : 600,
+                    fontSize: "12px",
+                    lineHeight: "1",
+                    width: "100%",
+                    textAlign: "center",
+                    paddingLeft: "6px",
+                    paddingRight: "6px",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {t.label}
+                </div>
+
+                {/* Studyplusっぽい下線（選択中のみ） */}
+                <div
+                  style={{
+                    height: "2px",
+                    width: "40px",
+                    borderRadius: "9999px",
+                    backgroundColor: active ? "#3b82f6" : "transparent",
+                  }}
+                />
+              </div>
+            </button>
+          );
+        })}
       </div>
     </nav>,
     document.body
