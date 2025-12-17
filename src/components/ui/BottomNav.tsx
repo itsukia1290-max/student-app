@@ -63,9 +63,12 @@ export default function BottomNav({
           <button
             key={t.key}
             onClick={() => setView(t.key)}
-            className={`h-full flex flex-col items-center justify-center text-center ${
-              effectiveView === t.key ? 'text-black font-semibold border-t-2 border-black' : 'text-gray-500'
-            }`}
+            className="h-full flex flex-col items-center justify-center text-center"
+            style={{
+              color: effectiveView === t.key ? '#3b82f6' : '#6b7280',
+              fontWeight: effectiveView === t.key ? '600' : 'normal',
+              borderTop: effectiveView === t.key ? '2px solid #3b82f6' : 'none',
+            }}
           >
             {t.label}
           </button>
