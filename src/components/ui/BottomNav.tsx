@@ -1,34 +1,18 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import ReactDOM from "react-dom";
 
 type View = "home" | "mypage" | "chat" | "dm" | "students" | "schoolCalendar";
-
-type Tab = { key: View; label: string };
 
 export default function BottomNav({
   tabs,
   effectiveView,
   setView,
 }: {
-  tabs: Tab[];
+  tabs: { key: View; label: string }[];
   effectiveView: View;
   setView: (v: View) => void;
 }) {
   const navRef = useRef<HTMLElement | null>(null);
-
-  // ✅ ここが最重要：空ラベル・重複・nullっぽいデータを全部除去
-  const safeTabs = useMemo(() => {
-    const seen = new Set<string>();
-    return (tabs ?? [])
-      .filter((t) => t && typeof t.key === "string")
-      .map((t) => ({ key: t.key, label: String(t.label ?? "").trim() }))
-      .filter((t) => t.label.length > 0) // ← 空ラベルを落とす
-      .filter((t) => {
-        if (seen.has(t.key)) return false; // ← 重複keyを落とす
-        seen.add(t.key);
-        return true;
-      });
-  }, [tabs]);
 
   useEffect(() => {
     function setBottom() {
@@ -66,7 +50,6 @@ export default function BottomNav({
   }, []);
 
   if (typeof document === "undefined") return null;
-  if (safeTabs.length === 0) return null;
 
   return ReactDOM.createPortal(
     <nav
@@ -84,12 +67,12 @@ export default function BottomNav({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: `repeat(${safeTabs.length}, minmax(0, 1fr))`,
+          gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))`,
           height: "56px",
           alignItems: "stretch",
         }}
       >
-        {safeTabs.map((t) => {
+        {tabs.map((t) => {
           const active = effectiveView === t.key;
 
           return (
@@ -97,7 +80,11 @@ export default function BottomNav({
               key={t.key}
               onClick={() => setView(t.key)}
               className="h-full w-full"
-              style={{ background: "transparent", border: "none", padding: 0 }}
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 0,
+              }}
             >
               <div
                 style={{
@@ -107,7 +94,7 @@ export default function BottomNav({
                   alignItems: "center",
                   justifyContent: "center",
                   gap: "6px",
-                  minWidth: 0,
+                  minWidth: 0, // ← truncate効かせるために重要
                 }}
               >
                 <div
@@ -128,6 +115,7 @@ export default function BottomNav({
                   {t.label}
                 </div>
 
+                {/* Studyplusっぽい下線（選択中のみ） */}
                 <div
                   style={{
                     height: "2px",
