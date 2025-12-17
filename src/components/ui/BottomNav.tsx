@@ -57,7 +57,16 @@ export default function BottomNav({
       style={{ visibility: 'hidden', backgroundColor: '#ffffff', opacity: 1 }}
     >
       <div
-        className={`grid ${tabs.length === 6 ? 'grid-cols-6' : tabs.length === 5 ? 'grid-cols-5' : 'grid-cols-4'} text-xs h-16 items-center px-1 pb-[env(safe-area-inset-bottom)]`}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${tabs.length}, 1fr)`,
+          fontSize: '0.75rem',
+          height: '4rem',
+          alignItems: 'center',
+          paddingLeft: '0.25rem',
+          paddingRight: '0.25rem',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+        }}
       >
         {tabs.map((t) => (
           <button
