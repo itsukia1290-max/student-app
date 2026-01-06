@@ -33,7 +33,7 @@ type Message = {
   group_id: string;
   sender_id: string;
   body: string;
-  image_url: string | null; // Storage のパス or 既存のフルURL
+  image_url: string | null;
   created_at: string;
 };
 
@@ -61,7 +61,6 @@ function previewText(p?: LastPreview | null) {
 }
 
 function formatTime(iso: string) {
-  // LINEっぽく「今日なら時刻」「それ以外なら日付」くらいの雑な表示
   const d = new Date(iso);
   const now = new Date();
   const sameDay =
@@ -93,16 +92,15 @@ export default function Chat() {
   const [showInvite, setShowInvite] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
 
-  // グループ一覧検索
   const [q, setQ] = useState("");
 
-  // 未読数（group_id => 件数）
-  const [unreadByGroup, setUnreadByGroup] = useState<Record<string, number>>({});
+  const [unreadByGroup, setUnreadByGroup] = useState<Record<string, number>>(
+    {}
+  );
+  const [lastByGroup, setLastByGroup] = useState<Record<string, LastPreview>>(
+    {}
+  );
 
-  // 最新メッセージプレビュー（group_id => preview）
-  const [lastByGroup, setLastByGroup] = useState<Record<string, LastPreview>>({});
-
-  // 画像アップロード用
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -116,7 +114,6 @@ export default function Chat() {
     );
   }
 
-  /** 自分の last_read_at を now にする（閲覧＝既読） */
   const markRead = useCallback(
     async (groupId: string) => {
       if (!myId) return;
@@ -137,7 +134,6 @@ export default function Chat() {
     [myId]
   );
 
-  /** グループ一覧の未読数をまとめて再計算 */
   const fetchUnreadCounts = useCallback(
     async (groupIds: string[]) => {
       if (!myId || groupIds.length === 0) {
@@ -183,14 +179,12 @@ export default function Chat() {
     [myId]
   );
 
-  /** 最新メッセージのプレビューを（とりあえず素直に）取得 */
   const fetchLastPreviews = useCallback(async (groupIds: string[]) => {
     if (groupIds.length === 0) {
       setLastByGroup({});
       return;
     }
 
-    // いったん分かりやすく：グループごとに最新1件を取る（最適化は次でやる）
     const next: Record<string, LastPreview> = {};
     for (const gid of groupIds) {
       const { data, error } = await supabase
@@ -221,7 +215,6 @@ export default function Chat() {
     setLastByGroup(next);
   }, []);
 
-  // --- グループ一覧（class のみ表示） ---
   useEffect(() => {
     if (!myId) return;
 
@@ -278,7 +271,6 @@ export default function Chat() {
     })();
   }, [myId, fetchUnreadCounts, fetchLastPreviews]);
 
-  // --- メッセージ一覧 ---
   useEffect(() => {
     if (!activeId) return;
 
@@ -307,7 +299,6 @@ export default function Chat() {
     };
   }, [activeId, markRead]);
 
-  // --- Realtime（新着で未読とプレビューを反映） ---
   useEffect(() => {
     const ids = groups.map((g) => g.id);
     if (ids.length === 0) return;
@@ -326,7 +317,6 @@ export default function Chat() {
           async (payload) => {
             const row = payload.new as Message;
 
-            // 最新プレビューを更新（一覧用）
             setLastByGroup((prev) => ({
               ...prev,
               [gid]: {
@@ -356,7 +346,6 @@ export default function Chat() {
     };
   }, [groups, active?.id, markRead]);
 
-  // ---- 画像選択（カメラ or ギャラリー） ----
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -373,7 +362,6 @@ export default function Chat() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  // --- メッセージ送信（テキストのみ or 画像付き or 画像だけOK） ---
   async function send() {
     if (!active || !myId) return;
 
@@ -412,7 +400,6 @@ export default function Chat() {
       setInput("");
       clearImageSelection();
       await markRead(active.id);
-      // プレビュー更新は realtime INSERT で自然に入る想定
     } catch (e) {
       console.error("❌ send failed:", e);
       alert("送信に失敗しました。: " + (e as Error).message);
@@ -422,7 +409,6 @@ export default function Chat() {
     }
   }
 
-  // --- グループ作成（class 固定） ---
   async function createGroup() {
     if (!canManage) return;
 
@@ -448,20 +434,25 @@ export default function Chat() {
     const newGroup: Group = { id, name, type: "class", owner_id: myId };
     setGroups((prev) => [...prev, newGroup]);
     setUnreadByGroup((prev) => ({ ...prev, [id]: 0 }));
-    setLastByGroup((prev) => ({ ...prev, [id]: undefined as unknown as LastPreview }));
     setActive(newGroup);
   }
 
-  // --- グループ削除 ---
   async function deleteGroup(g: Group) {
     if (!g || g.type !== "class") return;
 
-    if (!confirm(`グループ「${g.name}」を削除しますか？（メッセージも削除）`)) return;
+    if (!confirm(`グループ「${g.name}」を削除しますか？（メッセージも削除）`))
+      return;
 
-    const { error: e1 } = await supabase.from("messages").delete().eq("group_id", g.id);
+    const { error: e1 } = await supabase
+      .from("messages")
+      .delete()
+      .eq("group_id", g.id);
     if (e1) return alert("削除失敗(messages): " + e1.message);
 
-    const { error: e2 } = await supabase.from("group_members").delete().eq("group_id", g.id);
+    const { error: e2 } = await supabase
+      .from("group_members")
+      .delete()
+      .eq("group_id", g.id);
     if (e2) return alert("削除失敗(group_members): " + e2.message);
 
     const { error: e3 } = await supabase.from("groups").delete().eq("id", g.id);
@@ -489,108 +480,248 @@ export default function Chat() {
   const filteredGroups = useMemo(() => {
     const t = q.trim().toLowerCase();
     if (!t) return groups;
-    return groups.filter((g) => g.name.toLowerCase().includes(t) || g.id.toLowerCase().includes(t));
+    return groups.filter(
+      (g) => g.name.toLowerCase().includes(t) || g.id.toLowerCase().includes(t)
+    );
   }, [q, groups]);
+
+  // ===== インラインで確実に見た目を作るためのスタイル =====
+  const styles = {
+    asideOuter: {
+      background: "linear-gradient(180deg, #EAF6FF 0%, #F7FBFF 60%, #FFFFFF 100%)",
+      minHeight: "70vh",
+      padding: "12px",
+      boxSizing: "border-box" as const,
+    },
+    asideCard: {
+      background: "#FFFFFF",
+      borderRadius: 18,
+      border: "1px solid #CFE8FF",
+      boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+      overflow: "hidden" as const,
+    },
+    header: {
+      padding: "14px 14px 12px 14px",
+      borderBottom: "1px solid #DCEFFF",
+      background: "linear-gradient(180deg, #F0FAFF 0%, #FFFFFF 100%)",
+    },
+    titleRow: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+    },
+    title: {
+      fontSize: 22,
+      fontWeight: 800,
+      color: "#0F172A",
+      letterSpacing: "0.2px",
+    },
+    createBtn: {
+      border: "1px solid #7CC7FF",
+      background: "linear-gradient(180deg, #53B9FF 0%, #2EA8FF 100%)",
+      color: "#fff",
+      padding: "8px 12px",
+      borderRadius: 999,
+      fontSize: 12,
+      fontWeight: 700,
+      cursor: "pointer",
+      boxShadow: "0 6px 14px rgba(46, 168, 255, 0.25)",
+    },
+    searchWrap: {
+      marginTop: 10,
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      padding: "10px 12px",
+      borderRadius: 999,
+      border: "1px solid #CFE8FF",
+      background: "#FFFFFF",
+      boxShadow: "0 2px 10px rgba(15, 23, 42, 0.04)",
+    },
+    searchIcon: {
+      fontSize: 14,
+      color: "#64748B",
+    },
+    searchInput: {
+      width: "100%",
+      border: "none",
+      outline: "none",
+      fontSize: 14,
+      background: "transparent",
+    },
+    listWrap: {
+      padding: 12,
+      display: "flex",
+      flexDirection: "column" as const,
+      gap: 10,
+    },
+    groupBtnBase: {
+      width: "100%",
+      textAlign: "left" as const,
+      borderRadius: 16,
+      border: "1px solid #DCEFFF",
+      background: "#FFFFFF",
+      padding: "12px 12px",
+      cursor: "pointer",
+      transition: "transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background 120ms ease",
+    },
+    groupBtnHover: {
+      background: "#F3FAFF",
+      borderColor: "#BFE3FF",
+      boxShadow: "0 10px 20px rgba(15, 23, 42, 0.06)",
+      transform: "translateY(-1px)",
+    },
+    groupBtnActive: {
+      background: "#EAF6FF",
+      borderColor: "#55B9FF",
+      boxShadow: "0 10px 22px rgba(46, 168, 255, 0.18)",
+    },
+    groupRowTop: {
+      display: "flex",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      gap: 10,
+    },
+    groupName: {
+      fontSize: 24, // ←確実に大きく
+      fontWeight: 900,
+      color: "#0B1220",
+      lineHeight: 1.15,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap" as const,
+    },
+    preview: {
+      marginTop: 6,
+      fontSize: 13,
+      color: "#64748B",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap" as const,
+    },
+    rightCol: {
+      display: "flex",
+      flexDirection: "column" as const,
+      alignItems: "flex-end" as const,
+      gap: 8,
+      flexShrink: 0 as const,
+    },
+    time: {
+      fontSize: 12,
+      color: "#94A3B8",
+    },
+    badge: {
+      minWidth: 28,
+      height: 28,
+      borderRadius: 999,
+      background: "#2EA8FF",
+      color: "#fff",
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: 12,
+      fontWeight: 800,
+      padding: "0 10px",
+      boxShadow: "0 6px 14px rgba(46, 168, 255, 0.25)",
+    },
+    empty: {
+      padding: "18px 12px 26px 12px",
+      color: "#64748B",
+      fontSize: 14,
+    },
+  };
 
   return (
     <div className="min-h-[70vh]">
       <div className="grid grid-cols-1 md:grid-cols-12 gap-0">
-        {/* ===== 左：グループ一覧（LINE風：上に検索、下に一覧） ===== */}
+        {/* ===== 左：グループ一覧（インラインで確実に白×水色） ===== */}
         <aside className={`md:col-span-4 ${active ? "hidden md:block" : "block"}`}>
-          <div className="bg-white overflow-hidden">
-            {/* ヘッダー */}
-            <div className="px-4 py-3 bg-white border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h2 className="font-bold text-xl text-slate-800">グループ</h2>
-                {canManage && (
-                  <button
-                    className="text-sm px-3 py-1.5 rounded-full bg-sky-600 text-white hover:bg-sky-700"
-                    onClick={createGroup}
-                    aria-label="グループ作成"
-                  >
-                    ＋作成
-                  </button>
-                )}
+          <div style={styles.asideOuter}>
+            <div style={styles.asideCard}>
+              <div style={styles.header}>
+                <div style={styles.titleRow}>
+                  <div style={styles.title}>グループ</div>
+
+                  {canManage && (
+                    <button
+                      style={styles.createBtn}
+                      onClick={createGroup}
+                      aria-label="グループ作成"
+                    >
+                      ＋作成
+                    </button>
+                  )}
+                </div>
+
+                <div style={styles.searchWrap}>
+                  <span style={styles.searchIcon}>🔎</span>
+                  <input
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="検索"
+                    style={styles.searchInput}
+                  />
+                </div>
               </div>
 
-              {/* 検索（LINEっぽく：タイトルの直下） */}
-              <div className="mt-3">
-                <input
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="検索"
-                  className="w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2 text-sm outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
-                />
-              </div>
-            </div>
+              <div style={styles.listWrap}>
+                {filteredGroups.map((g) => {
+                  const unread = unreadByGroup[g.id] ?? 0;
+                  const isActiveRow = active?.id === g.id;
 
-            {/* 一覧 */}
-            <div className="px-2 py-2">
-              {filteredGroups.map((g) => {
-                const unread = unreadByGroup[g.id] ?? 0;
-                const isActiveRow = active?.id === g.id;
-                const last = lastByGroup[g.id];
-                const lastText = previewText(last);
-                const lastTime = last?.created_at ? formatTime(last.created_at) : "";
+                  const last = lastByGroup[g.id];
+                  const lastText = previewText(last);
+                  const lastTime = last?.created_at ? formatTime(last.created_at) : "";
 
-                return (
-                  <div key={g.id} className="mb-3">
-                    <div
+                  return (
+                    <button
+                      key={g.id}
                       onClick={() => setActive(g)}
                       style={{
-                        backgroundColor: isActiveRow ? "#dbeafe" : "#e5e7eb",
-                        cursor: "pointer",
+                        ...styles.groupBtnBase,
+                        ...(isActiveRow ? styles.groupBtnActive : {}),
                       }}
                       onMouseEnter={(e) => {
-                        if (!isActiveRow) e.currentTarget.style.backgroundColor = "#d1d5db";
+                        if (isActiveRow) return;
+                        Object.assign(e.currentTarget.style, styles.groupBtnHover);
                       }}
                       onMouseLeave={(e) => {
-                        if (!isActiveRow) e.currentTarget.style.backgroundColor = "#e5e7eb";
+                        if (isActiveRow) {
+                          Object.assign(e.currentTarget.style, styles.groupBtnActive);
+                          return;
+                        }
+                        Object.assign(e.currentTarget.style, styles.groupBtnBase);
                       }}
-                      className="w-full text-left px-4 py-3 rounded-2xl transition-all duration-200"
                     >
-                      {/* 名前 + 最新文 */}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="font-extrabold text-lg text-black truncate">
-                            {g.name}
-                          </div>
-                          <div className="text-xs text-gray-400 shrink-0">
-                            {lastTime}
-                          </div>
+                      <div style={styles.groupRowTop}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={styles.groupName}>{g.name}</div>
+                          <div style={styles.preview}>{lastText}</div>
                         </div>
 
-                        <div className="mt-1.5 flex items-center justify-between gap-2">
-                          <div className="text-sm text-gray-500 truncate font-normal">
-                            {lastText}
-                          </div>
-
-                          {unread > 0 && (
-                            <span className="inline-flex min-w-5 h-5 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold px-1.5 shrink-0">
-                              {unread}
-                            </span>
-                          )}
+                        <div style={styles.rightCol}>
+                          <div style={styles.time}>{lastTime}</div>
+                          {unread > 0 && <span style={styles.badge}>{unread}</span>}
                         </div>
                       </div>
-                    </div>
-                  </div>
-                );
-              })}
+                    </button>
+                  );
+                })}
 
-              {filteredGroups.length === 0 && (
-                <div className="px-4 py-6 text-sm text-slate-500">
-                  該当するグループがありません
-                </div>
-              )}
+                {filteredGroups.length === 0 && (
+                  <div style={styles.empty}>該当するグループがありません</div>
+                )}
+              </div>
             </div>
           </div>
         </aside>
 
         {/* ===== 右：チャット ===== */}
         <main className={`md:col-span-8 ${active ? "block" : "hidden md:block"}`}>
-          <div className="bg-white overflow-hidden flex flex-col min-h-[70vh] md:border-l border-gray-200">
+          <div className="bg-white overflow-hidden flex flex-col min-h-[70vh] md:border-l border-sky-100">
             {/* ヘッダー */}
-            <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200">
+            <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-sky-50 to-cyan-50 border-b border-sky-100">
               <div className="flex items-center gap-2 min-w-0">
                 <button
                   className="md:hidden inline-flex items-center justify-center w-9 h-9 rounded-full hover:bg-white/70"
@@ -742,7 +873,6 @@ export default function Chat() {
             </div>
           </div>
 
-          {/* 招待 / メンバー管理ダイアログ */}
           {showInvite && active && (
             <InviteMemberDialog
               groupId={active.id}
