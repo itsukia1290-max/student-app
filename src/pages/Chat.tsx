@@ -14,7 +14,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 
 import { supabase } from "../lib/supabase";
-import Button from "../components/ui/Button";
 import Input from "../components/ui/Input";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsStaff } from "../hooks/useIsStaff";
@@ -487,8 +486,12 @@ export default function Chat() {
 
   // ===== インラインで確実に見た目を作るためのスタイル =====
   const styles = {
+    // --- layout
+    pageMinH: { minHeight: "70vh" },
+
+    // ===== 左（あなたの現状を維持）
     asideOuter: {
-      background: "linear-gradient(180deg, #EAF6FF 0%, #F7FBFF 60%, #FFFFFF 100%)",
+      background: "#FFFFFF",
       minHeight: "70vh",
       padding: "12px",
       boxSizing: "border-box" as const,
@@ -503,7 +506,7 @@ export default function Chat() {
     header: {
       padding: "14px 14px 12px 14px",
       borderBottom: "1px solid #DCEFFF",
-      background: "linear-gradient(180deg, #F0FAFF 0%, #FFFFFF 100%)",
+      background: "#FFFFFF",
     },
     titleRow: {
       display: "flex",
@@ -519,7 +522,7 @@ export default function Chat() {
     },
     createBtn: {
       border: "1px solid #7CC7FF",
-      background: "linear-gradient(180deg, #53B9FF 0%, #2EA8FF 100%)",
+      background: "#2EA8FF",
       color: "#fff",
       padding: "8px 12px",
       borderRadius: 999,
@@ -539,10 +542,7 @@ export default function Chat() {
       background: "#FFFFFF",
       boxShadow: "0 2px 10px rgba(15, 23, 42, 0.04)",
     },
-    searchIcon: {
-      fontSize: 14,
-      color: "#64748B",
-    },
+    searchIcon: { fontSize: 14, color: "#64748B" },
     searchInput: {
       width: "100%",
       border: "none",
@@ -564,7 +564,8 @@ export default function Chat() {
       background: "#FFFFFF",
       padding: "12px 12px",
       cursor: "pointer",
-      transition: "transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background 120ms ease",
+      transition:
+        "transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background 120ms ease",
     },
     groupBtnHover: {
       background: "#F3FAFF",
@@ -584,7 +585,7 @@ export default function Chat() {
       gap: 10,
     },
     groupName: {
-      fontSize: 24, // ←確実に大きく
+      fontSize: 24,
       fontWeight: 900,
       color: "#0B1220",
       lineHeight: 1.15,
@@ -607,10 +608,7 @@ export default function Chat() {
       gap: 8,
       flexShrink: 0 as const,
     },
-    time: {
-      fontSize: 12,
-      color: "#94A3B8",
-    },
+    time: { fontSize: 12, color: "#94A3B8" },
     badge: {
       minWidth: 28,
       height: 28,
@@ -625,17 +623,229 @@ export default function Chat() {
       padding: "0 10px",
       boxShadow: "0 6px 14px rgba(46, 168, 255, 0.25)",
     },
-    empty: {
-      padding: "18px 12px 26px 12px",
-      color: "#64748B",
+    empty: { padding: "18px 12px 26px 12px", color: "#64748B", fontSize: 14 },
+
+    // ===== 右（ここから“同じ世界観”にする）
+    mainOuter: {
+      background:
+        "linear-gradient(180deg, #EAF6FF 0%, #F7FBFF 60%, #FFFFFF 100%)",
+      minHeight: "70vh",
+      padding: "12px",
+      boxSizing: "border-box" as const,
+    },
+    mainCard: {
+      background: "#FFFFFF",
+      borderRadius: 18,
+      border: "1px solid #CFE8FF",
+      boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+      overflow: "hidden" as const,
+      display: "flex",
+      flexDirection: "column" as const,
+      minHeight: "70vh",
+    },
+    chatHeader: {
+      padding: "12px 14px",
+      borderBottom: "1px solid #DCEFFF",
+      background: "#FFFFFF",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+    },
+    chatHeaderLeft: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      minWidth: 0,
+    },
+    backBtn: {
+      width: 38,
+      height: 38,
+      borderRadius: 999,
+      border: "1px solid #DCEFFF",
+      background: "#FFFFFF",
+      cursor: "pointer",
+      boxShadow: "0 2px 10px rgba(15, 23, 42, 0.04)",
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontWeight: 800,
+      color: "#0F172A",
+    },
+    chatTitleWrap: { minWidth: 0 },
+    chatTitle: {
+      fontSize: 16,
+      fontWeight: 800,
+      color: "#0F172A",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap" as const,
+      maxWidth: "56vw",
+    },
+    chatSub: { fontSize: 12, color: "#64748B", marginTop: 2 },
+    headerActions: { display: "flex", gap: 8, flexShrink: 0 as const },
+    pillBtn: {
+      padding: "7px 10px",
+      borderRadius: 999,
+      border: "1px solid #BFE3FF",
+      background: "#FFFFFF",
+      cursor: "pointer",
+      fontSize: 12,
+      fontWeight: 700,
+      color: "#0F172A",
+      boxShadow: "0 2px 10px rgba(15, 23, 42, 0.04)",
+    },
+    pillDanger: {
+      border: "1px solid #FFB4B4",
+      color: "#B91C1C",
+      background: "#FFFFFF",
+    },
+
+    msgArea: {
+      flex: 1,
+      overflowY: "auto" as const,
+      padding: "14px 14px",
+      background: "rgba(247,251,255,0.5)",
+      display: "flex",
+      flexDirection: "column" as const,
+      gap: 10,
+    },
+    msgRow: {
+      display: "flex",
+      width: "100%",
+    },
+    bubbleBase: {
+      maxWidth: "86%",
+      borderRadius: 16,
+      padding: "10px 12px",
+      border: "1px solid #DCEFFF",
+      boxShadow: "0 8px 18px rgba(15, 23, 42, 0.06)",
+      background: "#FFFFFF",
+      color: "#0F172A",
+      lineHeight: 1.55,
+      fontSize: 14,
+      whiteSpace: "pre-wrap" as const,
+      wordBreak: "break-word" as const,
+    },
+    bubbleMine: {
+      border: "1px solid #2EA8FF",
+      background: "#2EA8FF",
+      color: "#FFFFFF",
+      boxShadow: "0 10px 22px rgba(46, 168, 255, 0.22)",
+    },
+    msgMeta: {
+      marginTop: 6,
+      fontSize: 10,
+      color: "#94A3B8",
+    },
+    attachLink: {
+      marginTop: 8,
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 12,
+      fontWeight: 700,
+      textDecoration: "underline",
+      color: "#0369A1",
+    },
+    attachLinkMine: {
+      color: "rgba(255,255,255,0.92)",
+      textDecoration: "underline",
+    },
+
+    previewBar: {
+      padding: "10px 14px",
+      borderTop: "1px solid #DCEFFF",
+      background: "#FFFFFF",
+    },
+    previewCard: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 10,
+      padding: 10,
+      borderRadius: 16,
+      border: "1px solid #DCEFFF",
+      background: "#F3FAFF",
+      boxShadow: "0 8px 18px rgba(15, 23, 42, 0.06)",
+    },
+    previewImg: {
+      width: 64,
+      height: 64,
+      borderRadius: 12,
+      objectFit: "cover" as const,
+      border: "1px solid #DCEFFF",
+      background: "#fff",
+    },
+    removeBtn: {
+      padding: "7px 10px",
+      borderRadius: 999,
+      border: "1px solid #FFB4B4",
+      background: "#FFFFFF",
+      color: "#B91C1C",
+      fontSize: 12,
+      fontWeight: 800,
+      cursor: "pointer",
+    },
+
+    inputBar: {
+      padding: "12px 14px",
+      borderTop: "1px solid #DCEFFF",
+      background: "#FFFFFF",
+      display: "flex",
+      gap: 10,
+      alignItems: "center",
+    },
+    clipBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: 16,
+      border: "1px solid #BFE3FF",
+      background: "#FFFFFF",
+      cursor: "pointer",
+      boxShadow: "0 2px 10px rgba(15, 23, 42, 0.04)",
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: 16,
+    },
+    inputShell: {
+      flex: 1,
+      borderRadius: 16,
+      border: "1px solid #BFE3FF",
+      background: "#FFFFFF",
+      boxShadow: "0 2px 10px rgba(15, 23, 42, 0.04)",
+      padding: "8px 10px",
+      display: "flex",
+      alignItems: "center",
+      minHeight: 44,
+    },
+    // Inputコンポーネント側の枠線を殺す（外側が枠なので）
+    inputOverride: {
+      width: "100%",
+      border: "none",
+      outline: "none",
+      background: "transparent",
       fontSize: 14,
     },
+    sendBtn: {
+      height: 44,
+      borderRadius: 16,
+      border: "1px solid #7CC7FF",
+      background: "#2EA8FF",
+      color: "#FFFFFF",
+      padding: "0 16px",
+      fontSize: 13,
+      fontWeight: 900,
+      cursor: "pointer",
+      boxShadow: "0 10px 22px rgba(46, 168, 255, 0.22)",
+    },
+    sendBtnDisabled: { opacity: 0.6, cursor: "not-allowed" as const },
   };
 
   return (
-    <div className="min-h-[70vh]">
+    <div style={styles.pageMinH}>
       <div className="grid grid-cols-1 md:grid-cols-12 gap-0">
-        {/* ===== 左：グループ一覧（インラインで確実に白×水色） ===== */}
+        {/* ===== 左：グループ一覧（インライン） ===== */}
         <aside className={`md:col-span-4 ${active ? "hidden md:block" : "block"}`}>
           <div style={styles.asideOuter}>
             <div style={styles.asideCard}>
@@ -717,177 +927,199 @@ export default function Chat() {
           </div>
         </aside>
 
-        {/* ===== 右：チャット ===== */}
+        {/* ===== 右：チャット（インラインで統一） ===== */}
         <main className={`md:col-span-8 ${active ? "block" : "hidden md:block"}`}>
-          <div className="bg-white overflow-hidden flex flex-col min-h-[70vh] md:border-l border-sky-100">
-            {/* ヘッダー */}
-            <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-sky-50 to-cyan-50 border-b border-sky-100">
-              <div className="flex items-center gap-2 min-w-0">
-                <button
-                  className="md:hidden inline-flex items-center justify-center w-9 h-9 rounded-full hover:bg-white/70"
-                  onClick={() => setActive(null)}
-                  aria-label="戻る"
-                >
-                  ←
-                </button>
+          <div style={styles.mainOuter}>
+            <div style={styles.mainCard}>
+              {/* ヘッダー */}
+              <div style={styles.chatHeader}>
+                <div style={styles.chatHeaderLeft}>
+                  <button
+                    className="md:hidden"
+                    style={styles.backBtn}
+                    onClick={() => setActive(null)}
+                    aria-label="戻る"
+                  >
+                    ←
+                  </button>
 
-                <div className="min-w-0">
-                  <div className="font-bold text-slate-800 truncate">
-                    {active ? active.name : "グループ未選択"}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    {active ? "グループチャット" : "左から選択してください"}
+                  <div style={styles.chatTitleWrap}>
+                    <div style={styles.chatTitle}>
+                      {active ? active.name : "グループ未選択"}
+                    </div>
+                    <div style={styles.chatSub}>
+                      {active ? "グループチャット" : "左から選択してください"}
+                    </div>
                   </div>
                 </div>
+
+                {canManage && isActiveOwner && active && (
+                  <div style={styles.headerActions}>
+                    <button
+                      onClick={() => setShowInvite(true)}
+                      style={styles.pillBtn}
+                    >
+                      招待
+                    </button>
+                    <button
+                      onClick={() => setShowMembers(true)}
+                      style={styles.pillBtn}
+                    >
+                      メンバー
+                    </button>
+                    <button
+                      onClick={() => deleteGroup(active)}
+                      style={{ ...styles.pillBtn, ...styles.pillDanger }}
+                    >
+                      削除
+                    </button>
+                  </div>
+                )}
               </div>
 
-              {canManage && isActiveOwner && active && (
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowInvite(true)}
-                    className="text-xs md:text-sm px-3 py-1.5 rounded-full border border-sky-200 hover:bg-white"
-                  >
-                    招待
-                  </button>
-                  <button
-                    onClick={() => setShowMembers(true)}
-                    className="text-xs md:text-sm px-3 py-1.5 rounded-full border border-sky-200 hover:bg-white"
-                  >
-                    メンバー
-                  </button>
-                  <button
-                    onClick={() => deleteGroup(active)}
-                    className="text-xs md:text-sm px-3 py-1.5 rounded-full border border-red-200 text-red-600 hover:bg-red-50"
-                  >
-                    削除
-                  </button>
-                </div>
-              )}
-            </div>
+              {/* メッセージ */}
+              <div style={styles.msgArea}>
+                {active ? (
+                  messages.map((m) => {
+                    const url = getImageUrl(m.image_url);
+                    const mine = m.sender_id === myId;
 
-            {/* メッセージ */}
-            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 bg-sky-50/50">
-              {active ? (
-                messages.map((m) => {
-                  const url = getImageUrl(m.image_url);
-                  const mine = m.sender_id === myId;
-
-                  return (
-                    <div
-                      key={m.id}
-                      className={`flex ${mine ? "justify-end" : "justify-start"}`}
-                    >
+                    return (
                       <div
-                        className={[
-                          "max-w-[86%] rounded-2xl px-3 py-2",
-                          mine
-                            ? "bg-sky-600 text-white"
-                            : "bg-white border border-sky-100 text-slate-800",
-                        ].join(" ")}
+                        key={m.id}
+                        style={{
+                          ...styles.msgRow,
+                          justifyContent: mine ? "flex-end" : "flex-start",
+                        }}
                       >
-                        {m.body && <p className="whitespace-pre-wrap">{m.body}</p>}
-
-                        {url && (
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={[
-                              "mt-2 inline-flex items-center gap-1 text-xs underline",
-                              mine ? "text-white/90" : "text-sky-700",
-                            ].join(" ")}
+                        <div style={{ maxWidth: "86%" }}>
+                          <div
+                            style={{
+                              ...styles.bubbleBase,
+                              ...(mine ? styles.bubbleMine : {}),
+                            }}
                           >
-                            📎 添付画像を開く
-                          </a>
-                        )}
+                            {m.body ? <div>{m.body}</div> : null}
 
-                        <div className="text-[10px] opacity-70 mt-1">
-                          {new Date(m.created_at).toLocaleString()}
+                            {url && (
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  ...styles.attachLink,
+                                  ...(mine ? styles.attachLinkMine : {}),
+                                }}
+                              >
+                                📎 添付画像を開く
+                              </a>
+                            )}
+                          </div>
+
+                          <div
+                            style={{
+                              ...styles.msgMeta,
+                              textAlign: mine ? "right" : "left",
+                            }}
+                          >
+                            {new Date(m.created_at).toLocaleString()}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <p className="text-sm text-slate-500">左からグループを選択してください</p>
-              )}
-              <div ref={bottomRef} />
-            </div>
-
-            {/* 画像プレビュー */}
-            {previewUrl && (
-              <div className="px-4 py-2 bg-white border-t border-sky-100">
-                <div className="inline-flex items-center gap-3 border border-sky-100 rounded-2xl p-2 bg-sky-50">
-                  <img
-                    src={previewUrl}
-                    alt="選択中の画像"
-                    className="h-16 w-16 object-cover rounded-xl"
-                  />
-                  <button
-                    type="button"
-                    onClick={clearImageSelection}
-                    className="text-xs text-red-600 px-3 py-1.5 rounded-full border border-red-200 hover:bg-red-50"
-                  >
-                    削除
-                  </button>
-                </div>
+                    );
+                  })
+                ) : (
+                  <div style={{ color: "#64748B", fontSize: 14 }}>
+                    左からグループを選択してください
+                  </div>
+                )}
+                <div ref={bottomRef} />
               </div>
-            )}
 
-            {/* 入力欄 */}
-            <div className="px-4 py-3 bg-white border-t border-sky-100 flex gap-2 items-center">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={handleFileChange}
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="w-11 h-11 rounded-2xl border border-sky-200 hover:bg-sky-50"
-                disabled={uploading || loading}
-                aria-label="画像を選ぶ"
-              >
-                📷
-              </button>
+              {/* 画像プレビュー */}
+              {previewUrl && (
+                <div style={styles.previewBar}>
+                  <div style={styles.previewCard}>
+                    <img
+                      src={previewUrl}
+                      alt="選択中の画像"
+                      style={styles.previewImg}
+                    />
+                    <button type="button" onClick={clearImageSelection} style={styles.removeBtn}>
+                      削除
+                    </button>
+                  </div>
+                </div>
+              )}
 
-              <Input
-                className="flex-1"
-                placeholder={active ? "メッセージを入力..." : "グループを選択してください"}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) =>
-                  e.key === "Enter" && !e.shiftKey
-                    ? (e.preventDefault(), send())
-                    : null
-                }
-                disabled={!active || loading}
-              />
+              {/* 入力欄 */}
+              <div style={styles.inputBar}>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  style={{ display: "none" }}
+                  onChange={handleFileChange}
+                />
 
-              <Button onClick={send} disabled={!active || loading || uploading}>
-                送信
-              </Button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  style={styles.clipBtn}
+                  disabled={uploading || loading}
+                  aria-label="画像を選ぶ"
+                >
+                  📷
+                </button>
+
+                {/* Input/Buttonが独自スタイルでも“外側”で吸収 */}
+                <div style={styles.inputShell}>
+                  <Input
+                    className="w-full"
+                    placeholder={active ? "メッセージを入力..." : "グループを選択してください"}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && !e.shiftKey
+                        ? (e.preventDefault(), send())
+                        : null
+                    }
+                    disabled={!active || loading}
+                    style={styles.inputOverride}
+                  />
+                </div>
+
+                {/* Buttonコンポーネントを使わず、確実に統一（←ここが効く） */}
+                <button
+                  onClick={send}
+                  disabled={!active || loading || uploading}
+                  style={{
+                    ...styles.sendBtn,
+                    ...((!active || loading || uploading) ? styles.sendBtnDisabled : {}),
+                  }}
+                >
+                  送信
+                </button>
+              </div>
             </div>
-          </div>
 
-          {showInvite && active && (
-            <InviteMemberDialog
-              groupId={active.id}
-              onClose={() => setShowInvite(false)}
-              onInvited={() => setShowInvite(false)}
-            />
-          )}
-          {showMembers && active && (
-            <GroupMembersDialog
-              groupId={active.id}
-              isOwner={isActiveOwner}
-              ownerId={active.owner_id ?? null}
-              onClose={() => setShowMembers(false)}
-            />
-          )}
+            {showInvite && active && (
+              <InviteMemberDialog
+                groupId={active.id}
+                onClose={() => setShowInvite(false)}
+                onInvited={() => setShowInvite(false)}
+              />
+            )}
+            {showMembers && active && (
+              <GroupMembersDialog
+                groupId={active.id}
+                isOwner={isActiveOwner}
+                ownerId={active.owner_id ?? null}
+                onClose={() => setShowMembers(false)}
+              />
+            )}
+          </div>
         </main>
       </div>
     </div>
