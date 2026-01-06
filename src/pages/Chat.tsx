@@ -1,9 +1,9 @@
 /*
  * src/pages/Chat.tsx
  * Responsibility: グループチャット画面のページコンポーネント
- * - 左カラム: 所属するクラスグループ一覧（未読バッジ付き）
- * - 右カラム: メッセージ一覧 / 送信フォーム（画像アップロード対応）
- * - Realtime で新着メッセージを購読し、未読数を更新する
+ * - 左: グループ一覧（検索 / 未読 / 最新メッセージプレビュー）
+ * - 右: メッセージ一覧 / 送信フォーム（画像アップロード対応）
+ * - Realtime で新着メッセージを購読し、未読数と最新プレビューを更新する
  *
  * UI:
  * - モバイル: 一覧 → チャット (戻る)
@@ -39,14 +39,40 @@ type Message = {
 
 type LastReadRow = { group_id: string; last_read_at: string };
 
-// Storage のパスからブラウザで表示できる URL を作る（リンク用）
+type LastPreview = {
+  body: string;
+  image_url: string | null;
+  created_at: string;
+};
+
 function getImageUrl(path: string | null | undefined): string | null {
   if (!path) return null;
-  if (path.startsWith("http://") || path.startsWith("https://")) {
-    return path;
-  }
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
   const { data } = supabase.storage.from("chat-media").getPublicUrl(path);
   return data.publicUrl ?? null;
+}
+
+function previewText(p?: LastPreview | null) {
+  if (!p) return "（まだメッセージがありません）";
+  const text = (p.body ?? "").trim();
+  if (text) return text.length > 60 ? text.slice(0, 60) + "…" : text;
+  if (p.image_url) return "📷 画像を送信しました";
+  return "（メッセージ）";
+}
+
+function formatTime(iso: string) {
+  // LINEっぽく「今日なら時刻」「それ以外なら日付」くらいの雑な表示
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+
+  if (sameDay) {
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  return d.toLocaleDateString();
 }
 
 export default function Chat() {
@@ -58,7 +84,6 @@ export default function Chat() {
 
   const [groups, setGroups] = useState<Group[]>([]);
   const [active, setActive] = useState<Group | null>(null);
-
   const activeId = active?.id ?? null;
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -68,8 +93,14 @@ export default function Chat() {
   const [showInvite, setShowInvite] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
 
+  // グループ一覧検索
+  const [q, setQ] = useState("");
+
   // 未読数（group_id => 件数）
   const [unreadByGroup, setUnreadByGroup] = useState<Record<string, number>>({});
+
+  // 最新メッセージプレビュー（group_id => preview）
+  const [lastByGroup, setLastByGroup] = useState<Record<string, LastPreview>>({});
 
   // 画像アップロード用
   const [uploading, setUploading] = useState(false);
@@ -131,7 +162,6 @@ export default function Chat() {
       });
 
       const next: Record<string, number> = {};
-
       for (const gid of groupIds) {
         const since = lastReadMap[gid] ?? "1970-01-01T00:00:00Z";
 
@@ -145,7 +175,6 @@ export default function Chat() {
           console.warn("⚠️ count unread failed:", e2.message);
           continue;
         }
-
         next[gid] = count ?? 0;
       }
 
@@ -153,6 +182,44 @@ export default function Chat() {
     },
     [myId]
   );
+
+  /** 最新メッセージのプレビューを（とりあえず素直に）取得 */
+  const fetchLastPreviews = useCallback(async (groupIds: string[]) => {
+    if (groupIds.length === 0) {
+      setLastByGroup({});
+      return;
+    }
+
+    // いったん分かりやすく：グループごとに最新1件を取る（最適化は次でやる）
+    const next: Record<string, LastPreview> = {};
+    for (const gid of groupIds) {
+      const { data, error } = await supabase
+        .from("messages")
+        .select("body,image_url,created_at")
+        .eq("group_id", gid)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (error) {
+        console.warn("⚠️ load last message failed:", gid, error.message);
+        continue;
+      }
+
+      const m = (data?.[0] ?? null) as
+        | { body: string; image_url: string | null; created_at: string }
+        | null;
+
+      if (m) {
+        next[gid] = {
+          body: m.body ?? "",
+          image_url: m.image_url ?? null,
+          created_at: m.created_at,
+        };
+      }
+    }
+
+    setLastByGroup(next);
+  }, []);
 
   // --- グループ一覧（class のみ表示） ---
   useEffect(() => {
@@ -170,11 +237,11 @@ export default function Chat() {
       }
 
       const ids = (gm ?? []).map((r) => r.group_id as string);
-
       if (ids.length === 0) {
         setGroups([]);
         setActive(null);
         setUnreadByGroup({});
+        setLastByGroup({});
         return;
       }
 
@@ -199,16 +266,17 @@ export default function Chat() {
 
       setGroups(list);
 
-      // active の整合性を取る
       setActive((cur) => {
         if (!cur && list.length > 0) return list[0];
         if (cur && !list.find((x) => x.id === cur.id)) return list[0] ?? null;
         return cur;
       });
 
-      await fetchUnreadCounts(list.map((g) => g.id));
+      const groupIds = list.map((g) => g.id);
+      await fetchUnreadCounts(groupIds);
+      await fetchLastPreviews(groupIds);
     })();
-  }, [myId, fetchUnreadCounts]);
+  }, [myId, fetchUnreadCounts, fetchLastPreviews]);
 
   // --- メッセージ一覧 ---
   useEffect(() => {
@@ -239,7 +307,7 @@ export default function Chat() {
     };
   }, [activeId, markRead]);
 
-  // --- Realtime（新着で未読を反映） ---
+  // --- Realtime（新着で未読とプレビューを反映） ---
   useEffect(() => {
     const ids = groups.map((g) => g.id);
     if (ids.length === 0) return;
@@ -257,6 +325,16 @@ export default function Chat() {
           },
           async (payload) => {
             const row = payload.new as Message;
+
+            // 最新プレビューを更新（一覧用）
+            setLastByGroup((prev) => ({
+              ...prev,
+              [gid]: {
+                body: row.body ?? "",
+                image_url: row.image_url ?? null,
+                created_at: row.created_at,
+              },
+            }));
 
             if (active?.id === gid) {
               setMessages((prev) => [...prev, row]);
@@ -284,7 +362,6 @@ export default function Chat() {
     if (!file) return;
 
     setSelectedFile(file);
-
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
   }
@@ -335,6 +412,7 @@ export default function Chat() {
       setInput("");
       clearImageSelection();
       await markRead(active.id);
+      // プレビュー更新は realtime INSERT で自然に入る想定
     } catch (e) {
       console.error("❌ send failed:", e);
       alert("送信に失敗しました。: " + (e as Error).message);
@@ -370,6 +448,7 @@ export default function Chat() {
     const newGroup: Group = { id, name, type: "class", owner_id: myId };
     setGroups((prev) => [...prev, newGroup]);
     setUnreadByGroup((prev) => ({ ...prev, [id]: 0 }));
+    setLastByGroup((prev) => ({ ...prev, [id]: undefined as unknown as LastPreview }));
     setActive(newGroup);
   }
 
@@ -394,7 +473,11 @@ export default function Chat() {
       delete rest[g.id];
       return rest;
     });
-
+    setLastByGroup((prev) => {
+      const rest = { ...prev };
+      delete rest[g.id];
+      return rest;
+    });
     setActive((cur) => (cur?.id === g.id ? null : cur));
   }
 
@@ -403,81 +486,112 @@ export default function Chat() {
     [active, myId]
   );
 
+  const filteredGroups = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    if (!t) return groups;
+    return groups.filter((g) => g.name.toLowerCase().includes(t) || g.id.toLowerCase().includes(t));
+  }, [q, groups]);
+
   return (
     <div className="min-h-[70vh]">
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-        {/* ===== 左：グループ一覧（PCでは常時表示 / モバイルでは active が null のとき表示） ===== */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-0">
+        {/* ===== 左：グループ一覧（LINE風：上に検索、下に一覧） ===== */}
         <aside className={`md:col-span-4 ${active ? "hidden md:block" : "block"}`}>
-          <div className="rounded-2xl bg-white shadow-sm border border-sky-100 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-sky-50 to-cyan-50">
-              <h2 className="font-bold text-slate-800">グループ</h2>
-              {canManage && (
-                <button
-                  className="text-sm px-3 py-1.5 rounded-full bg-sky-600 text-white hover:bg-sky-700"
-                  onClick={createGroup}
-                  aria-label="グループ作成"
-                >
-                  ＋作成
-                </button>
-              )}
+          <div className="bg-white overflow-hidden">
+            {/* ヘッダー */}
+            <div className="px-4 py-3 bg-white border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-xl text-slate-800">グループ</h2>
+                {canManage && (
+                  <button
+                    className="text-sm px-3 py-1.5 rounded-full bg-sky-600 text-white hover:bg-sky-700"
+                    onClick={createGroup}
+                    aria-label="グループ作成"
+                  >
+                    ＋作成
+                  </button>
+                )}
+              </div>
+
+              {/* 検索（LINEっぽく：タイトルの直下） */}
+              <div className="mt-3">
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="検索"
+                  className="w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2 text-sm outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                />
+              </div>
             </div>
 
-            <div className="px-4 py-3">
-              <p className="text-xs text-slate-500">
-                所属しているグループを選ぶと、チャットが開きます。
-              </p>
-            </div>
-
-            <ul className="divide-y divide-sky-50">
-              {groups.map((g) => {
+            {/* 一覧 */}
+            <div className="px-2 py-2">
+              {filteredGroups.map((g) => {
                 const unread = unreadByGroup[g.id] ?? 0;
                 const isActiveRow = active?.id === g.id;
+                const last = lastByGroup[g.id];
+                const lastText = previewText(last);
+                const lastTime = last?.created_at ? formatTime(last.created_at) : "";
 
                 return (
-                  <li key={g.id}>
-                    <button
+                  <div key={g.id} className="mb-3">
+                    <div
                       onClick={() => setActive(g)}
-                      className={[
-                        "w-full text-left px-4 py-3 flex items-center justify-between",
-                        "hover:bg-sky-50 transition",
-                        isActiveRow ? "bg-sky-50" : "bg-white",
-                      ].join(" ")}
+                      style={{
+                        backgroundColor: isActiveRow ? "#dbeafe" : "#e5e7eb",
+                        cursor: "pointer",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isActiveRow) e.currentTarget.style.backgroundColor = "#d1d5db";
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isActiveRow) e.currentTarget.style.backgroundColor = "#e5e7eb";
+                      }}
+                      className="w-full text-left px-4 py-3 rounded-2xl transition-all duration-200"
                     >
-                      <div className="min-w-0">
-                        <div className="font-medium text-slate-800 truncate">
-                          {g.name}
+                      {/* 名前 + 最新文 */}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-extrabold text-lg text-black truncate">
+                            {g.name}
+                          </div>
+                          <div className="text-xs text-gray-400 shrink-0">
+                            {lastTime}
+                          </div>
                         </div>
-                        <div className="text-xs text-slate-500 truncate">
-                          {unread > 0 ? "未読があります" : "未読なし"}
+
+                        <div className="mt-1.5 flex items-center justify-between gap-2">
+                          <div className="text-sm text-gray-500 truncate font-normal">
+                            {lastText}
+                          </div>
+
+                          {unread > 0 && (
+                            <span className="inline-flex min-w-5 h-5 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold px-1.5 shrink-0">
+                              {unread}
+                            </span>
+                          )}
                         </div>
                       </div>
-
-                      {unread > 0 && (
-                        <span className="ml-3 inline-flex min-w-7 h-7 items-center justify-center rounded-full bg-sky-600 text-white text-xs px-2">
-                          {unread}
-                        </span>
-                      )}
-                    </button>
-                  </li>
+                    </div>
+                  </div>
                 );
               })}
 
-              {groups.length === 0 && (
-                <li className="px-4 py-6 text-sm text-slate-500">
-                  所属グループがありません
-                </li>
+              {filteredGroups.length === 0 && (
+                <div className="px-4 py-6 text-sm text-slate-500">
+                  該当するグループがありません
+                </div>
               )}
-            </ul>
+            </div>
           </div>
         </aside>
 
-        {/* ===== 右：チャット（PCでは常時表示 / モバイルでは active があるとき表示） ===== */}
+        {/* ===== 右：チャット ===== */}
         <main className={`md:col-span-8 ${active ? "block" : "hidden md:block"}`}>
-          <div className="rounded-2xl bg-white shadow-sm border border-sky-100 overflow-hidden flex flex-col min-h-[70vh]">
+          <div className="bg-white overflow-hidden flex flex-col min-h-[70vh] md:border-l border-gray-200">
             {/* ヘッダー */}
-            <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-sky-50 to-cyan-50 border-b border-sky-100">
+            <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200">
               <div className="flex items-center gap-2 min-w-0">
-                {/* モバイル戻る */}
                 <button
                   className="md:hidden inline-flex items-center justify-center w-9 h-9 rounded-full hover:bg-white/70"
                   onClick={() => setActive(null)}
@@ -496,7 +610,6 @@ export default function Chat() {
                 </div>
               </div>
 
-              {/* 管理ボタン */}
               {canManage && isActiveOwner && active && (
                 <div className="flex gap-2">
                   <button
