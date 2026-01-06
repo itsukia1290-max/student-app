@@ -8,12 +8,19 @@
  * UI:
  * - モバイル: 一覧 → チャット (戻る)
  * - PC(md+): 左に一覧、右にチャットの2カラム
+ *
+ * IMPORTANT:
+ * - 「2か所スクロール」問題の解消:
+ *   1) Chatページ全体を viewport 高さに固定（BottomNav分を引く）
+ *   2) body(ページ全体)はスクロールさせない（overflow hidden）
+ *   3) スクロールはメッセージ領域のみ（msgArea: overflowY auto, minHeight 0）
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 
 import { supabase } from "../lib/supabase";
+import Button from "../components/ui/Button";
 import Input from "../components/ui/Input";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsStaff } from "../hooks/useIsStaff";
@@ -91,20 +98,15 @@ export default function Chat() {
   const [showInvite, setShowInvite] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
 
-  // グループ一覧検索
   const [q, setQ] = useState("");
 
-  // 未読数（group_id => 件数）
   const [unreadByGroup, setUnreadByGroup] = useState<Record<string, number>>(
     {}
   );
-
-  // 最新メッセージプレビュー（group_id => preview）
   const [lastByGroup, setLastByGroup] = useState<Record<string, LastPreview>>(
     {}
   );
 
-  // 画像アップロード用
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -118,7 +120,6 @@ export default function Chat() {
     );
   }
 
-  /** 自分の last_read_at を now にする（閲覧＝既読） */
   const markRead = useCallback(
     async (groupId: string) => {
       if (!myId) return;
@@ -139,7 +140,6 @@ export default function Chat() {
     [myId]
   );
 
-  /** グループ一覧の未読数をまとめて再計算 */
   const fetchUnreadCounts = useCallback(
     async (groupIds: string[]) => {
       if (!myId || groupIds.length === 0) {
@@ -185,14 +185,12 @@ export default function Chat() {
     [myId]
   );
 
-  /** 最新メッセージのプレビューを（とりあえず素直に）取得 */
   const fetchLastPreviews = useCallback(async (groupIds: string[]) => {
     if (groupIds.length === 0) {
       setLastByGroup({});
       return;
     }
 
-    // いったん分かりやすく：グループごとに最新1件を取る（最適化は次でやる）
     const next: Record<string, LastPreview> = {};
     for (const gid of groupIds) {
       const { data, error } = await supabase
@@ -223,7 +221,6 @@ export default function Chat() {
     setLastByGroup(next);
   }, []);
 
-  // --- グループ一覧（class のみ表示） ---
   useEffect(() => {
     if (!myId) return;
 
@@ -280,7 +277,6 @@ export default function Chat() {
     })();
   }, [myId, fetchUnreadCounts, fetchLastPreviews]);
 
-  // --- メッセージ一覧 ---
   useEffect(() => {
     if (!activeId) return;
 
@@ -309,7 +305,6 @@ export default function Chat() {
     };
   }, [activeId, markRead]);
 
-  // --- Realtime（新着で未読とプレビューを反映） ---
   useEffect(() => {
     const ids = groups.map((g) => g.id);
     if (ids.length === 0) return;
@@ -328,7 +323,6 @@ export default function Chat() {
           async (payload) => {
             const row = payload.new as Message;
 
-            // 最新プレビューを更新（一覧用）
             setLastByGroup((prev) => ({
               ...prev,
               [gid]: {
@@ -358,7 +352,6 @@ export default function Chat() {
     };
   }, [groups, active?.id, markRead]);
 
-  // ---- 画像選択（カメラ or ギャラリー） ----
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -375,7 +368,6 @@ export default function Chat() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  // --- メッセージ送信（テキストのみ or 画像付き or 画像だけOK） ---
   async function send() {
     if (!active || !myId) return;
 
@@ -414,7 +406,6 @@ export default function Chat() {
       setInput("");
       clearImageSelection();
       await markRead(active.id);
-      // プレビュー更新は realtime INSERT で自然に入る想定
     } catch (e) {
       console.error("❌ send failed:", e);
       alert("送信に失敗しました。: " + (e as Error).message);
@@ -424,7 +415,6 @@ export default function Chat() {
     }
   }
 
-  // --- グループ作成（class 固定） ---
   async function createGroup() {
     if (!canManage) return;
 
@@ -453,16 +443,22 @@ export default function Chat() {
     setActive(newGroup);
   }
 
-  // --- グループ削除 ---
   async function deleteGroup(g: Group) {
     if (!g || g.type !== "class") return;
 
-    if (!confirm(`グループ「${g.name}」を削除しますか？（メッセージも削除）`)) return;
+    if (!confirm(`グループ「${g.name}」を削除しますか？（メッセージも削除）`))
+      return;
 
-    const { error: e1 } = await supabase.from("messages").delete().eq("group_id", g.id);
+    const { error: e1 } = await supabase
+      .from("messages")
+      .delete()
+      .eq("group_id", g.id);
     if (e1) return alert("削除失敗(messages): " + e1.message);
 
-    const { error: e2 } = await supabase.from("group_members").delete().eq("group_id", g.id);
+    const { error: e2 } = await supabase
+      .from("group_members")
+      .delete()
+      .eq("group_id", g.id);
     if (e2) return alert("削除失敗(group_members): " + e2.message);
 
     const { error: e3 } = await supabase.from("groups").delete().eq("id", g.id);
@@ -490,30 +486,43 @@ export default function Chat() {
   const filteredGroups = useMemo(() => {
     const t = q.trim().toLowerCase();
     if (!t) return groups;
-    return groups.filter((g) => g.name.toLowerCase().includes(t) || g.id.toLowerCase().includes(t));
+    return groups.filter(
+      (g) => g.name.toLowerCase().includes(t) || g.id.toLowerCase().includes(t)
+    );
   }, [q, groups]);
 
-  // =========================
-  // ここから：見た目（インライン）
-  // =========================
-  const NAV_H = 72; // 下部ナビの高さ（ズレるなら 64/76/80 などに調整）
-  const OUTER_PAD = 12; // 右側外側パディング（mainOuter と揃える）
+  // ===== BottomNav の高さ（ここをあなたの実値に合わせる）=====
+  // BottomNavが fixed で画面下に居座るなら、その高さ分だけ Chat の高さを引く必要あり
+  const NAV_H = 72;
+
+  // ===== インラインで確実に見た目を作るためのスタイル =====
+  const OUTER_PAD = 12;
 
   const styles = {
-    // ----- 左（グループ一覧） -----
+    // Chatページ全体：BottomNav分を引いた viewport 高に固定（←ここが「二重スクロール」回避の核）
+    page: {
+      height: `calc(100dvh - ${NAV_H}px)`,
+      overflow: "hidden" as const,
+    },
+
+    // 左
     asideOuter: {
       background:
         "linear-gradient(180deg, #EAF6FF 0%, #F7FBFF 60%, #FFFFFF 100%)",
-      minHeight: "70vh",
-      padding: "12px",
+      height: "100%",
+      padding: OUTER_PAD,
       boxSizing: "border-box" as const,
+      overflow: "hidden" as const,
     },
     asideCard: {
+      height: "100%",
       background: "#FFFFFF",
       borderRadius: 18,
       border: "1px solid #CFE8FF",
       boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
       overflow: "hidden" as const,
+      display: "flex",
+      flexDirection: "column" as const,
     },
     header: {
       padding: "14px 14px 12px 14px",
@@ -565,7 +574,10 @@ export default function Chat() {
       fontSize: 14,
       background: "transparent",
     },
-    listWrap: {
+    listScroll: {
+      flex: 1,
+      minHeight: 0, // ←スクロール領域のため必須
+      overflowY: "auto" as const,
       padding: 12,
       display: "flex",
       flexDirection: "column" as const,
@@ -647,15 +659,17 @@ export default function Chat() {
       fontSize: 14,
     },
 
-    // ----- 右（チャット） -----
+    // 右（チャット）
     mainOuter: {
-      background:
-        "linear-gradient(180deg, #EAF6FF 0%, #F7FBFF 60%, #FFFFFF 100%)",
+      height: "100%",
       padding: OUTER_PAD,
       boxSizing: "border-box" as const,
-      minHeight: "70vh",
+      overflow: "hidden" as const,
+      background:
+        "linear-gradient(180deg, #EAF6FF 0%, #F7FBFF 60%, #FFFFFF 100%)",
     },
     mainCard: {
+      height: "100%",
       background: "#FFFFFF",
       borderRadius: 18,
       border: "1px solid #CFE8FF",
@@ -663,37 +677,31 @@ export default function Chat() {
       overflow: "hidden" as const,
       display: "flex",
       flexDirection: "column" as const,
-
-      // ★ 画面高にフィットさせて内部スクロールにする
-      height: `calc(100vh - ${OUTER_PAD * 2}px)`,
     },
-    mainHeader: {
+    chatHeader: {
       padding: "12px 14px",
       borderBottom: "1px solid #DCEFFF",
-      background: "linear-gradient(90deg, #F0FAFF 0%, #F8FBFF 55%, #F0FDFF 100%)",
+      background: "linear-gradient(180deg, #F0FAFF 0%, #FFFFFF 100%)",
       display: "flex",
       alignItems: "center",
       justifyContent: "space-between",
-      gap: 10,
+      gap: 12,
     },
-    headerLeft: {
+    chatHeaderLeft: {
       display: "flex",
       alignItems: "center",
       gap: 10,
       minWidth: 0,
     },
     backBtn: {
-      width: 38,
-      height: 38,
+      width: 36,
+      height: 36,
       borderRadius: 999,
       border: "1px solid #DCEFFF",
-      background: "#FFFFFF",
+      background: "#fff",
       cursor: "pointer",
     },
-    headerTitleWrap: {
-      minWidth: 0,
-    },
-    headerTitle: {
+    chatTitle: {
       fontSize: 16,
       fontWeight: 800,
       color: "#0F172A",
@@ -701,46 +709,46 @@ export default function Chat() {
       textOverflow: "ellipsis",
       whiteSpace: "nowrap" as const,
     },
-    headerSub: {
+    chatSub: {
       fontSize: 12,
       color: "#64748B",
       marginTop: 2,
     },
-    headerActions: {
+    chatActions: {
       display: "flex",
       gap: 8,
-      flexShrink: 0 as const,
+      flexShrink: 0,
     },
     actionBtn: {
-      fontSize: 12,
-      padding: "6px 10px",
-      borderRadius: 999,
       border: "1px solid #CFE8FF",
       background: "#FFFFFF",
+      borderRadius: 999,
+      padding: "8px 10px",
+      fontSize: 12,
+      fontWeight: 700,
       cursor: "pointer",
     },
     actionBtnDanger: {
-      fontSize: 12,
-      padding: "6px 10px",
-      borderRadius: 999,
-      border: "1px solid #FECACA",
-      background: "#FFF5F5",
+      border: "1px solid #FFD2D2",
       color: "#DC2626",
+      background: "#FFF",
+      borderRadius: 999,
+      padding: "8px 10px",
+      fontSize: 12,
+      fontWeight: 800,
       cursor: "pointer",
     },
     msgArea: {
       flex: 1,
-      minHeight: 0, // ★ flex子をスクロールさせる必須
+      minHeight: 0, // ←必須（ここだけスクロールにする）
       overflowY: "auto" as const,
       padding: "14px 14px",
       background:
-        "linear-gradient(180deg, rgba(234,246,255,0.55) 0%, rgba(247,251,255,0.55) 60%, rgba(255,255,255,0.7) 100%)",
-      display: "flex",
-      flexDirection: "column" as const,
-      gap: 10,
+        "linear-gradient(180deg, rgba(234,246,255,0.55) 0%, rgba(247,251,255,0.35) 55%, rgba(255,255,255,0.75) 100%)",
     },
     bubbleRow: {
       display: "flex",
+      marginBottom: 8,
     },
     bubbleMine: {
       justifyContent: "flex-end",
@@ -750,42 +758,37 @@ export default function Chat() {
     },
     bubble: {
       maxWidth: "86%",
-      borderRadius: 18,
+      borderRadius: 16,
       padding: "10px 12px",
       border: "1px solid #DCEFFF",
       background: "#FFFFFF",
       color: "#0F172A",
-      boxShadow: "0 8px 18px rgba(15, 23, 42, 0.06)",
+      boxShadow: "0 6px 14px rgba(15, 23, 42, 0.05)",
+      wordBreak: "break-word" as const,
     },
-    bubbleMineInner: {
+    bubbleMineBox: {
       border: "1px solid #2EA8FF",
       background: "linear-gradient(180deg, #53B9FF 0%, #2EA8FF 100%)",
       color: "#FFFFFF",
-      boxShadow: "0 10px 22px rgba(46, 168, 255, 0.22)",
+      boxShadow: "0 10px 22px rgba(46, 168, 255, 0.18)",
     },
-    msgBody: {
-      whiteSpace: "pre-wrap" as const,
-      fontSize: 14,
-      lineHeight: 1.55,
-    },
-    msgLink: {
-      marginTop: 8,
+    attachLink: {
       display: "inline-flex",
       gap: 6,
       alignItems: "center",
+      marginTop: 8,
       fontSize: 12,
       textDecoration: "underline",
-      color: "#0EA5E9",
+      color: "#0B5ED7",
     },
-    msgLinkMine: {
+    attachLinkMine: {
       color: "rgba(255,255,255,0.92)",
     },
-    msgMeta: {
+    ts: {
+      fontSize: 10,
       marginTop: 6,
-      fontSize: 11,
       opacity: 0.7,
     },
-
     previewBar: {
       padding: "10px 14px",
       borderTop: "1px solid #DCEFFF",
@@ -795,42 +798,20 @@ export default function Chat() {
       display: "inline-flex",
       alignItems: "center",
       gap: 10,
-      padding: 10,
       borderRadius: 16,
       border: "1px solid #DCEFFF",
       background: "#F3FAFF",
+      padding: 10,
     },
-    previewImg: {
-      width: 64,
-      height: 64,
-      objectFit: "cover" as const,
-      borderRadius: 14,
-    },
-    previewDelBtn: {
-      fontSize: 12,
-      padding: "6px 10px",
-      borderRadius: 999,
-      border: "1px solid #FECACA",
-      background: "#FFF5F5",
-      color: "#DC2626",
-      cursor: "pointer",
-    },
-
     inputBar: {
       padding: "12px 14px",
       borderTop: "1px solid #DCEFFF",
       background: "#FFFFFF",
       display: "flex",
-      gap: 10,
       alignItems: "center",
-
-      // ★ スクロールしても入力欄は常に表示（BottomNavの上）
-      position: "sticky" as const,
-      bottom: `${NAV_H + OUTER_PAD}px`,
-      zIndex: 20,
-      boxShadow: "0 -10px 25px rgba(15, 23, 42, 0.06)",
+      gap: 10,
     },
-    cameraBtn: {
+    iconBtn: {
       width: 44,
       height: 44,
       borderRadius: 16,
@@ -838,26 +819,16 @@ export default function Chat() {
       background: "#FFFFFF",
       cursor: "pointer",
     },
-    sendBtn: {
-      height: 44,
-      borderRadius: 16,
-      border: "1px solid #7CC7FF",
-      background: "#2EA8FF",
-      color: "#FFFFFF",
-      padding: "0 16px",
-      fontSize: 13,
-      fontWeight: 900,
-      cursor: "pointer",
-      boxShadow: "0 10px 22px rgba(46, 168, 255, 0.22)",
-    },
-    sendBtnDisabled: { opacity: 0.6, cursor: "not-allowed" as const },
-  };
+  } as const;
 
   return (
-    <div className="min-h-[70vh]">
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-0">
-        {/* ===== 左：グループ一覧（インラインで確実に白×水色） ===== */}
-        <aside className={`md:col-span-4 ${active ? "hidden md:block" : "block"}`}>
+    <div style={styles.page}>
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-0" style={{ height: "100%" }}>
+        {/* ===== 左：グループ一覧 ===== */}
+        <aside
+          className={`md:col-span-4 ${active ? "hidden md:block" : "block"}`}
+          style={{ height: "100%" }}
+        >
           <div style={styles.asideOuter}>
             <div style={styles.asideCard}>
               <div style={styles.header}>
@@ -886,7 +857,7 @@ export default function Chat() {
                 </div>
               </div>
 
-              <div style={styles.listWrap}>
+              <div style={styles.listScroll}>
                 {filteredGroups.map((g) => {
                   const unread = unreadByGroup[g.id] ?? 0;
                   const isActiveRow = active?.id === g.id;
@@ -938,34 +909,37 @@ export default function Chat() {
           </div>
         </aside>
 
-        {/* ===== 右：チャット（入力欄 sticky 対応） ===== */}
-        <main className={`md:col-span-8 ${active ? "block" : "hidden md:block"}`}>
+        {/* ===== 右：チャット ===== */}
+        <main
+          className={`md:col-span-8 ${active ? "block" : "hidden md:block"}`}
+          style={{ height: "100%" }}
+        >
           <div style={styles.mainOuter}>
             <div style={styles.mainCard}>
               {/* ヘッダー */}
-              <div style={styles.mainHeader}>
-                <div style={styles.headerLeft}>
+              <div style={styles.chatHeader}>
+                <div style={styles.chatHeaderLeft}>
                   <button
-                    style={styles.backBtn}
                     className="md:hidden"
+                    style={styles.backBtn}
                     onClick={() => setActive(null)}
                     aria-label="戻る"
                   >
                     ←
                   </button>
 
-                  <div style={styles.headerTitleWrap}>
-                    <div style={styles.headerTitle}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={styles.chatTitle}>
                       {active ? active.name : "グループ未選択"}
                     </div>
-                    <div style={styles.headerSub}>
+                    <div style={styles.chatSub}>
                       {active ? "グループチャット" : "左から選択してください"}
                     </div>
                   </div>
                 </div>
 
                 {canManage && isActiveOwner && active && (
-                  <div style={styles.headerActions}>
+                  <div style={styles.chatActions}>
                     <button
                       onClick={() => setShowInvite(true)}
                       style={styles.actionBtn}
@@ -1006,10 +980,14 @@ export default function Chat() {
                         <div
                           style={{
                             ...styles.bubble,
-                            ...(mine ? styles.bubbleMineInner : {}),
+                            ...(mine ? styles.bubbleMineBox : {}),
                           }}
                         >
-                          {m.body && <div style={styles.msgBody}>{m.body}</div>}
+                          {m.body && (
+                            <p style={{ whiteSpace: "pre-wrap", margin: 0 }}>
+                              {m.body}
+                            </p>
+                          )}
 
                           {url && (
                             <a
@@ -1017,15 +995,15 @@ export default function Chat() {
                               target="_blank"
                               rel="noopener noreferrer"
                               style={{
-                                ...styles.msgLink,
-                                ...(mine ? styles.msgLinkMine : {}),
+                                ...styles.attachLink,
+                                ...(mine ? styles.attachLinkMine : {}),
                               }}
                             >
                               📎 添付画像を開く
                             </a>
                           )}
 
-                          <div style={styles.msgMeta}>
+                          <div style={styles.ts}>
                             {new Date(m.created_at).toLocaleString()}
                           </div>
                         </div>
@@ -1033,9 +1011,9 @@ export default function Chat() {
                     );
                   })
                 ) : (
-                  <p style={{ color: "#64748B", fontSize: 14 }}>
+                  <div style={{ color: "#64748B", fontSize: 14 }}>
                     左からグループを選択してください
-                  </p>
+                  </div>
                 )}
                 <div ref={bottomRef} />
               </div>
@@ -1047,12 +1025,26 @@ export default function Chat() {
                     <img
                       src={previewUrl}
                       alt="選択中の画像"
-                      style={styles.previewImg}
+                      style={{
+                        height: 64,
+                        width: 64,
+                        borderRadius: 14,
+                        objectFit: "cover",
+                      }}
                     />
                     <button
                       type="button"
                       onClick={clearImageSelection}
-                      style={styles.previewDelBtn}
+                      style={{
+                        border: "1px solid #FFD2D2",
+                        color: "#DC2626",
+                        background: "#fff",
+                        borderRadius: 999,
+                        padding: "8px 12px",
+                        fontSize: 12,
+                        fontWeight: 800,
+                        cursor: "pointer",
+                      }}
                     >
                       削除
                     </button>
@@ -1060,21 +1052,20 @@ export default function Chat() {
                 </div>
               )}
 
-              {/* 入力欄（stickyでBottomNavの上に固定） */}
+              {/* 入力欄（mainCardの最下部固定：ページスクロールしないので常に見える） */}
               <div style={styles.inputBar}>
                 <input
                   ref={fileInputRef}
                   type="file"
                   accept="image/*"
                   capture="environment"
-                  className="hidden"
+                  style={{ display: "none" }}
                   onChange={handleFileChange}
                 />
-
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  style={styles.cameraBtn}
+                  style={styles.iconBtn}
                   disabled={uploading || loading}
                   aria-label="画像を選ぶ"
                 >
@@ -1094,21 +1085,13 @@ export default function Chat() {
                   disabled={!active || loading}
                 />
 
-                <button
-                  onClick={send}
-                  disabled={!active || loading || uploading}
-                  style={{
-                    ...styles.sendBtn,
-                    ...(!active || loading || uploading ? styles.sendBtnDisabled : {}),
-                  }}
-                >
+                <Button onClick={send} disabled={!active || loading || uploading}>
                   送信
-                </button>
+                </Button>
               </div>
             </div>
           </div>
 
-          {/* 招待 / メンバー管理ダイアログ */}
           {showInvite && active && (
             <InviteMemberDialog
               groupId={active.id}
