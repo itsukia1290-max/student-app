@@ -1,17 +1,9 @@
 /*
  * src/pages/Chat.tsx
- * Responsibility: グループチャット画面のページコンポーネント
- * - 左: グループ一覧（検索 / 未読 / 最新メッセージプレビュー）
- * - 右: メッセージ一覧 / 送信フォーム（画像アップロード対応）
- * - Realtime で新着メッセージを購読し、未読数と最新プレビューを更新する
- *
- * UI:
- * - モバイル: 一覧 → チャット (戻る)
- * - PC(md+): 左に一覧、右にチャットの2カラム
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, CSSProperties } from "react";
 
 import { supabase } from "../lib/supabase";
 import Button from "../components/ui/Button";
@@ -68,13 +60,11 @@ function formatTime(iso: string) {
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate();
 
-  if (sameDay) {
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  }
+  if (sameDay) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return d.toLocaleDateString();
 }
 
-// 画面下部ナビ（あなたのBottomNavの高さに合わせて）
+// あなたのBottomNavの高さに合わせて
 const NAV_HEIGHT = 72;
 
 export default function Chat() {
@@ -97,26 +87,23 @@ export default function Chat() {
 
   const [q, setQ] = useState("");
 
-  const [unreadByGroup, setUnreadByGroup] = useState<Record<string, number>>(
-    {}
-  );
-  const [lastByGroup, setLastByGroup] = useState<Record<string, LastPreview>>(
-    {}
-  );
+  const [unreadByGroup, setUnreadByGroup] = useState<Record<string, number>>({});
+  const [lastByGroup, setLastByGroup] = useState<Record<string, LastPreview>>({});
 
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // スクロール制御（メッセージ領域だけスクロール）
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const [showJump, setShowJump] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // ヘッダー右のボタン押下演出用
+  const [pressedKey, setPressedKey] = useState<null | "invite" | "members" | "delete">(null);
+
   function scrollToBottom(smooth = true) {
-    // 「スクロールできるのは scrollerRef」なのでそこを基準に最下部へ
     requestAnimationFrame(() => {
       bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
     });
@@ -125,7 +112,7 @@ export default function Chat() {
   function isNearBottom() {
     const el = scrollerRef.current;
     if (!el) return true;
-    const threshold = 120; // これ以内なら「下にいる」扱い
+    const threshold = 120;
     return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
   }
 
@@ -219,11 +206,7 @@ export default function Chat() {
         | null;
 
       if (m) {
-        next[gid] = {
-          body: m.body ?? "",
-          image_url: m.image_url ?? null,
-          created_at: m.created_at,
-        };
+        next[gid] = { body: m.body ?? "", image_url: m.image_url ?? null, created_at: m.created_at };
       }
     }
 
@@ -308,7 +291,6 @@ export default function Chat() {
         setShowJump(false);
       }
 
-      // 初回は最下部へ（スムーズじゃなくてOK）
       scrollToBottom(false);
       await markRead(activeId);
     })();
@@ -338,17 +320,11 @@ export default function Chat() {
 
             setLastByGroup((prev) => ({
               ...prev,
-              [gid]: {
-                body: row.body ?? "",
-                image_url: row.image_url ?? null,
-                created_at: row.created_at,
-              },
+              [gid]: { body: row.body ?? "", image_url: row.image_url ?? null, created_at: row.created_at },
             }));
 
             if (active?.id === gid) {
-              // 追加前に「いま下にいるか？」を判定（これがLINEっぽさの肝）
               const wasNear = isNearBottom();
-
               setMessages((prev) => [...prev, row]);
 
               if (wasNear) {
@@ -359,10 +335,7 @@ export default function Chat() {
                 setShowJump(true);
               }
             } else {
-              setUnreadByGroup((prev) => ({
-                ...prev,
-                [gid]: (prev[gid] ?? 0) + 1,
-              }));
+              setUnreadByGroup((prev) => ({ ...prev, [gid]: (prev[gid] ?? 0) + 1 }));
             }
           }
         )
@@ -377,10 +350,8 @@ export default function Chat() {
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-
     setSelectedFile(file);
-    const url = URL.createObjectURL(file);
-    setPreviewUrl(url);
+    setPreviewUrl(URL.createObjectURL(file));
   }
 
   function clearImageSelection() {
@@ -408,10 +379,7 @@ export default function Chat() {
 
         const { error: upErr } = await supabase.storage
           .from("chat-media")
-          .upload(imagePath, selectedFile, {
-            cacheControl: "3600",
-            upsert: false,
-          });
+          .upload(imagePath, selectedFile, { cacheControl: "3600", upsert: false });
 
         if (upErr) throw upErr;
       }
@@ -429,7 +397,6 @@ export default function Chat() {
       clearImageSelection();
       await markRead(active.id);
 
-      // 送信後は自分は下へ
       scrollToBottom(true);
       setShowJump(false);
     } catch (e) {
@@ -449,10 +416,7 @@ export default function Chat() {
 
     const id = crypto.randomUUID();
 
-    const { error: ge } = await supabase
-      .from("groups")
-      .insert({ id, name, type: "class", owner_id: myId });
-
+    const { error: ge } = await supabase.from("groups").insert({ id, name, type: "class", owner_id: myId });
     if (ge) return alert("グループ作成失敗: " + ge.message);
 
     const { error: me } = await supabase.from("group_members").insert({
@@ -460,7 +424,6 @@ export default function Chat() {
       user_id: myId,
       last_read_at: new Date().toISOString(),
     });
-
     if (me) return alert("メンバー追加失敗: " + me.message);
 
     const newGroup: Group = { id, name, type: "class", owner_id: myId };
@@ -472,19 +435,12 @@ export default function Chat() {
   async function deleteGroup(g: Group) {
     if (!g || g.type !== "class") return;
 
-    if (!confirm(`グループ「${g.name}」を削除しますか？（メッセージも削除）`))
-      return;
+    if (!confirm(`グループ「${g.name}」を削除しますか？（メッセージも削除）`)) return;
 
-    const { error: e1 } = await supabase
-      .from("messages")
-      .delete()
-      .eq("group_id", g.id);
+    const { error: e1 } = await supabase.from("messages").delete().eq("group_id", g.id);
     if (e1) return alert("削除失敗(messages): " + e1.message);
 
-    const { error: e2 } = await supabase
-      .from("group_members")
-      .delete()
-      .eq("group_id", g.id);
+    const { error: e2 } = await supabase.from("group_members").delete().eq("group_id", g.id);
     if (e2) return alert("削除失敗(group_members): " + e2.message);
 
     const { error: e3 } = await supabase.from("groups").delete().eq("id", g.id);
@@ -504,31 +460,57 @@ export default function Chat() {
     setActive((cur) => (cur?.id === g.id ? null : cur));
   }
 
-  const isActiveOwner = useMemo(
-    () => !!(active && active.owner_id === myId),
-    [active, myId]
-  );
+  const isActiveOwner = useMemo(() => !!(active && active.owner_id === myId), [active, myId]);
 
   const filteredGroups = useMemo(() => {
     const t = q.trim().toLowerCase();
     if (!t) return groups;
-    return groups.filter(
-      (g) => g.name.toLowerCase().includes(t) || g.id.toLowerCase().includes(t)
-    );
+    return groups.filter((g) => g.name.toLowerCase().includes(t) || g.id.toLowerCase().includes(t));
   }, [q, groups]);
 
-  // ===== インラインで確実に見た目を作るためのスタイル =====
+  // ===== 押下エフェクト付きピルボタン（インライン） =====
+  const pillBase: CSSProperties = {
+    border: "1px solid rgba(125, 211, 252, 0.55)",
+    background: "rgba(255,255,255,0.92)",
+    padding: "8px 12px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 900,
+    color: "#0F172A",
+    cursor: "pointer",
+    boxShadow: "0 10px 18px rgba(15, 23, 42, 0.08)",
+    transition: "transform 120ms ease, box-shadow 120ms ease, filter 120ms ease",
+    userSelect: "none",
+  };
+
+  const pillPressed: CSSProperties = {
+    transform: "translateY(1px) scale(0.98)",
+    boxShadow: "0 6px 10px rgba(15, 23, 42, 0.10)",
+    filter: "brightness(0.98)",
+  };
+
+  const pillHover: CSSProperties = {
+    transform: "translateY(-1px)",
+    boxShadow: "0 14px 24px rgba(15, 23, 42, 0.12)",
+  };
+
+  const pillDangerBase: CSSProperties = {
+    ...pillBase,
+    border: "1px solid rgba(248, 113, 113, 0.55)",
+    color: "#DC2626",
+    boxShadow: "0 10px 18px rgba(220, 38, 38, 0.12)",
+  };
+
+  // ===== インラインスタイル =====
   const styles = {
-    // ページ全体：BottomNavぶんを引いた高さで「このコンポーネント内に収める」
     page: {
       height: `calc(100vh - ${NAV_HEIGHT}px)`,
       overflow: "hidden" as const,
     },
 
-    // ---- 左（グループ一覧） ----
+    // 左
     asideOuter: {
-      background:
-        "linear-gradient(180deg, #EAF6FF 0%, #F7FBFF 60%, #FFFFFF 100%)",
+      background: "linear-gradient(180deg, #EAF6FF 0%, #F7FBFF 60%, #FFFFFF 100%)",
       height: `calc(100vh - ${NAV_HEIGHT}px)`,
       padding: "12px",
       boxSizing: "border-box" as const,
@@ -546,18 +528,8 @@ export default function Chat() {
       borderBottom: "1px solid #DCEFFF",
       background: "linear-gradient(180deg, #F0FAFF 0%, #FFFFFF 100%)",
     },
-    titleRow: {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: 12,
-    },
-    title: {
-      fontSize: 22,
-      fontWeight: 800,
-      color: "#0F172A",
-      letterSpacing: "0.2px",
-    },
+    titleRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 },
+    title: { fontSize: 22, fontWeight: 800, color: "#0F172A", letterSpacing: "0.2px" },
     createBtn: {
       border: "1px solid #7CC7FF",
       background: "linear-gradient(180deg, #53B9FF 0%, #2EA8FF 100%)",
@@ -581,19 +553,8 @@ export default function Chat() {
       boxShadow: "0 2px 10px rgba(15, 23, 42, 0.04)",
     },
     searchIcon: { fontSize: 14, color: "#64748B" },
-    searchInput: {
-      width: "100%",
-      border: "none",
-      outline: "none",
-      fontSize: 14,
-      background: "transparent",
-    },
-    listWrap: {
-      padding: 12,
-      display: "flex",
-      flexDirection: "column" as const,
-      gap: 10,
-    },
+    searchInput: { width: "100%", border: "none", outline: "none", fontSize: 14, background: "transparent" },
+    listWrap: { padding: 12, display: "flex", flexDirection: "column" as const, gap: 10 },
     groupBtnBase: {
       width: "100%",
       textAlign: "left" as const,
@@ -602,8 +563,7 @@ export default function Chat() {
       background: "#FFFFFF",
       padding: "12px 12px",
       cursor: "pointer",
-      transition:
-        "transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background 120ms ease",
+      transition: "transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background 120ms ease",
     },
     groupBtnHover: {
       background: "#F3FAFF",
@@ -616,12 +576,7 @@ export default function Chat() {
       borderColor: "#55B9FF",
       boxShadow: "0 10px 22px rgba(46, 168, 255, 0.18)",
     },
-    groupRowTop: {
-      display: "flex",
-      alignItems: "flex-start",
-      justifyContent: "space-between",
-      gap: 10,
-    },
+    groupRowTop: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
     groupName: {
       fontSize: 24,
       fontWeight: 900,
@@ -639,13 +594,7 @@ export default function Chat() {
       textOverflow: "ellipsis",
       whiteSpace: "nowrap" as const,
     },
-    rightCol: {
-      display: "flex",
-      flexDirection: "column" as const,
-      alignItems: "flex-end" as const,
-      gap: 8,
-      flexShrink: 0 as const,
-    },
+    rightCol: { display: "flex", flexDirection: "column" as const, alignItems: "flex-end" as const, gap: 8, flexShrink: 0 as const },
     time: { fontSize: 12, color: "#94A3B8" },
     badge: {
       minWidth: 28,
@@ -663,7 +612,7 @@ export default function Chat() {
     },
     empty: { padding: "18px 12px 26px 12px", color: "#64748B", fontSize: 14 },
 
-    // ---- 右（チャット） ----
+    // 右
     chatOuter: {
       height: `calc(100vh - ${NAV_HEIGHT}px)`,
       overflow: "hidden" as const,
@@ -673,11 +622,11 @@ export default function Chat() {
       flexDirection: "column" as const,
     },
 
-    // ★上バー（グループ名を目立たせる）
+    // ★ クリックが効かない時は、まずここを最前面にする
     chatHeader: {
       position: "sticky" as const,
       top: 0,
-      zIndex: 30,
+      zIndex: 200, // ← 30から大幅アップ
       padding: "12px 14px",
       borderBottom: "1px solid rgba(125, 211, 252, 0.45)",
       background:
@@ -688,13 +637,9 @@ export default function Chat() {
       alignItems: "center",
       justifyContent: "space-between",
       gap: 12,
+      pointerEvents: "auto" as const, // 念のため
     },
-    headerLeft: {
-      display: "flex",
-      alignItems: "center",
-      gap: 12,
-      minWidth: 0,
-    },
+    headerLeft: { display: "flex", alignItems: "center", gap: 12, minWidth: 0 },
     backBtn: {
       width: 40,
       height: 40,
@@ -720,12 +665,7 @@ export default function Chat() {
       fontSize: 16,
       flexShrink: 0 as const,
     },
-    titleWrap: {
-      minWidth: 0,
-      display: "flex",
-      flexDirection: "column" as const,
-      gap: 2,
-    },
+    titleWrap: { minWidth: 0, display: "flex", flexDirection: "column" as const, gap: 2 },
     headerTitle: {
       fontSize: 28,
       fontWeight: 900,
@@ -743,37 +683,12 @@ export default function Chat() {
       textOverflow: "ellipsis",
       whiteSpace: "nowrap" as const,
     },
-    headerRight: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      flexShrink: 0 as const,
-    },
-    headerPill: {
-      border: "1px solid rgba(125, 211, 252, 0.55)",
-      background: "rgba(255,255,255,0.9)",
-      padding: "7px 12px",
-      borderRadius: 999,
-      fontSize: 12,
-      fontWeight: 800,
-      color: "#0F172A",
-      cursor: "pointer",
-      boxShadow: "0 8px 16px rgba(15, 23, 42, 0.06)",
-    },
-    headerPillDanger: {
-      border: "1px solid rgba(248, 113, 113, 0.55)",
-      background: "rgba(255,255,255,0.9)",
-      padding: "7px 12px",
-      borderRadius: 999,
-      fontSize: 12,
-      fontWeight: 900,
-      color: "#DC2626",
-      cursor: "pointer",
-      boxShadow: "0 8px 16px rgba(220, 38, 38, 0.10)",
-    },
+    headerRight: { display: "flex", alignItems: "center", gap: 8, flexShrink: 0 as const },
 
-    // メッセージスクロール領域（ここだけスクロール）
+    // スクロール領域
     scroller: {
+      position: "relative" as const, // ← これで absolute はここ基準
+      zIndex: 10,
       flex: 1,
       overflowY: "auto" as const,
       padding: "14px 14px 18px 14px",
@@ -781,52 +696,25 @@ export default function Chat() {
         "radial-gradient(1200px 600px at 20% 0%, rgba(46,168,255,0.08) 0%, rgba(46,168,255,0.00) 60%)",
     },
 
-    row: {
-      display: "flex",
-      marginBottom: 10,
-    },
-    rowMine: {
-      justifyContent: "flex-end",
-    },
-    rowOther: {
-      justifyContent: "flex-start",
-    },
+    row: { display: "flex", marginBottom: 10 },
+    rowMine: { justifyContent: "flex-end" },
+    rowOther: { justifyContent: "flex-start" },
 
-    bubbleBase: {
-      maxWidth: "86%",
-      borderRadius: 18,
-      padding: "10px 12px",
-      boxShadow: "0 8px 18px rgba(15,23,42,0.06)",
-    },
-    bubbleMine: {
-      background: "linear-gradient(180deg, #53B9FF 0%, #2EA8FF 100%)",
-      color: "#fff",
-      border: "1px solid rgba(255,255,255,0.28)",
-    },
-    bubbleOther: {
-      background: "#fff",
-      color: "#0B1220",
-      border: "1px solid #DCEFFF",
-    },
+    bubbleBase: { maxWidth: "86%", borderRadius: 18, padding: "10px 12px", boxShadow: "0 8px 18px rgba(15,23,42,0.06)" },
+    bubbleMine: { background: "linear-gradient(180deg, #53B9FF 0%, #2EA8FF 100%)", color: "#fff", border: "1px solid rgba(255,255,255,0.28)" },
+    bubbleOther: { background: "#fff", color: "#0B1220", border: "1px solid #DCEFFF" },
 
     msgText: { whiteSpace: "pre-wrap" as const, margin: 0 },
     msgTime: { fontSize: 10, opacity: 0.75, marginTop: 6 },
 
-    attachLink: {
-      display: "inline-flex",
-      gap: 6,
-      alignItems: "center",
-      fontSize: 12,
-      marginTop: 8,
-      textDecoration: "underline",
-      cursor: "pointer",
-    },
+    attachLink: { display: "inline-flex", gap: 6, alignItems: "center", fontSize: 12, marginTop: 8, textDecoration: "underline", cursor: "pointer" },
 
-    // 「↓ 最新へ」ボタン
+    // 「↓ 最新へ」…ヘッダーより下に
     jumpBtn: {
-      position: "absolute" as const,
-      right: 16,
-      bottom: 90, // 入力欄の上に浮かせる
+      position: "sticky" as const,
+      left: "calc(100% - 136px)",
+      bottom: 92,
+      zIndex: 20,
       borderRadius: 999,
       padding: "10px 12px",
       border: "1px solid rgba(125,211,252,0.7)",
@@ -837,13 +725,15 @@ export default function Chat() {
       cursor: "pointer",
       color: "#0B1220",
       backdropFilter: "blur(10px)",
+      width: "fit-content",
+      marginLeft: "auto",
+      marginRight: 0,
     },
 
-    // 入力欄（チャット内に固定）
     inputBar: {
       position: "sticky" as const,
       bottom: 0,
-      zIndex: 25,
+      zIndex: 150, // 入力欄もちゃんと上に
       padding: "12px 12px",
       background: "rgba(255,255,255,0.94)",
       backdropFilter: "blur(10px)",
@@ -869,21 +759,8 @@ export default function Chat() {
       background: "rgba(255,255,255,0.94)",
       backdropFilter: "blur(10px)",
     },
-    previewChip: {
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 10,
-      border: "1px solid #DCEFFF",
-      borderRadius: 18,
-      padding: 10,
-      background: "#F3FAFF",
-    },
-    previewImg: {
-      width: 64,
-      height: 64,
-      borderRadius: 14,
-      objectFit: "cover" as const,
-    },
+    previewChip: { display: "inline-flex", alignItems: "center", gap: 10, border: "1px solid #DCEFFF", borderRadius: 18, padding: 10, background: "#F3FAFF" },
+    previewImg: { width: 64, height: 64, borderRadius: 14, objectFit: "cover" as const },
     previewDel: {
       borderRadius: 999,
       padding: "8px 10px",
@@ -898,7 +775,7 @@ export default function Chat() {
   return (
     <div style={styles.page}>
       <div className="grid grid-cols-1 md:grid-cols-12 gap-0" style={{ height: "100%" }}>
-        {/* ===== 左：グループ一覧（白×水色） ===== */}
+        {/* 左 */}
         <aside className={`md:col-span-4 ${active ? "hidden md:block" : "block"}`}>
           <div style={styles.asideOuter}>
             <div style={styles.asideCard}>
@@ -907,11 +784,7 @@ export default function Chat() {
                   <div style={styles.title}>グループ</div>
 
                   {canManage && (
-                    <button
-                      style={styles.createBtn}
-                      onClick={createGroup}
-                      aria-label="グループ作成"
-                    >
+                    <button style={styles.createBtn} onClick={createGroup} aria-label="グループ作成">
                       ＋作成
                     </button>
                   )}
@@ -919,12 +792,7 @@ export default function Chat() {
 
                 <div style={styles.searchWrap}>
                   <span style={styles.searchIcon}>🔎</span>
-                  <input
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                    placeholder="検索"
-                    style={styles.searchInput}
-                  />
+                  <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="検索" style={styles.searchInput} />
                 </div>
               </div>
 
@@ -972,54 +840,85 @@ export default function Chat() {
                   );
                 })}
 
-                {filteredGroups.length === 0 && (
-                  <div style={styles.empty}>該当するグループがありません</div>
-                )}
+                {filteredGroups.length === 0 && <div style={styles.empty}>該当するグループがありません</div>}
               </div>
             </div>
           </div>
         </aside>
 
-        {/* ===== 右：チャット ===== */}
+        {/* 右 */}
         <main className={`md:col-span-8 ${active ? "block" : "hidden md:block"}`}>
           <div style={styles.chatOuter}>
             {/* ヘッダー */}
             <div style={styles.chatHeader}>
               <div style={styles.headerLeft}>
-                <button
-                  className="md:hidden"
-                  style={styles.backBtn}
-                  onClick={() => setActive(null)}
-                  aria-label="戻る"
-                >
+                <button className="md:hidden" style={styles.backBtn} onClick={() => setActive(null)} aria-label="戻る">
                   ←
                 </button>
 
-                <div style={styles.avatar}>
-                  {(active?.name?.trim()?.[0] ?? "G").toUpperCase()}
-                </div>
+                <div style={styles.avatar}>{(active?.name?.trim()?.[0] ?? "G").toUpperCase()}</div>
 
                 <div style={styles.titleWrap}>
-                  <div style={styles.headerTitle}>
-                    {active ? active.name : "グループ未選択"}
-                  </div>
-                  <div style={styles.headerSub}>
-                    {active ? "グループチャット" : "左から選択してください"}
-                  </div>
+                  <div style={styles.headerTitle}>{active ? active.name : "グループ未選択"}</div>
+                  <div style={styles.headerSub}>{active ? "グループチャット" : "左から選択してください"}</div>
                 </div>
               </div>
 
               {canManage && isActiveOwner && active && (
                 <div style={styles.headerRight}>
-                  <button onClick={() => setShowInvite(true)} style={styles.headerPill}>
+                  {/* 招待 */}
+                  <button
+                    type="button"
+                    onClick={() => setShowInvite(true)}
+                    style={{
+                      ...pillBase,
+                      ...(pressedKey === "invite" ? pillPressed : {}),
+                    }}
+                    onMouseEnter={(e) => Object.assign(e.currentTarget.style, pillHover)}
+                    onMouseLeave={(e) => {
+                      setPressedKey(null);
+                      Object.assign(e.currentTarget.style, pillBase);
+                    }}
+                    onMouseDown={() => setPressedKey("invite")}
+                    onMouseUp={() => setPressedKey(null)}
+                  >
                     招待
                   </button>
-                  <button onClick={() => setShowMembers(true)} style={styles.headerPill}>
+
+                  {/* メンバー */}
+                  <button
+                    type="button"
+                    onClick={() => setShowMembers(true)}
+                    style={{
+                      ...pillBase,
+                      ...(pressedKey === "members" ? pillPressed : {}),
+                    }}
+                    onMouseEnter={(e) => Object.assign(e.currentTarget.style, pillHover)}
+                    onMouseLeave={(e) => {
+                      setPressedKey(null);
+                      Object.assign(e.currentTarget.style, pillBase);
+                    }}
+                    onMouseDown={() => setPressedKey("members")}
+                    onMouseUp={() => setPressedKey(null)}
+                  >
                     メンバー
                   </button>
+
+                  {/* 削除 */}
                   <button
+                    type="button"
                     onClick={() => deleteGroup(active)}
-                    style={styles.headerPillDanger}
+                    style={{
+                      ...pillDangerBase,
+                      ...(pressedKey === "delete" ? pillPressed : {}),
+                    }}
+                    onMouseEnter={(e) => Object.assign(e.currentTarget.style, pillHover)}
+                    onMouseLeave={(e) => {
+                      setPressedKey(null);
+                      Object.assign(e.currentTarget.style, pillDangerBase);
+                    }}
+                    onMouseDown={() => setPressedKey("delete")}
+                    onMouseUp={() => setPressedKey(null)}
                   >
                     削除
                   </button>
@@ -1027,7 +926,7 @@ export default function Chat() {
               )}
             </div>
 
-            {/* メッセージ（スクロール領域） */}
+            {/* メッセージ */}
             <div
               ref={scrollerRef}
               style={styles.scroller}
@@ -1035,71 +934,51 @@ export default function Chat() {
                 if (isNearBottom()) setShowJump(false);
               }}
             >
-              <div style={{ position: "relative", minHeight: "100%" }}>
-                {active ? (
-                  messages.map((m) => {
-                    const url = getImageUrl(m.image_url);
-                    const mine = m.sender_id === myId;
+              {active ? (
+                messages.map((m) => {
+                  const url = getImageUrl(m.image_url);
+                  const mine = m.sender_id === myId;
 
-                    return (
-                      <div
-                        key={m.id}
-                        style={{
-                          ...styles.row,
-                          ...(mine ? styles.rowMine : styles.rowOther),
-                        }}
-                      >
-                        <div
-                          style={{
-                            ...styles.bubbleBase,
-                            ...(mine ? styles.bubbleMine : styles.bubbleOther),
-                          }}
-                        >
-                          {m.body && <p style={styles.msgText}>{m.body}</p>}
+                  return (
+                    <div key={m.id} style={{ ...styles.row, ...(mine ? styles.rowMine : styles.rowOther) }}>
+                      <div style={{ ...styles.bubbleBase, ...(mine ? styles.bubbleMine : styles.bubbleOther) }}>
+                        {m.body && <p style={styles.msgText}>{m.body}</p>}
 
-                          {url && (
-                            <a
-                              href={url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{
-                                ...styles.attachLink,
-                                color: mine ? "rgba(255,255,255,0.92)" : "#0369A1",
-                              }}
-                            >
-                              📎 添付画像を開く
-                            </a>
-                          )}
+                        {url && (
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ ...styles.attachLink, color: mine ? "rgba(255,255,255,0.92)" : "#0369A1" }}
+                          >
+                            📎 添付画像を開く
+                          </a>
+                        )}
 
-                          <div style={styles.msgTime}>
-                            {new Date(m.created_at).toLocaleString()}
-                          </div>
-                        </div>
+                        <div style={styles.msgTime}>{new Date(m.created_at).toLocaleString()}</div>
                       </div>
-                    );
-                  })
-                ) : (
-                  <div style={{ color: "#64748B", fontSize: 14 }}>
-                    左からグループを選択してください
-                  </div>
-                )}
+                    </div>
+                  );
+                })
+              ) : (
+                <div style={{ color: "#64748B", fontSize: 14 }}>左からグループを選択してください</div>
+              )}
 
-                <div ref={bottomRef} />
+              <div ref={bottomRef} />
 
-                {showJump && (
-                  <button
-                    type="button"
-                    style={styles.jumpBtn}
-                    onClick={() => {
-                      scrollToBottom(true);
-                      setShowJump(false);
-                    }}
-                    aria-label="最新へ"
-                  >
-                    ↓ 最新へ
-                  </button>
-                )}
-              </div>
+              {showJump && (
+                <button
+                  type="button"
+                  style={styles.jumpBtn}
+                  onClick={() => {
+                    scrollToBottom(true);
+                    setShowJump(false);
+                    if (active) markRead(active.id);
+                  }}
+                >
+                  ↓ 最新へ
+                </button>
+              )}
             </div>
 
             {/* 画像プレビュー */}
@@ -1116,14 +995,7 @@ export default function Chat() {
 
             {/* 入力欄 */}
             <div style={styles.inputBar}>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={handleFileChange}
-              />
+              <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileChange} />
 
               <button
                 type="button"
@@ -1142,9 +1014,7 @@ export default function Chat() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) =>
-                  e.key === "Enter" && !e.shiftKey
-                    ? (e.preventDefault(), send())
-                    : null
+                  e.key === "Enter" && !e.shiftKey ? (e.preventDefault(), send()) : null
                 }
                 disabled={!active || loading}
               />
@@ -1154,24 +1024,44 @@ export default function Chat() {
               </Button>
             </div>
           </div>
-
-          {showInvite && active && (
-            <InviteMemberDialog
-              groupId={active.id}
-              onClose={() => setShowInvite(false)}
-              onInvited={() => setShowInvite(false)}
-            />
-          )}
-          {showMembers && active && (
-            <GroupMembersDialog
-              groupId={active.id}
-              isOwner={isActiveOwner}
-              ownerId={active.owner_id ?? null}
-              onClose={() => setShowMembers(false)}
-            />
-          )}
         </main>
       </div>
+
+      {/* ===== Dialogs: 画面最上位に固定表示（overflow/z-indexの影響を受けない） ===== */}
+      {showInvite && active && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            pointerEvents: "auto",
+          }}
+        >
+          <InviteMemberDialog
+            groupId={active.id}
+            onClose={() => setShowInvite(false)}
+            onInvited={() => setShowInvite(false)}
+          />
+        </div>
+      )}
+
+      {showMembers && active && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            pointerEvents: "auto",
+          }}
+        >
+          <GroupMembersDialog
+            groupId={active.id}
+            isOwner={isActiveOwner}
+            ownerId={active.owner_id ?? null}
+            onClose={() => setShowMembers(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }
