@@ -356,29 +356,22 @@ export default function DM() {
   // ---- 新規DM作成 ----
   async function createDm(partnerId: string, partnerName: string | null) {
     if (!myId) return;
-    const id = crypto.randomUUID();
+
+    const { data, error } = await supabase.rpc("create_or_get_dm", {
+      partner_id: partnerId,
+    });
+
+    if (error) return alert("DM作成失敗: " + error.message);
+
+    const row = Array.isArray(data) ? data[0] : data;
+    const gid = row.group_id as string;
+
     const name = partnerName ?? "DM";
+    const newGroup: Group = { id: gid, name, type: "dm", owner_id: null };
 
-    const { error: ge } = await supabase
-      .from("groups")
-      .insert({ id, name, type: "dm", owner_id: myId });
-    if (ge) return alert("DM作成失敗: " + ge.message);
-
-    const { error: me } = await supabase
-      .from("group_members")
-      .insert([
-        { group_id: id, user_id: myId, last_read_at: new Date().toISOString() },
-        { group_id: id, user_id: partnerId },
-      ]);
-    if (me) return alert("メンバー追加失敗: " + me.message);
-
-    const newGroup: Group = { id, name, type: "dm", owner_id: myId };
-    setGroups((prev) => [...prev, newGroup]);
-    setLabelByGroup((prev) => ({
-      ...prev,
-      [id]: { partnerId, partnerName },
-    }));
-    setUnreadByGroup((prev) => ({ ...prev, [id]: 0 }));
+    setGroups((prev) => (prev.some((g) => g.id === gid) ? prev : [...prev, newGroup]));
+    setLabelByGroup((prev) => ({ ...prev, [gid]: { partnerId, partnerName } }));
+    setUnreadByGroup((prev) => ({ ...prev, [gid]: 0 }));
     setActive(newGroup);
     setShowNewDm(false);
   }
