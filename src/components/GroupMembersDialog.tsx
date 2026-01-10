@@ -14,6 +14,98 @@ type Member = {
   phone: string | null;
 };
 
+function roleLabel(role: Member["role"]) {
+  if (role === "admin") return "管理者";
+  if (role === "teacher") return "講師";
+  return "生徒";
+}
+
+function roleBadgeStyle(role: Member["role"]): React.CSSProperties {
+  if (role === "admin") return styles.badgeAdmin;
+  if (role === "teacher") return styles.badgeTeacher;
+  return styles.badgeStudent;
+}
+
+/** 小さめ確認モーダル（confirm の置き換え） */
+function MiniConfirmDialog({
+  open,
+  title,
+  description,
+  dangerLabel = "削除",
+  cancelLabel = "キャンセル",
+  onCancel,
+  onConfirm,
+  confirming = false,
+}: {
+  open: boolean;
+  title: string;
+  description?: string;
+  dangerLabel?: string;
+  cancelLabel?: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  confirming?: boolean;
+}) {
+  // ESC で閉じる（親でもESC処理してるけど、ダブルでも害なし）
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+      if (e.key === "Enter") onConfirm();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onCancel, onConfirm]);
+
+  if (!open) return null;
+
+  return (
+    <div style={styles.confirmBackdrop} onMouseDown={onCancel}>
+      <div style={styles.confirmCard} onMouseDown={(e) => e.stopPropagation()}>
+        <div style={styles.confirmHead}>
+          <div style={styles.confirmIcon}>⚠️</div>
+          <div style={{ minWidth: 0 }}>
+            <div style={styles.confirmTitle}>{title}</div>
+            {description && <div style={styles.confirmDesc}>{description}</div>}
+          </div>
+        </div>
+
+        <div style={styles.confirmActions}>
+          <button
+            style={{
+              ...styles.confirmCancelBtn,
+              ...(confirming ? styles.btnDisabled : {}),
+            }}
+            onClick={onCancel}
+            disabled={confirming}
+          >
+            {cancelLabel}
+          </button>
+
+          <button
+            style={{
+              ...styles.confirmDangerBtn,
+              ...(confirming ? styles.btnDisabled : {}),
+            }}
+            onClick={onConfirm}
+            disabled={confirming}
+            onMouseDown={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.transform =
+                "translateY(1px)";
+            }}
+            onMouseUp={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.transform =
+                "translateY(0px)";
+            }}
+          >
+            {confirming ? "処理中…" : dangerLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function GroupMembersDialog({
   groupId,
   isOwner, // 表示中ユーザーがこのグループの作成者か
@@ -33,7 +125,11 @@ export default function GroupMembersDialog({
   // UI: 外すボタンの押下中状態
   const [removingId, setRemovingId] = useState<string | null>(null);
 
-  // ESCで閉じる
+  // 確認モーダル用 state
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState<Member | null>(null);
+
+  // ESCで閉じる（メインダイアログ）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -99,32 +195,33 @@ export default function GroupMembersDialog({
     });
   }, [q, members]);
 
-  function roleLabel(role: Member["role"]) {
-    if (role === "admin") return "管理者";
-    if (role === "teacher") return "講師";
-    return "生徒";
-  }
-
-  function roleBadgeStyle(role: Member["role"]): React.CSSProperties {
-    if (role === "admin") return styles.badgeAdmin;
-    if (role === "teacher") return styles.badgeTeacher;
-    return styles.badgeStudent;
-  }
-
-  async function removeMember(userId: string) {
+  function openRemoveConfirm(m: Member) {
     if (!isOwner) return;
-    if (ownerId && userId === ownerId) return;
-
-    const ok = confirm("このメンバーをグループから外しますか？");
-    if (!ok) return;
+    const isGroupOwner = ownerId ? m.id === ownerId : false;
+    if (isGroupOwner) return;
 
     setMsg(null);
-    setRemovingId(userId);
+    setConfirmTarget(m);
+    setConfirmOpen(true);
+  }
+
+  function closeConfirm() {
+    setConfirmOpen(false);
+    setConfirmTarget(null);
+  }
+
+  async function doRemoveConfirmed() {
+    if (!confirmTarget) return;
+    if (!isOwner) return;
+    if (ownerId && confirmTarget.id === ownerId) return;
+
+    setMsg(null);
+    setRemovingId(confirmTarget.id);
 
     const { error } = await supabase
       .from("group_members")
       .delete()
-      .match({ group_id: groupId, user_id: userId });
+      .match({ group_id: groupId, user_id: confirmTarget.id });
 
     if (error) {
       setMsg("削除に失敗: " + error.message);
@@ -132,153 +229,165 @@ export default function GroupMembersDialog({
       return;
     }
 
-    setMembers((prev) => prev.filter((m) => m.id !== userId));
+    setMembers((prev) => prev.filter((m) => m.id !== confirmTarget.id));
     setRemovingId(null);
+    closeConfirm();
   }
 
   const s = styles;
 
   return (
-    <div style={s.backdrop} onMouseDown={onClose}>
-      <div style={s.modal} onMouseDown={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div style={s.header}>
-          <div style={s.titleWrap}>
-            <div style={s.title}>メンバー管理</div>
-            <div style={s.sub}>
-              {isOwner ? "メンバーの確認・削除ができます" : "メンバーの確認ができます"}
-            </div>
-          </div>
-
-          <button style={s.iconBtn} onClick={onClose} aria-label="閉じる">
-            ✕
-          </button>
-        </div>
-
-        {/* Search */}
-        <div style={s.searchArea}>
-          <div style={s.searchBox}>
-            <span style={s.searchIcon}>🔎</span>
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="名前 / 電話 / ID / 役割 で検索"
-              style={s.searchInput}
-            />
-          </div>
-        </div>
-
-        {/* Body */}
-        <div style={s.body}>
-          {loading ? (
-            <div style={s.loadingBox}>
-              <div style={s.spinner} />
-              <div style={s.loadingText}>読み込み中...</div>
-            </div>
-          ) : filtered.length === 0 ? (
-            <div style={s.empty}>
-              <div style={s.emptyTitle}>メンバーがいません</div>
-              <div style={s.emptySub}>招待から追加してください。</div>
-            </div>
-          ) : (
-            <div style={s.table}>
-              <div style={s.thead}>
-                <div style={{ ...s.th, ...s.colName }}>氏名</div>
-                <div style={{ ...s.th, ...s.colRole }}>役割</div>
-                <div style={{ ...s.th, ...s.colPhone }}>電話番号</div>
-                <div style={{ ...s.th, ...s.colAction }} />
+    <>
+      <div style={s.backdrop} onMouseDown={onClose}>
+        <div style={s.modal} onMouseDown={(e) => e.stopPropagation()}>
+          {/* Header */}
+          <div style={s.header}>
+            <div style={s.titleWrap}>
+              <div style={s.title}>メンバー管理</div>
+              <div style={s.sub}>
+                {isOwner ? "メンバーの確認・削除ができます" : "メンバーの確認ができます"}
               </div>
+            </div>
 
-              <div style={s.tbody}>
-                {filtered.map((m) => {
-                  const isGroupOwner = ownerId ? m.id === ownerId : false;
-                  const canRemove = isOwner && !isGroupOwner;
-                  const isRemoving = removingId === m.id;
+            <button style={s.iconBtn} onClick={onClose} aria-label="閉じる">
+              ✕
+            </button>
+          </div>
 
-                  return (
-                    <div
-                      key={m.id}
-                      style={s.row}
-                      onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLDivElement).style.background =
-                          "rgba(234, 246, 255, 0.55)";
-                      }}
-                      onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLDivElement).style.background =
-                          "#FFFFFF";
-                      }}
-                    >
-                      <div style={{ ...s.td, ...s.colName }}>
-                        <div style={s.nameRow}>
-                          <div style={s.name}>{m.name ?? "（未設定）"}</div>
+          {/* Search */}
+          <div style={s.searchArea}>
+            <div style={s.searchBox}>
+              <span style={s.searchIcon}>🔎</span>
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="名前 / 電話 / ID / 役割 で検索"
+                style={s.searchInput}
+              />
+            </div>
+          </div>
 
-                          {isGroupOwner && (
-                            <span style={s.ownerPill}>オーナー</span>
-                          )}
-                        </div>
-                        <div style={s.idText}>ID: {m.id}</div>
-                      </div>
+          {/* Body */}
+          <div style={s.body}>
+            {loading ? (
+              <div style={s.loadingBox}>
+                <div style={s.spinner} />
+                <div style={s.loadingText}>読み込み中...</div>
+              </div>
+            ) : filtered.length === 0 ? (
+              <div style={s.empty}>
+                <div style={s.emptyTitle}>メンバーがいません</div>
+                <div style={s.emptySub}>招待から追加してください。</div>
+              </div>
+            ) : (
+              <div style={s.table}>
+                <div style={s.thead}>
+                  <div style={{ ...s.th, ...s.colName }}>氏名</div>
+                  <div style={{ ...s.th, ...s.colRole }}>役割</div>
+                  <div style={{ ...s.th, ...s.colPhone }}>電話番号</div>
+                  <div style={{ ...s.th, ...s.colAction }} />
+                </div>
 
-                      <div style={{ ...s.td, ...s.colRole }}>
-                        <span style={{ ...s.rolePill, ...roleBadgeStyle(m.role) }}>
-                          {roleLabel(m.role)}
-                        </span>
-                      </div>
+                <div style={s.tbody}>
+                  {filtered.map((m) => {
+                    const isGroupOwner = ownerId ? m.id === ownerId : false;
+                    const canRemove = isOwner && !isGroupOwner;
+                    const isRemoving = removingId === m.id;
 
-                      <div style={{ ...s.td, ...s.colPhone }}>
-                        <span style={s.muted}>{m.phone ?? "-"}</span>
-                      </div>
-
+                    return (
                       <div
-                        style={{
-                          ...s.td,
-                          ...s.colAction,
-                          display: "flex",
-                          justifyContent: "flex-end",
-                          alignItems: "center",
+                        key={m.id}
+                        style={s.row}
+                        onMouseEnter={(e) => {
+                          (e.currentTarget as HTMLDivElement).style.background =
+                            "rgba(234, 246, 255, 0.55)";
+                        }}
+                        onMouseLeave={(e) => {
+                          (e.currentTarget as HTMLDivElement).style.background =
+                            "#FFFFFF";
                         }}
                       >
-                        {canRemove ? (
-                          <button
-                            onClick={() => removeMember(m.id)}
-                            disabled={isRemoving}
-                            style={{
-                              ...s.removeBtn,
-                              ...(isRemoving ? s.removeBtnDisabled : {}),
-                            }}
-                            onMouseDown={(e) => {
-                              (e.currentTarget as HTMLButtonElement).style.transform =
-                                "translateY(1px)";
-                            }}
-                            onMouseUp={(e) => {
-                              (e.currentTarget as HTMLButtonElement).style.transform =
-                                "translateY(0px)";
-                            }}
-                          >
-                            {isRemoving ? "処理中…" : "外す"}
-                          </button>
-                        ) : (
-                          <span style={s.viewOnly}>閲覧のみ</span>
-                        )}
+                        <div style={{ ...s.td, ...s.colName }}>
+                          <div style={s.nameRow}>
+                            <div style={s.name}>{m.name ?? "（未設定）"}</div>
+
+                            {isGroupOwner && (
+                              <span style={s.ownerPill}>オーナー</span>
+                            )}
+                          </div>
+                          <div style={s.idText}>ID: {m.id}</div>
+                        </div>
+
+                        <div style={{ ...s.td, ...s.colRole }}>
+                          <span style={{ ...s.rolePill, ...roleBadgeStyle(m.role) }}>
+                            {roleLabel(m.role)}
+                          </span>
+                        </div>
+
+                        <div style={{ ...s.td, ...s.colPhone }}>
+                          <span style={s.muted}>{m.phone ?? "-"}</span>
+                        </div>
+
+                        <div
+                          style={{
+                            ...s.td,
+                            ...s.colAction,
+                            display: "flex",
+                            justifyContent: "flex-end",
+                            alignItems: "center",
+                          }}
+                        >
+                          {canRemove ? (
+                            <button
+                              onClick={() => openRemoveConfirm(m)}
+                              disabled={isRemoving}
+                              style={{
+                                ...s.removeBtn,
+                                ...(isRemoving ? s.removeBtnDisabled : {}),
+                              }}
+                              aria-label="メンバーを外す"
+                            >
+                              {isRemoving ? "処理中…" : "外す"}
+                            </button>
+                          ) : (
+                            <span style={s.viewOnly}>閲覧のみ</span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {msg && <div style={s.error}>{msg}</div>}
-        </div>
+            {msg && <div style={s.error}>{msg}</div>}
+          </div>
 
-        {/* Footer */}
-        <div style={s.footer}>
-          <button style={s.closeBtn} onClick={onClose}>
-            閉じる
-          </button>
+          {/* Footer */}
+          <div style={s.footer}>
+            <button style={s.closeBtn} onClick={onClose}>
+              閉じる
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* 確認モーダル（小さめ） */}
+      <MiniConfirmDialog
+        open={confirmOpen}
+        title="このメンバーを外しますか？"
+        description={
+          confirmTarget
+            ? `${confirmTarget.name ?? "（未設定）"} をこのグループから外します。`
+            : undefined
+        }
+        dangerLabel="外す"
+        cancelLabel="キャンセル"
+        confirming={!!(confirmTarget && removingId === confirmTarget.id)}
+        onCancel={closeConfirm}
+        onConfirm={doRemoveConfirmed}
+      />
+    </>
   );
 }
 
@@ -525,11 +634,91 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     boxShadow: "0 6px 14px rgba(15,23,42,0.06)",
   },
+
+  // ===== mini confirm =====
+  confirmBackdrop: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 10000, // 本体より上
+    background: "rgba(15, 23, 42, 0.30)",
+    display: "grid",
+    placeItems: "center",
+    padding: 16,
+  },
+  confirmCard: {
+    width: "min(420px, 92vw)",
+    borderRadius: 16,
+    border: "1px solid #CFE8FF",
+    background: "linear-gradient(180deg, #F2FAFF 0%, #FFFFFF 70%)",
+    boxShadow: "0 18px 50px rgba(15, 23, 42, 0.22)",
+    padding: 14,
+  },
+  confirmHead: {
+    display: "flex",
+    gap: 12,
+    alignItems: "flex-start",
+  },
+  confirmIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    border: "1px solid #FDE68A",
+    background: "rgba(254, 243, 199, 0.75)",
+    display: "grid",
+    placeItems: "center",
+    fontSize: 16,
+    flexShrink: 0,
+  },
+  confirmTitle: {
+    fontSize: 14.5,
+    fontWeight: 950,
+    color: "#0B1220",
+    letterSpacing: 0.2,
+  },
+  confirmDesc: {
+    marginTop: 4,
+    fontSize: 12.5,
+    color: "#64748B",
+    lineHeight: 1.45,
+    wordBreak: "break-word",
+  },
+  confirmActions: {
+    marginTop: 12,
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 10,
+  },
+  confirmCancelBtn: {
+    border: "1px solid #CFE8FF",
+    background: "#FFFFFF",
+    color: "#0F172A",
+    padding: "9px 12px",
+    borderRadius: 12,
+    fontSize: 12.5,
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow: "0 6px 14px rgba(15,23,42,0.06)",
+  },
+  confirmDangerBtn: {
+    border: "1px solid #FCA5A5",
+    background: "linear-gradient(180deg, #FB7185 0%, #EF4444 100%)",
+    color: "#fff",
+    padding: "9px 12px",
+    borderRadius: 12,
+    fontSize: 12.5,
+    fontWeight: 950,
+    cursor: "pointer",
+    boxShadow: "0 10px 20px rgba(239, 68, 68, 0.22)",
+    userSelect: "none",
+  },
+  btnDisabled: {
+    opacity: 0.7,
+    cursor: "not-allowed",
+  },
 };
 
 /**
  * NOTE:
- * spinnerの animation は CSS が必要ですが、動かなくても見た目は崩れません。
- * 動かしたい場合は index.css に以下を追加：
+ * spinnerの animation を動かしたい場合は index.css に追加：
  * @keyframes spin { to { transform: rotate(360deg); } }
  */

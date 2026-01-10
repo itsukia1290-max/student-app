@@ -14,6 +14,84 @@ type Student = {
   memo: string | null;
 };
 
+function MiniConfirmDialog({
+  open,
+  title,
+  description,
+  primaryLabel = "実行",
+  cancelLabel = "キャンセル",
+  onCancel,
+  onConfirm,
+  confirming = false,
+}: {
+  open: boolean;
+  title: string;
+  description?: string;
+  primaryLabel?: string;
+  cancelLabel?: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  confirming?: boolean;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+      if (e.key === "Enter") onConfirm();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onCancel, onConfirm]);
+
+  if (!open) return null;
+
+  return (
+    <div style={styles.confirmBackdrop} onMouseDown={onCancel}>
+      <div style={styles.confirmCard} onMouseDown={(e) => e.stopPropagation()}>
+        <div style={styles.confirmHead}>
+          <div style={styles.confirmIcon}>✉️</div>
+          <div style={{ minWidth: 0 }}>
+            <div style={styles.confirmTitle}>{title}</div>
+            {description && <div style={styles.confirmDesc}>{description}</div>}
+          </div>
+        </div>
+
+        <div style={styles.confirmActions}>
+          <button
+            style={{
+              ...styles.confirmCancelBtn,
+              ...(confirming ? styles.btnDisabled : {}),
+            }}
+            onClick={onCancel}
+            disabled={confirming}
+          >
+            {cancelLabel}
+          </button>
+
+          <button
+            style={{
+              ...styles.confirmPrimaryBtn,
+              ...(confirming ? styles.btnDisabled : {}),
+            }}
+            onClick={onConfirm}
+            disabled={confirming}
+            onMouseDown={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.transform =
+                "translateY(1px)";
+            }}
+            onMouseUp={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.transform =
+                "translateY(0px)";
+            }}
+          >
+            {confirming ? "処理中…" : primaryLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function InviteMemberDialog({
   groupId,
   onClose,
@@ -28,10 +106,14 @@ export default function InviteMemberDialog({
   const [q, setQ] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
 
-  // UI: 招待中のボタンだけローディングにする（体験UP）
+  // 招待ボタンの二重押し防止
   const [invitingId, setInvitingId] = useState<string | null>(null);
 
-  // ESCで閉じる（地味に効く）
+  // 確認モーダル用
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState<Student | null>(null);
+
+  // ESCで閉じる（メインダイアログ）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -110,13 +192,26 @@ export default function InviteMemberDialog({
     });
   }, [q, students]);
 
-  async function invite(userId: string) {
+  function openInviteConfirm(s: Student) {
     setMsg(null);
-    setInvitingId(userId);
+    setConfirmTarget(s);
+    setConfirmOpen(true);
+  }
+
+  function closeConfirm() {
+    setConfirmOpen(false);
+    setConfirmTarget(null);
+  }
+
+  async function doInviteConfirmed() {
+    if (!confirmTarget) return;
+
+    setMsg(null);
+    setInvitingId(confirmTarget.id);
 
     const { error } = await supabase
       .from("group_members")
-      .insert({ group_id: groupId, user_id: userId });
+      .insert({ group_id: groupId, user_id: confirmTarget.id });
 
     // 409（重複）は成功扱い
     if (error && !/409|duplicate/i.test(error.message)) {
@@ -126,139 +221,153 @@ export default function InviteMemberDialog({
     }
 
     // UIから除外
-    setStudents((prev) => prev.filter((s) => s.id !== userId));
+    setStudents((prev) => prev.filter((s) => s.id !== confirmTarget.id));
+
     setInvitingId(null);
-    onInvited?.(userId);
+    closeConfirm();
+    onInvited?.(confirmTarget.id);
   }
 
   const s = styles;
 
   return (
-    <div style={s.backdrop} onMouseDown={onClose}>
-      <div style={s.modal} onMouseDown={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div style={s.header}>
-          <div style={s.titleWrap}>
-            <div style={s.title}>生徒を招待</div>
-            <div style={s.sub}>グループに追加する生徒を選択してください</div>
+    <>
+      <div style={s.backdrop} onMouseDown={onClose}>
+        <div style={s.modal} onMouseDown={(e) => e.stopPropagation()}>
+          {/* Header */}
+          <div style={s.header}>
+            <div style={s.titleWrap}>
+              <div style={s.title}>生徒を招待</div>
+              <div style={s.sub}>未所属の承認済み生徒を追加できます</div>
+            </div>
+
+            <button style={s.iconBtn} onClick={onClose} aria-label="閉じる">
+              ✕
+            </button>
           </div>
 
-          <button style={s.iconBtn} onClick={onClose} aria-label="閉じる">
-            ✕
-          </button>
-        </div>
-
-        {/* Search */}
-        <div style={s.searchArea}>
-          <div style={s.searchBox}>
-            <span style={s.searchIcon}>🔎</span>
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="氏名・電話・メモ・ID で検索"
-              style={s.searchInput}
-            />
+          {/* Search */}
+          <div style={s.searchArea}>
+            <div style={s.searchBox}>
+              <span style={s.searchIcon}>🔎</span>
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="氏名・電話・メモ・ID で検索"
+                style={s.searchInput}
+              />
+            </div>
           </div>
-        </div>
 
-        {/* Body */}
-        <div style={s.body}>
-          {loading ? (
-            <div style={s.loadingBox}>
-              <div style={s.spinner} />
-              <div style={s.loadingText}>読み込み中...</div>
-            </div>
-          ) : filtered.length === 0 ? (
-            <div style={s.empty}>
-              <div style={s.emptyTitle}>招待できる生徒が見つかりません</div>
-              <div style={s.emptySub}>検索条件を変えてみてください。</div>
-            </div>
-          ) : (
-            <div style={s.table}>
-              <div style={s.thead}>
-                <div style={{ ...s.th, ...s.colName }}>氏名</div>
-                <div style={{ ...s.th, ...s.colPhone }}>電話番号</div>
-                <div style={{ ...s.th, ...s.colMemo }}>メモ</div>
-                <div style={{ ...s.th, ...s.colAction }} />
+          {/* Body */}
+          <div style={s.body}>
+            {loading ? (
+              <div style={s.loadingBox}>
+                <div style={s.spinner} />
+                <div style={s.loadingText}>読み込み中...</div>
               </div>
+            ) : filtered.length === 0 ? (
+              <div style={s.empty}>
+                <div style={s.emptyTitle}>招待できる生徒がいません</div>
+                <div style={s.emptySub}>
+                  条件（承認済み/有効/未所属）に合う生徒が見つかりませんでした。
+                </div>
+              </div>
+            ) : (
+              <div style={s.table}>
+                <div style={s.thead}>
+                  <div style={{ ...s.th, ...s.colName }}>氏名</div>
+                  <div style={{ ...s.th, ...s.colPhone }}>電話番号</div>
+                  <div style={{ ...s.th, ...s.colMemo }}>メモ</div>
+                  <div style={{ ...s.th, ...s.colAction }} />
+                </div>
 
-              <div style={s.tbody}>
-                {filtered.map((st) => {
-                  const isInviting = invitingId === st.id;
-                  return (
-                    <div
-                      key={st.id}
-                      style={s.row}
-                      onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLDivElement).style.background =
-                          "rgba(234, 246, 255, 0.55)";
-                      }}
-                      onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLDivElement).style.background =
-                          "#FFFFFF";
-                      }}
-                    >
-                      <div style={{ ...s.td, ...s.colName }}>
-                        <div style={s.name}>
-                          {st.name ?? "（未設定）"}
-                        </div>
-                        <div style={s.idText}>ID: {st.id}</div>
-                      </div>
+                <div style={s.tbody}>
+                  {filtered.map((st) => {
+                    const isInviting = invitingId === st.id;
 
-                      <div style={{ ...s.td, ...s.colPhone }}>
-                        <span style={s.muted}>{st.phone ?? "-"}</span>
-                      </div>
-
-                      <div style={{ ...s.td, ...s.colMemo }}>
-                        <span style={s.memoText}>{st.memo ?? "-"}</span>
-                      </div>
-
+                    return (
                       <div
-                        style={{
-                          ...s.td,
-                          ...s.colAction,
-                          display: "flex",
-                          justifyContent: "flex-end",
-                          alignItems: "center",
+                        key={st.id}
+                        style={s.row}
+                        onMouseEnter={(e) => {
+                          (e.currentTarget as HTMLDivElement).style.background =
+                            "rgba(234, 246, 255, 0.55)";
+                        }}
+                        onMouseLeave={(e) => {
+                          (e.currentTarget as HTMLDivElement).style.background =
+                            "#FFFFFF";
                         }}
                       >
-                        <button
-                          onClick={() => invite(st.id)}
-                          disabled={isInviting}
+                        <div style={{ ...s.td, ...s.colName }}>
+                          <div style={s.nameRow}>
+                            <div style={s.name}>{st.name ?? "（未設定）"}</div>
+                          </div>
+                          <div style={s.idText}>ID: {st.id}</div>
+                        </div>
+
+                        <div style={{ ...s.td, ...s.colPhone }}>
+                          <span style={s.muted}>{st.phone ?? "-"}</span>
+                        </div>
+
+                        <div style={{ ...s.td, ...s.colMemo }}>
+                          <span style={s.muted}>{st.memo ?? "-"}</span>
+                        </div>
+
+                        <div
                           style={{
-                            ...s.inviteBtn,
-                            ...(isInviting ? s.inviteBtnDisabled : {}),
-                          }}
-                          onMouseDown={(e) => {
-                            (e.currentTarget as HTMLButtonElement).style.transform =
-                              "translateY(1px)";
-                          }}
-                          onMouseUp={(e) => {
-                            (e.currentTarget as HTMLButtonElement).style.transform =
-                              "translateY(0px)";
+                            ...s.td,
+                            ...s.colAction,
+                            display: "flex",
+                            justifyContent: "flex-end",
+                            alignItems: "center",
                           }}
                         >
-                          {isInviting ? "招待中…" : "招待"}
-                        </button>
+                          <button
+                            onClick={() => openInviteConfirm(st)}
+                            disabled={isInviting}
+                            style={{
+                              ...s.inviteBtn,
+                              ...(isInviting ? s.inviteBtnDisabled : {}),
+                            }}
+                          >
+                            {isInviting ? "処理中…" : "招待"}
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {msg && <div style={s.error}>{msg}</div>}
-        </div>
+            {msg && <div style={s.error}>{msg}</div>}
+          </div>
 
-        {/* Footer */}
-        <div style={s.footer}>
-          <button style={s.closeBtn} onClick={onClose}>
-            閉じる
-          </button>
+          {/* Footer */}
+          <div style={s.footer}>
+            <button style={s.closeBtn} onClick={onClose}>
+              閉じる
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+
+      <MiniConfirmDialog
+        open={confirmOpen}
+        title="この生徒を招待しますか？"
+        description={
+          confirmTarget
+            ? `${confirmTarget.name ?? "（未設定）"} をこのグループに追加します。`
+            : undefined
+        }
+        primaryLabel="招待する"
+        cancelLabel="キャンセル"
+        confirming={!!(confirmTarget && invitingId === confirmTarget.id)}
+        onCancel={closeConfirm}
+        onConfirm={doInviteConfirmed}
+      />
+    </>
   );
 }
 
@@ -275,7 +384,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   modal: {
-    width: "min(880px, 96vw)",
+    width: "min(920px, 96vw)",
     maxHeight: "min(640px, 92vh)",
     background: "linear-gradient(180deg, #F2FAFF 0%, #FFFFFF 55%)",
     border: "1px solid #CFE8FF",
@@ -361,7 +470,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   thead: {
     display: "grid",
-    gridTemplateColumns: "1.2fr 0.8fr 1.2fr 0.6fr",
+    gridTemplateColumns: "1.1fr 0.8fr 1.3fr 0.5fr",
     background: "linear-gradient(180deg, #EAF6FF 0%, #F7FBFF 100%)",
     borderBottom: "1px solid #DCEFFF",
   },
@@ -375,7 +484,7 @@ const styles: Record<string, React.CSSProperties> = {
   tbody: { display: "flex", flexDirection: "column", gap: 0 },
   row: {
     display: "grid",
-    gridTemplateColumns: "1.2fr 0.8fr 1.2fr 0.6fr",
+    gridTemplateColumns: "1.1fr 0.8fr 1.3fr 0.5fr",
     borderBottom: "1px solid #EEF6FF",
     background: "#FFFFFF",
     transition: "background 120ms ease",
@@ -387,10 +496,22 @@ const styles: Record<string, React.CSSProperties> = {
   colMemo: {},
   colAction: {},
 
-  name: { fontWeight: 900, fontSize: 15.5, lineHeight: 1.2 },
+  nameRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    minWidth: 0,
+  },
+  name: {
+    fontWeight: 900,
+    fontSize: 15.5,
+    lineHeight: 1.2,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
   idText: { marginTop: 4, fontSize: 11.5, color: "#94A3B8" },
   muted: { color: "#64748B" },
-  memoText: { color: "#334155" },
 
   inviteBtn: {
     border: "1px solid #7CC7FF",
@@ -401,7 +522,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12.5,
     fontWeight: 900,
     cursor: "pointer",
-    boxShadow: "0 8px 18px rgba(46, 168, 255, 0.25)",
+    boxShadow: "0 8px 18px rgba(46, 168, 255, 0.20)",
     transition: "transform 120ms ease, box-shadow 120ms ease, filter 120ms ease",
     userSelect: "none",
   },
@@ -450,13 +571,91 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     boxShadow: "0 6px 14px rgba(15,23,42,0.06)",
   },
+
+  // ===== mini confirm =====
+  confirmBackdrop: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 10000,
+    background: "rgba(15, 23, 42, 0.30)",
+    display: "grid",
+    placeItems: "center",
+    padding: 16,
+  },
+  confirmCard: {
+    width: "min(420px, 92vw)",
+    borderRadius: 16,
+    border: "1px solid #CFE8FF",
+    background: "linear-gradient(180deg, #F2FAFF 0%, #FFFFFF 70%)",
+    boxShadow: "0 18px 50px rgba(15, 23, 42, 0.22)",
+    padding: 14,
+  },
+  confirmHead: {
+    display: "flex",
+    gap: 12,
+    alignItems: "flex-start",
+  },
+  confirmIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    border: "1px solid #CFE8FF",
+    background: "rgba(234,246,255,0.75)",
+    display: "grid",
+    placeItems: "center",
+    fontSize: 16,
+    flexShrink: 0,
+  },
+  confirmTitle: {
+    fontSize: 14.5,
+    fontWeight: 950,
+    color: "#0B1220",
+    letterSpacing: 0.2,
+  },
+  confirmDesc: {
+    marginTop: 4,
+    fontSize: 12.5,
+    color: "#64748B",
+    lineHeight: 1.45,
+    wordBreak: "break-word",
+  },
+  confirmActions: {
+    marginTop: 12,
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 10,
+  },
+  confirmCancelBtn: {
+    border: "1px solid #CFE8FF",
+    background: "#FFFFFF",
+    color: "#0F172A",
+    padding: "9px 12px",
+    borderRadius: 12,
+    fontSize: 12.5,
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow: "0 6px 14px rgba(15,23,42,0.06)",
+  },
+  confirmPrimaryBtn: {
+    border: "1px solid #7CC7FF",
+    background: "linear-gradient(180deg, #53B9FF 0%, #2EA8FF 100%)",
+    color: "#fff",
+    padding: "9px 12px",
+    borderRadius: 12,
+    fontSize: 12.5,
+    fontWeight: 950,
+    cursor: "pointer",
+    boxShadow: "0 10px 20px rgba(46, 168, 255, 0.20)",
+    userSelect: "none",
+  },
+  btnDisabled: {
+    opacity: 0.7,
+    cursor: "not-allowed",
+  },
 };
 
 /**
  * NOTE:
- * spinnerの animation は CSS が必要ですが、Tailwind v4環境で
- * グローバルCSSが触れない場合でも動かなくても見た目は崩れません。
- * 動かしたい場合は index.css に以下を1行追加してください：
- *
+ * spinnerの animation を動かしたい場合は index.css に追加：
  * @keyframes spin { to { transform: rotate(360deg); } }
  */
