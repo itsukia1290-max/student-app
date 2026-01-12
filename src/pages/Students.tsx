@@ -1,9 +1,4 @@
-/*
- * src/pages/Students.tsx
- * - 教師/管理者: 承認待ち + 承認済み生徒一覧
- * - 生徒を選択すると StudentDetail を表示
- */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useIsStaff } from "../hooks/useIsStaff";
 import StudentDetail from "./StudentDetail";
@@ -24,84 +19,154 @@ type PendingReq = {
   created_at: string;
 };
 
+const colors = {
+  bg: "#f0f9ff",
+  card: "#ffffff",
+  border: "#e5e7eb",
+  textMain: "#0f172a",
+  textSub: "#475569",
+  sky: "#0ea5e9",
+  skySoft: "#e0f2fe",
+};
+
+const styles = {
+  page: {
+    minHeight: "100vh",
+    background: `linear-gradient(to bottom, ${colors.bg}, #ffffff)`,
+    padding: "24px",
+  },
+  container: {
+    maxWidth: "1000px",
+    margin: "0 auto",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "24px",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+  title: {
+    fontSize: "22px",
+    fontWeight: 600,
+    color: colors.textMain,
+  },
+  subtitle: {
+    fontSize: "13px",
+    color: colors.textSub,
+    marginTop: "4px",
+  },
+  card: {
+    background: colors.card,
+    borderRadius: "18px",
+    border: `1px solid ${colors.border}`,
+    boxShadow: "0 4px 12px rgba(0,0,0,0.04)",
+  },
+  cardHeader: {
+    padding: "16px 20px",
+    borderBottom: `1px solid ${colors.border}`,
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  cardBody: {
+    padding: "16px 20px",
+  },
+  badge: {
+    fontSize: "12px",
+    padding: "4px 10px",
+    borderRadius: "999px",
+    background: colors.skySoft,
+    color: colors.sky,
+    fontWeight: 600,
+  },
+  listItem: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "12px",
+    padding: "14px",
+    borderRadius: "14px",
+    border: `1px solid ${colors.border}`,
+    marginBottom: "12px",
+  },
+  avatar: {
+    width: "40px",
+    height: "40px",
+    borderRadius: "14px",
+    background: colors.skySoft,
+    color: colors.sky,
+    display: "grid",
+    placeItems: "center",
+    fontWeight: 700,
+    flexShrink: 0,
+  },
+  btnPrimary: {
+    background: colors.sky,
+    color: "#fff",
+    border: "none",
+    borderRadius: "12px",
+    padding: "8px 14px",
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+  btnGhost: {
+    background: "#fff",
+    border: `1px solid ${colors.border}`,
+    borderRadius: "12px",
+    padding: "8px 14px",
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+};
+
+function initial(name?: string | null) {
+  return name?.trim()?.slice(0, 1) || "生";
+}
+
 export default function Students() {
   const { isStaff } = useIsStaff();
   const [students, setStudents] = useState<Student[]>([]);
   const [pending, setPending] = useState<PendingReq[]>([]);
   const [selected, setSelected] = useState<Student | null>(null);
 
+  const studentCount = useMemo(() => students.length, [students]);
+  const pendingCount = useMemo(() => pending.length, [pending]);
+
   useEffect(() => {
     if (!isStaff) return;
 
     (async () => {
-      const { data: ok, error: e1 } = await supabase
-        .from("profiles")
-        .select("id, name, phone, memo, role, is_approved, status")
-        .eq("role", "student")
-        .eq("is_approved", true)
-        .eq("status", "active")
-        .order("name", { ascending: true });
-
-      if (!e1) setStudents((ok ?? []) as Student[]);
-
-      const { data: wait, error: e2 } = await supabase
-        .from("approval_requests")
-        .select("id, user_id, email, name, phone, created_at")
-        .is("resolved_at", null)
-        .order("created_at", { ascending: true });
-
-      if (!e2) setPending((wait ?? []) as PendingReq[]);
-    })();
-  }, [isStaff]);
-
-  async function approve(req: PendingReq) {
-    const { error } = await supabase.rpc("approve_student", {
-      p_user_id: req.user_id,
-    });
-    if (error) {
-      alert("承認失敗: " + error.message);
-      return;
-    }
-
-    setPending((prev) => prev.filter((p) => p.id !== req.id));
-
-    const { data: prof, error: pe } = await supabase
-      .from("profiles")
-      .select("id, name, phone, memo")
-      .eq("id", req.user_id)
-      .maybeSingle();
-
-    if (!pe && prof) {
-      setStudents((prev) => [...prev, prof as Student]);
-    } else {
-      const { data: ok2 } = await supabase
+      const { data: ok } = await supabase
         .from("profiles")
         .select("id, name, phone, memo")
         .eq("role", "student")
         .eq("is_approved", true)
-        .eq("status", "active")
-        .order("name", { ascending: true });
+        .eq("status", "active");
 
-      setStudents((ok2 ?? []) as Student[]);
-    }
+      setStudents((ok ?? []) as Student[]);
 
-    alert("生徒を承認しました。ログイン可能になります。");
+      const { data: wait } = await supabase
+        .from("approval_requests")
+        .select("id, user_id, email, name, phone, created_at")
+        .is("resolved_at", null);
+
+      setPending((wait ?? []) as PendingReq[]);
+    })();
+  }, [isStaff]);
+
+  async function approve(req: PendingReq) {
+    await supabase.rpc("approve_student", { p_user_id: req.user_id });
+    setPending((p) => p.filter((x) => x.id !== req.id));
   }
 
   async function reject(req: PendingReq) {
-    const { error } = await supabase
+    await supabase
       .from("approval_requests")
       .update({ approved: false, resolved_at: new Date().toISOString() })
       .eq("id", req.id);
 
-    if (error) return alert("却下失敗: " + error.message);
-
-    setPending((prev) => prev.filter((p) => p.id !== req.id));
-    alert("承認リクエストを却下しました。");
-  }
-
-  if (!isStaff) {
-    return <div className="p-6 text-gray-600">教師または管理者のみ閲覧可能です。</div>;
+    setPending((p) => p.filter((x) => x.id !== req.id));
   }
 
   if (selected) {
@@ -109,70 +174,87 @@ export default function Students() {
   }
 
   return (
-    <div className="p-6 space-y-8">
-      {/* 承認待ち */}
-      <section>
-        <h2 className="text-lg font-semibold mb-2">承認待ち</h2>
-        {pending.length === 0 ? (
-          <p className="text-sm text-gray-500">承認待ちはありません。</p>
-        ) : (
-          <ul className="grid md:grid-cols-2 gap-3">
-            {pending.map((p) => (
-              <li key={p.id} className="border rounded-lg p-3 bg-white">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium">{p.name ?? "(氏名未設定)"}</div>
-                    <div className="text-xs text-gray-500">{p.email ?? "-"}</div>
-                    <div className="text-xs text-gray-500">{p.phone ?? "-"}</div>
-                    <div className="text-[10px] text-gray-400 mt-1">
-                      申請: {new Date(p.created_at).toLocaleString()}
+    <div style={styles.page}>
+      <div style={styles.container}>
+        {/* ヘッダー */}
+        <div style={styles.header}>
+          <div>
+            <div style={styles.title}>生徒</div>
+            <div style={styles.subtitle}>
+              承認待ちの管理と在籍生徒の確認
+            </div>
+          </div>
+        </div>
+
+        {/* 承認待ち */}
+        <div style={styles.card}>
+          <div style={styles.cardHeader}>
+            <strong>承認待ち</strong>
+            <span style={styles.badge}>{pendingCount} 件</span>
+          </div>
+          <div style={styles.cardBody}>
+            {pending.length === 0 ? (
+              <div style={{ color: colors.textSub, fontSize: "14px" }}>
+                承認待ちはありません。
+              </div>
+            ) : (
+              pending.map((p) => (
+                <div key={p.id} style={styles.listItem}>
+                  <div style={{ display: "flex", gap: "12px" }}>
+                    <div style={styles.avatar}>{initial(p.name)}</div>
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{p.name ?? "未設定"}</div>
+                      <div style={{ fontSize: "12px", color: colors.textSub }}>
+                        {p.email ?? "-"}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => approve(p)} className="btn text-sm bg-green-600">
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button style={styles.btnPrimary} onClick={() => approve(p)}>
                       承認
                     </button>
-                    <button onClick={() => reject(p)} className="btn-ghost text-sm">
+                    <button style={styles.btnGhost} onClick={() => reject(p)}>
                       却下
                     </button>
                   </div>
                 </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+              ))
+            )}
+          </div>
+        </div>
 
-      {/* 生徒一覧 */}
-      <section>
-        <h2 className="text-lg font-semibold mb-2">生徒一覧</h2>
-        {students.length === 0 ? (
-          <p className="text-gray-500">登録された生徒がいません。</p>
-        ) : (
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="border-b bg-gray-100">
-                <th className="text-left p-2">氏名</th>
-                <th className="text-left p-2">電話番号</th>
-                <th className="text-left p-2">メモ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {students.map((s) => (
-                <tr
-                  key={s.id}
-                  className="border-b hover:bg-gray-50 cursor-pointer"
-                  onClick={() => setSelected(s)}
-                >
-                  <td className="p-2">{s.name ?? "（未設定）"}</td>
-                  <td className="p-2 text-sm text-gray-600">{s.phone ?? "-"}</td>
-                  <td className="p-2 text-sm text-gray-600">{s.memo ?? "-"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+        {/* 生徒一覧 */}
+        <div style={styles.card}>
+          <div style={styles.cardHeader}>
+            <strong>生徒一覧</strong>
+            <span style={styles.badge}>{studentCount} 人</span>
+          </div>
+          <div style={styles.cardBody}>
+            {students.map((s) => (
+              <div
+                key={s.id}
+                style={{ ...styles.listItem, cursor: "pointer" }}
+                onClick={() => setSelected(s)}
+              >
+                <div style={{ display: "flex", gap: "12px" }}>
+                  <div style={styles.avatar}>{initial(s.name)}</div>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>
+                      {s.name ?? "未設定"}
+                    </div>
+                    <div style={{ fontSize: "12px", color: colors.textSub }}>
+                      {s.phone ?? "-"}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ fontSize: "12px", color: colors.textSub }}>
+                  {s.memo ?? "-"}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
