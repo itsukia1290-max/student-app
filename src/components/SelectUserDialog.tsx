@@ -1,12 +1,15 @@
 /*
  * src/components/SelectUserDialog.tsx
  * Responsibility: DM相手（ユーザー）を選択するモーダル
- * - 承認済みの生徒（必要なら teacher/admin も追加可）を検索して選択
- * - UIはグループ/DMと同じ “白×水色” トーンのカード型
+ * - 自分のroleに応じて相手を出し分け（teacher/admin→student, student→teacher/admin）
+ * - 自分自身を除外
+ * - 既にDMが存在する相手を除外（＝既に追加している人が出ない）
+ * - 承認済み / active のみ
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../contexts/AuthContext";
 
 type UserRow = {
   id: string;
@@ -18,6 +21,9 @@ type UserRow = {
   status?: string | null;
 };
 
+type GroupRow = { id: string; type: string };
+type GmRow = { group_id: string; user_id: string };
+
 export default function SelectUserDialog({
   onClose,
   onSelect,
@@ -25,45 +31,143 @@ export default function SelectUserDialog({
   onClose: () => void;
   onSelect: (userId: string, name: string | null) => void;
 }) {
+  const { user } = useAuth();
+  const myId = user?.id ?? "";
+
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [q, setQ] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!myId) return;
+
     let alive = true;
 
     (async () => {
       setLoading(true);
       setMsg(null);
 
-      // ✅ ここは必要に応じて条件を変えてOK
-      // 「承認済み・activeの生徒」を対象
-      const { data, error } = await supabase
+      // 1) 自分のroleを取得
+      const { data: me, error: meErr } = await supabase
+        .from("profiles")
+        .select("id, role")
+        .eq("id", myId)
+        .maybeSingle();
+
+      if (!alive) return;
+
+      if (meErr || !me) {
+        setMsg("自分のプロフィール取得に失敗: " + (meErr?.message ?? "not found"));
+        setUsers([]);
+        setLoading(false);
+        return;
+      }
+
+      const myRole = me.role as "student" | "teacher" | "admin";
+
+      // 2) 自分が所属するDMグループ一覧を取得
+      const { data: myGm, error: gmErr } = await supabase
+        .from("group_members")
+        .select("group_id")
+        .eq("user_id", myId);
+
+      if (!alive) return;
+
+      if (gmErr) {
+        setMsg("所属グループ取得に失敗: " + gmErr.message);
+        setUsers([]);
+        setLoading(false);
+        return;
+      }
+
+      const groupIds = (myGm ?? []).map((r) => r.group_id as string);
+
+      // グループが無いなら、既存DM相手は0人扱い
+      let existingDmPartnerIds: string[] = [];
+
+      if (groupIds.length > 0) {
+        // 2-1) その中で type='dm' のグループだけ抽出
+        const { data: dmGroups, error: gErr } = await supabase
+          .from("groups")
+          .select("id,type")
+          .in("id", groupIds)
+          .eq("type", "dm");
+
+        if (!alive) return;
+
+        if (gErr) {
+          setMsg("DMグループ取得に失敗: " + gErr.message);
+          setUsers([]);
+          setLoading(false);
+          return;
+        }
+
+        const dmIds = (dmGroups ?? []).map((g) => (g as GroupRow).id);
+
+        if (dmIds.length > 0) {
+          // 2-2) DMグループにいる「相手（自分以外）」user_idを集める
+          const { data: others, error: oErr } = await supabase
+            .from("group_members")
+            .select("group_id,user_id")
+            .in("group_id", dmIds)
+            .neq("user_id", myId);
+
+          if (!alive) return;
+
+          if (oErr) {
+            setMsg("既存DM相手の取得に失敗: " + oErr.message);
+            setUsers([]);
+            setLoading(false);
+            return;
+          }
+
+          existingDmPartnerIds = Array.from(
+            new Set(((others ?? []) as GmRow[]).map((r) => r.user_id))
+          );
+        }
+      }
+
+      // 3) 自分のroleに応じて “相手ロール” を決定
+      // 先生側(teacher/admin) → 生徒(student)
+      // 生徒(student) → 先生(teacher/admin)
+      const wantRoles: Array<"student" | "teacher" | "admin"> =
+        myRole === "student" ? ["teacher", "admin"] : ["student"];
+
+      // 4) 相手候補を取得（承認済み / active）
+      const { data: cand, error: cErr } = await supabase
         .from("profiles")
         .select("id,name,role,phone,memo,is_approved,status")
-        .eq("role", "student")
+        .in("role", wantRoles)
         .eq("is_approved", true)
         .eq("status", "active")
         .order("name", { ascending: true });
 
       if (!alive) return;
 
-      if (error) {
-        setMsg("ユーザー一覧の取得に失敗: " + error.message);
+      if (cErr) {
+        setMsg("ユーザー一覧の取得に失敗: " + cErr.message);
         setUsers([]);
         setLoading(false);
         return;
       }
 
-      setUsers((data ?? []) as UserRow[]);
+      // 5) 自分＆既存DM相手を除外
+      const filtered = (cand ?? []).filter((u) => {
+        const id = u.id as string;
+        if (id === myId) return false; // 自分は出さない
+        if (existingDmPartnerIds.includes(id)) return false; // 既にDMがある相手は出さない
+        return true;
+      });
+
+      setUsers(filtered as UserRow[]);
       setLoading(false);
     })();
 
     return () => {
       alive = false;
     };
-  }, []);
+  }, [myId]);
 
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -83,9 +187,8 @@ export default function SelectUserDialog({
     });
   }, [q, users]);
 
-  // ===== “確実に”デザインする（インライン + 最小Tailwind） =====
+  // ===== 見た目（前回の“白×水色”と同トーン） =====
   const styles = {
-    // 背景
     overlay: {
       background: "rgba(2, 6, 23, 0.45)",
       backdropFilter: "blur(6px)",
@@ -114,12 +217,7 @@ export default function SelectUserDialog({
     } as React.CSSProperties,
 
     titleWrap: { display: "flex", flexDirection: "column" as const, gap: 2 },
-    title: {
-      fontSize: 18,
-      fontWeight: 950,
-      color: "#0B1220",
-      letterSpacing: "0.2px",
-    },
+    title: { fontSize: 18, fontWeight: 950, color: "#0B1220" },
     sub: { fontSize: 12.5, color: "#64748B" },
 
     closeBtn: {
@@ -148,6 +246,7 @@ export default function SelectUserDialog({
       background: "#FFFFFF",
       boxShadow: "0 8px 18px rgba(15,23,42,0.06)",
     } as React.CSSProperties,
+
     searchIcon: { fontSize: 14, color: "#64748B" },
     searchInput: {
       width: "100%",
@@ -157,10 +256,7 @@ export default function SelectUserDialog({
       background: "transparent",
     } as React.CSSProperties,
 
-    body: {
-      padding: "0 16px 14px 16px",
-    },
-
+    body: { padding: "0 16px 14px 16px" },
     list: {
       display: "flex",
       flexDirection: "column" as const,
@@ -193,6 +289,7 @@ export default function SelectUserDialog({
       textOverflow: "ellipsis",
       whiteSpace: "nowrap" as const,
     },
+
     meta: {
       marginTop: 4,
       fontSize: 12.5,
@@ -201,7 +298,7 @@ export default function SelectUserDialog({
       alignItems: "center",
       gap: 10,
       flexWrap: "wrap" as const,
-    },
+    } as React.CSSProperties,
 
     pill: {
       display: "inline-flex",
@@ -230,17 +327,24 @@ export default function SelectUserDialog({
       userSelect: "none" as const,
     } as React.CSSProperties,
 
+    msg: { marginTop: 10, fontSize: 13, color: "#B91C1C" },
+
+    empty: {
+      padding: "14px 12px",
+      borderRadius: 16,
+      border: "1px dashed rgba(191,227,255,1)",
+      background: "rgba(234,246,255,0.35)",
+      color: "#64748B",
+      fontSize: 13.5,
+    } as React.CSSProperties,
+
     footer: {
       padding: "12px 16px",
       borderTop: "1px solid rgba(220,239,255,1)",
       background: "rgba(255,255,255,0.9)",
       display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      gap: 12,
+      justifyContent: "flex-end",
     } as React.CSSProperties,
-
-    footerHint: { fontSize: 12.5, color: "#64748B" },
 
     cancelBtn: {
       border: "1px solid rgba(191,227,255,1)",
@@ -253,44 +357,22 @@ export default function SelectUserDialog({
       boxShadow: "0 6px 14px rgba(15,23,42,0.06)",
       color: "#0F172A",
     } as React.CSSProperties,
-
-    msg: { marginTop: 10, fontSize: 13, color: "#B91C1C" },
-    empty: {
-      padding: "14px 12px",
-      borderRadius: 16,
-      border: "1px dashed rgba(191,227,255,1)",
-      background: "rgba(234,246,255,0.35)",
-      color: "#64748B",
-      fontSize: 13.5,
-    } as React.CSSProperties,
   };
 
   return (
     <div className="fixed inset-0 z-[999] grid place-items-center" style={styles.overlay}>
       <div style={styles.card} role="dialog" aria-modal="true">
-        {/* Header */}
         <div style={styles.header}>
           <div style={styles.titleWrap}>
-            <div style={styles.title}>生徒一覧（DM相手を選択）</div>
-            <div style={styles.sub}>検索して選ぶだけでDMが作成されます</div>
+            <div style={styles.title}>DM相手を選択</div>
+            <div style={styles.sub}>既にDMがある相手 / 自分は表示されません</div>
           </div>
 
-          <button
-            style={styles.closeBtn}
-            onClick={onClose}
-            aria-label="閉じる"
-            onMouseDown={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.transform = "translateY(1px)";
-            }}
-            onMouseUp={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0px)";
-            }}
-          >
+          <button style={styles.closeBtn} onClick={onClose} aria-label="閉じる">
             ✕
           </button>
         </div>
 
-        {/* Search */}
         <div style={styles.searchWrap}>
           <span style={styles.searchIcon}>🔎</span>
           <input
@@ -301,17 +383,15 @@ export default function SelectUserDialog({
           />
         </div>
 
-        {/* Body */}
         <div style={styles.body}>
           {loading ? (
             <div style={styles.empty}>読み込み中…</div>
           ) : filtered.length === 0 ? (
-            <div style={styles.empty}>該当する生徒が見つかりません。</div>
+            <div style={styles.empty}>追加できる相手が見つかりません。</div>
           ) : (
             <div style={styles.list}>
               {filtered.map((u) => {
                 const displayName = u.name ?? "（未設定）";
-
                 return (
                   <div
                     key={u.id}
@@ -333,19 +413,10 @@ export default function SelectUserDialog({
                   >
                     <div style={styles.rowLeft}>
                       <div style={styles.name}>{displayName}</div>
-
                       <div style={styles.meta}>
                         <span style={styles.pill}>ID: {u.id.slice(0, 8)}…</span>
-                        {u.phone ? (
-                          <span style={styles.pill}>📞 {u.phone}</span>
-                        ) : (
-                          <span style={styles.pill}>📞 -</span>
-                        )}
-                        {u.memo ? (
-                          <span style={styles.pill}>📝 {u.memo}</span>
-                        ) : (
-                          <span style={styles.pill}>📝 -</span>
-                        )}
+                        <span style={styles.pill}>📞 {u.phone ?? "-"}</span>
+                        <span style={styles.pill}>📝 {u.memo ?? "-"}</span>
                       </div>
                     </div>
 
@@ -355,14 +426,6 @@ export default function SelectUserDialog({
                       onClick={(e) => {
                         e.stopPropagation();
                         onSelect(u.id, u.name);
-                      }}
-                      onMouseDown={(e) => {
-                        (e.currentTarget as HTMLButtonElement).style.transform =
-                          "translateY(1px)";
-                      }}
-                      onMouseUp={(e) => {
-                        (e.currentTarget as HTMLButtonElement).style.transform =
-                          "translateY(0px)";
                       }}
                     >
                       選択
@@ -376,19 +439,8 @@ export default function SelectUserDialog({
           {msg && <div style={styles.msg}>{msg}</div>}
         </div>
 
-        {/* Footer */}
         <div style={styles.footer}>
-          <div style={styles.footerHint}>Esc で閉じる（※任意で実装してOK）</div>
-          <button
-            style={styles.cancelBtn}
-            onClick={onClose}
-            onMouseDown={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.transform = "translateY(1px)";
-            }}
-            onMouseUp={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0px)";
-            }}
-          >
+          <button style={styles.cancelBtn} onClick={onClose}>
             閉じる
           </button>
         </div>

@@ -253,7 +253,7 @@ export default function DM() {
       const list: Group[] =
         (gs ?? []).map((g) => ({
           id: g.id as string,
-          name: (g.name as string) ?? "DM",
+          name: "DM",
           type: "dm",
           owner_id: (g.owner_id as string) ?? null,
         })) ?? [];
@@ -366,6 +366,45 @@ export default function DM() {
     onScroll();
     return () => el.removeEventListener("scroll", onScroll);
   }, [activeId]);
+
+  // ---- labelByGroupが無いactiveIdは個別に相手名を補完（保険） ----
+  useEffect(() => {
+    if (!myId || !activeId) return;
+    if (labelByGroup[activeId]?.partnerId) return;
+
+    let alive = true;
+
+    (async () => {
+      const { data: gm, error } = await supabase
+        .from("group_members")
+        .select("user_id")
+        .eq("group_id", activeId)
+        .neq("user_id", myId)
+        .limit(1);
+
+      if (!alive) return;
+      if (error || !gm?.[0]) return;
+
+      const partnerId = gm[0].user_id as string;
+
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("id,name")
+        .eq("id", partnerId)
+        .maybeSingle();
+
+      if (!alive) return;
+
+      setLabelByGroup((prev) => ({
+        ...prev,
+        [activeId]: { partnerId, partnerName: prof?.name ?? null },
+      }));
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [myId, activeId, labelByGroup]);
 
   // ---- Realtime（アクティブDMのみ購読） ----
   useEffect(() => {
@@ -492,8 +531,7 @@ export default function DM() {
     const row = Array.isArray(data) ? data[0] : data;
     const gid = row.group_id as string;
 
-    const name = partnerName ?? "DM";
-    const newGroup: Group = { id: gid, name, type: "dm", owner_id: null };
+    const newGroup: Group = { id: gid, name: "DM", type: "dm", owner_id: null };
 
     setGroups((prev) => (prev.some((g) => g.id === gid) ? prev : [...prev, newGroup]));
     setLabelByGroup((prev) => ({ ...prev, [gid]: { partnerId, partnerName } }));
@@ -509,7 +547,7 @@ export default function DM() {
     const t = q.trim().toLowerCase();
     if (!t) return groups;
     return groups.filter((g) => {
-      const label = (labelByGroup[g.id]?.partnerName ?? g.name) || "";
+      const label = (labelByGroup[g.id]?.partnerName ?? "（相手）") || "";
       return label.toLowerCase().includes(t) || g.id.toLowerCase().includes(t);
     });
   }, [q, groups, labelByGroup]);
@@ -596,19 +634,25 @@ export default function DM() {
       width: "100%",
       textAlign: "left" as const,
       borderRadius: 16,
-      border: "1px solid #DCEFFF",
+
+      borderWidth: 1,
+      borderStyle: "solid",
+      borderColor: "#DCEFFF",
+
       background: "#FFFFFF",
       padding: "12px 12px",
       cursor: "pointer",
       transition:
         "transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background 120ms ease",
     },
+
     dmBtnHover: {
       background: "#F3FAFF",
       borderColor: "#BFE3FF",
       boxShadow: "0 10px 20px rgba(15, 23, 42, 0.06)",
       transform: "translateY(-1px)",
     },
+
     dmBtnActive: {
       background: "#EAF6FF",
       borderColor: "#55B9FF",
@@ -857,7 +901,7 @@ export default function DM() {
 
               <div style={styles.listWrap}>
                 {filteredGroups.map((g) => {
-                  const label = labelByGroup[g.id]?.partnerName ?? g.name;
+                  const label = labelByGroup[g.id]?.partnerName ?? "（相手）";
                   const unread = unreadByGroup[g.id] ?? 0;
 
                   const last = lastByGroup[g.id];
@@ -928,7 +972,7 @@ export default function DM() {
                 <div style={styles.partnerWrap}>
                   <div style={styles.partnerName}>
                     {activeId
-                      ? labelByGroup[activeId]?.partnerName ?? "DM"
+                      ? labelByGroup[activeId]?.partnerName ?? "（相手）"
                       : "DM未選択"}
                   </div>
                   <div style={styles.partnerSub}>
