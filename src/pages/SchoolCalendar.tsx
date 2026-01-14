@@ -1,36 +1,34 @@
-/*
- * src/pages/SchoolCalendar.tsx
- * Responsibility:
- * - 先生/管理者専用の「塾カレンダー」
- * - ここで作った予定は全生徒に反映される
- */
-import CalendarBoard from "../components/CalendarBoard";
-import { useIsStaff } from "../hooks/useIsStaff";
+import { useMemo } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { useIsStaff } from "../hooks/useIsStaff";
+import CalendarBoard from "../components/CalendarBoard";
+import type { CalendarPermissions } from "../components/CalendarBoard";
 
 export default function SchoolCalendar() {
-  const { isStaff } = useIsStaff();
   const { user } = useAuth();
+  const { isStaff } = useIsStaff();
 
-  if (!isStaff || !user) {
-    return <div className="p-6 text-gray-500">閲覧権限がありません。</div>;
+  const ownerUserId = user?.id ?? "";
+
+  const permissions: CalendarPermissions = useMemo(() => {
+    // 「塾カレンダー」ページの要件をここで決める
+    // 例：生徒は自分の個人予定 + 塾予定を見れる／個人予定は編集OK
+    //     先生は塾予定を編集OK、個人予定は閲覧のみ（自分の個人だけ編集…等も可）
+    return {
+      viewPersonal: true,          // 生徒は自分の個人を見る
+      editPersonal: !isStaff,      // 生徒は編集OK / 先生は基本OFF（要件次第）
+      viewSchool: true,
+      editSchool: isStaff,
+    };
+  }, [isStaff]);
+
+  if (!ownerUserId) {
+    return <div style={{ padding: 16 }}>読み込み中...</div>;
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-4">
-      <h1 className="text-2xl font-bold">塾カレンダー</h1>
-      <p className="text-sm text-gray-600">
-        ここで追加した予定は、全生徒のカレンダーに表示されます。
-      </p>
-
-      <div className="bg-white border rounded-2xl p-4">
-        <CalendarBoard
-          viewerRole="teacher"
-          ownerUserId={user.id}     // ← 先生自身（school予定の作成者）
-          canEditPersonal={false}
-          canEditSchool={true}     // ← 塾予定のみ編集
-        />
-      </div>
+    <div style={{ padding: 12, paddingBottom: 80 }}>
+      <CalendarBoard ownerUserId={ownerUserId} permissions={permissions} />
     </div>
   );
 }
