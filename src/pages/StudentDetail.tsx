@@ -189,10 +189,17 @@ export default function StudentDetail({ student, onBack }: Props) {
         {tab === "report" && (
           <ReportView
             ownerUserId={student.id}
-            viewerRole="teacher"
-            showTimeline={false} // ← 生徒ページでは二重タブを消す（記録のみ）
-            title="レポート"
-            subtitle="この生徒の状況を要約して確認"
+            mode="teacher"
+            showTimeline={false}
+            showGrades={true}
+            showCalendar={true}
+            calendarPermissions={{
+              viewPersonal: true,
+              editPersonal: false,
+              viewSchool: true,
+              editSchool: true,
+            }}
+            canEditGoals={true}
           />
         )}
 
