@@ -210,10 +210,13 @@ export default function MyPage() {
           <div className="bg-white rounded-2xl border p-4">
             <h2 className="text-lg font-bold mb-3">カレンダー</h2>
             <CalendarBoard
-              viewerRole="student"
               ownerUserId={user.id}
-              canEditPersonal={true}
-              canEditSchool={false}
+              permissions={{
+                viewPersonal: true,
+                editPersonal: true,
+                viewSchool: true,
+                editSchool: false,
+              }}
             />
           </div>
         </div>
