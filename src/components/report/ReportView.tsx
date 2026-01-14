@@ -5,12 +5,12 @@
 // - 学習推移/目標(週・月)/成績/カレンダー/学習ログ入力 を組み合わせて表示
 //
 // Data sources:
-// - study_logs: 学習ログ（minutes, studied_at_date, subject, memo）
-//   -> 学習推移（今日/今月/総学習時間）もここから集計する
-// - student_goals: 目標（週・月など）を保存（あなたのDBの列に合わせる）
+// - study_logs: 学習ログ（minutes, studied_at, subject, memo）
+//   -> 学習推移（今日/今週/今月/総学習時間）もここから集計する
+// - student_goals: 目標（週・月など）を保存
 //
-// NOTE:
-// - テーブル名が違う場合は GOALS_TABLE / STUDY_LOGS_TABLE を修正してください。
+// IMPORTANT:
+// - あなたのDBでは study_logs の日付列は studied_at(date) です（studied_at_date ではない）
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
@@ -21,13 +21,13 @@ import StudentGrades from "../StudentGrades";
 import Button from "../ui/Button";
 import Input, { Textarea } from "../ui/Input";
 
-const GOALS_TABLE = "student_goals"; // ★修正
+const GOALS_TABLE = "student_goals";
 const STUDY_LOGS_TABLE = "study_logs";
 
 type Mode = "student" | "teacher";
 
 type Props = {
-  ownerUserId: string;
+  ownerUserId: string; // 生徒本人 or 先生が閲覧している対象生徒
   mode: Mode;
 
   showTimeline?: boolean;
@@ -43,7 +43,7 @@ type StudyLogRow = {
   user_id: string;
   subject: string;
   minutes: number;
-  studied_at_date: string; // YYYY-MM-DD
+  studied_at: string; // ★ date: "YYYY-MM-DD"
   memo: string | null;
   created_at: string;
 };
@@ -54,10 +54,10 @@ type GoalRow = {
   kind: string; // "goal" など
   text: string | null;
   period_type: string | null; // "week" | "month"
-  period_key: string | null;  // 例: "2026-01" / 週キー
+  period_key: string | null; // 例: "2026-01" / 週キー
   period_start: string | null; // date
-  period_end: string | null;   // date
-  detail: string | null;       // JSON文字列でもOK
+  period_end: string | null; // date
+  detail: string | null; // JSON文字列でもOK
   created_at: string;
   updated_at: string;
 };
@@ -81,11 +81,11 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
-// 月曜始まり（日本の塾用途ならこれが自然）
+// 月曜始まり
 function startOfWeekISO(dateISO: string) {
   const d = new Date(`${dateISO}T00:00:00`);
   const day = d.getDay(); // 0 Sun
-  const diff = (day === 0 ? -6 : 1 - day);
+  const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
   return toISODate(d);
 }
@@ -107,14 +107,13 @@ function endOfMonthISO(dateISO: string) {
 }
 
 function weekKey(dateISO: string) {
-  // 週のキーは「週の開始日(YYYY-MM-DD)」で統一
-  return startOfWeekISO(dateISO);
+  return startOfWeekISO(dateISO); // 週キー = 週開始日
 }
 function monthKey(dateISO: string) {
   return dateISO.slice(0, 7); // "YYYY-MM"
 }
 
-function Card({
+function SoftCard({
   title,
   right,
   children,
@@ -124,13 +123,15 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <div
+    <section
       style={{
-        background: "#ffffff",
-        border: "1px solid #e5e7eb",
-        borderRadius: "16px",
+        borderRadius: "22px",
         padding: "16px",
-        boxShadow: "0 1px 0 rgba(0,0,0,0.02)",
+        background:
+          "linear-gradient(180deg, rgba(239,246,255,0.92), rgba(255,255,255,0.92))",
+        border: "1px solid rgba(59,130,246,0.14)",
+        boxShadow: "0 18px 40px rgba(15, 23, 42, 0.06)",
+        backdropFilter: "blur(6px)",
       }}
     >
       <div
@@ -138,13 +139,42 @@ function Card({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: "10px",
+          gap: "10px",
+          marginBottom: "12px",
         }}
       >
-        <div style={{ fontWeight: 800, color: "#0f172a" }}>{title}</div>
+        <div style={{ fontWeight: 900, color: "#0f172a", fontSize: "16px" }}>
+          {title}
+        </div>
         {right}
       </div>
       {children}
+    </section>
+  );
+}
+
+function StatPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        borderRadius: "18px",
+        padding: "14px 14px",
+        backgroundColor: "rgba(255,255,255,0.78)",
+        border: "1px solid rgba(148,163,184,0.22)",
+        boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)",
+        minHeight: "66px",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        gap: "6px",
+      }}
+    >
+      <div style={{ color: "#64748b", fontSize: "12px", fontWeight: 900 }}>
+        {label}
+      </div>
+      <div style={{ color: "#0f172a", fontSize: "20px", fontWeight: 900 }}>
+        {value}
+      </div>
     </div>
   );
 }
@@ -157,8 +187,9 @@ function ProgressBar({ percent }: { percent: number }) {
         width: "100%",
         height: "10px",
         borderRadius: "999px",
-        background: "#eef2ff",
+        background: "rgba(59,130,246,0.14)",
         overflow: "hidden",
+        border: "1px solid rgba(59,130,246,0.18)",
       }}
     >
       <div
@@ -166,7 +197,7 @@ function ProgressBar({ percent }: { percent: number }) {
           width: `${p}%`,
           height: "100%",
           borderRadius: "999px",
-          background: "#3b82f6",
+          background: "linear-gradient(90deg, #60a5fa, #3b82f6)",
           transition: "width 200ms ease",
         }}
       />
@@ -195,23 +226,23 @@ export default function ReportView({
   const [goals, setGoals] = useState<GoalRow[]>([]);
   const [goalsLoading, setGoalsLoading] = useState(false);
 
-  // study_logs add form
+  // add form
   const [formDate, setFormDate] = useState<string>(todayISO);
   const [formSubject, setFormSubject] = useState<string>("");
   const [formMinutes, setFormMinutes] = useState<string>("60");
   const [formMemo, setFormMemo] = useState<string>("");
   const [savingLog, setSavingLog] = useState(false);
 
-  // ---- load study_logs ----
   async function loadLogs() {
     if (!ownerUserId) return;
     setLogsLoading(true);
 
+    // ★ studied_at に修正
     const { data, error } = await supabase
       .from(STUDY_LOGS_TABLE)
-      .select("id,user_id,subject,minutes,studied_at_date,memo,created_at")
+      .select("id,user_id,subject,minutes,studied_at,memo,created_at")
       .eq("user_id", ownerUserId)
-      .order("studied_at_date", { ascending: false })
+      .order("studied_at", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(300);
 
@@ -225,7 +256,6 @@ export default function ReportView({
     setLogsLoading(false);
   }
 
-  // ---- load student_goals ----
   async function loadGoals() {
     if (!ownerUserId) return;
     setGoalsLoading(true);
@@ -260,7 +290,7 @@ export default function ReportView({
   // -------------------------
   const todayMinutes = useMemo(() => {
     return logs
-      .filter((l) => l.studied_at_date === todayISO)
+      .filter((l) => l.studied_at === todayISO)
       .reduce((sum, l) => sum + (l.minutes ?? 0), 0);
   }, [logs, todayISO]);
 
@@ -268,7 +298,7 @@ export default function ReportView({
     const s = startOfWeekISO(todayISO);
     const e = endOfWeekISO(todayISO);
     return logs
-      .filter((l) => l.studied_at_date >= s && l.studied_at_date <= e)
+      .filter((l) => l.studied_at >= s && l.studied_at <= e)
       .reduce((sum, l) => sum + (l.minutes ?? 0), 0);
   }, [logs, todayISO]);
 
@@ -276,7 +306,7 @@ export default function ReportView({
     const s = startOfMonthISO(todayISO);
     const e = endOfMonthISO(todayISO);
     return logs
-      .filter((l) => l.studied_at_date >= s && l.studied_at_date <= e)
+      .filter((l) => l.studied_at >= s && l.studied_at <= e)
       .reduce((sum, l) => sum + (l.minutes ?? 0), 0);
   }, [logs, todayISO]);
 
@@ -284,7 +314,7 @@ export default function ReportView({
     return logs.reduce((sum, l) => sum + (l.minutes ?? 0), 0);
   }, [logs]);
 
-  // ---- goals: detail JSON { target_minutes: number } を優先 ----
+  // ---- goals: detail JSON { target_minutes } 優先 ----
   function parseTargetMinutes(r: GoalRow | undefined): number | null {
     if (!r) return null;
 
@@ -330,7 +360,6 @@ export default function ReportView({
     return (monthMinutes / currentMonthTarget) * 100;
   }, [monthMinutes, currentMonthTarget]);
 
-  // ---- upsert goal (student_goals) ----
   async function upsertGoal(periodType: "week" | "month") {
     if (!ownerUserId) return;
     if (!canEditGoals) return;
@@ -381,7 +410,6 @@ export default function ReportView({
     await loadGoals();
   }
 
-  // ---- add study log ----
   async function addLog() {
     if (!ownerUserId) return;
 
@@ -391,11 +419,13 @@ export default function ReportView({
     if (!formDate) return alert("日付を選択してください。");
 
     setSavingLog(true);
+
+    // ★ studied_at に修正
     const { error } = await supabase.from(STUDY_LOGS_TABLE).insert({
       user_id: ownerUserId,
       subject: formSubject.trim(),
       minutes: Math.floor(minutes),
-      studied_at_date: formDate,
+      studied_at: formDate,
       memo: formMemo.trim() || null,
     });
 
@@ -414,64 +444,112 @@ export default function ReportView({
   }
 
   // ---- styles ----
-  const rootStyle: React.CSSProperties = {
+  const pageStyle: React.CSSProperties = {
     display: "flex",
     flexDirection: "column",
     gap: "14px",
+    padding: "8px",
+    borderRadius: "24px",
+    background:
+      "radial-gradient(1000px 400px at 20% -10%, rgba(96,165,250,0.30), rgba(255,255,255,0)), radial-gradient(900px 380px at 90% 0%, rgba(191,219,254,0.55), rgba(255,255,255,0)), #f8fafc",
   };
 
-  const tabRowStyle: React.CSSProperties = {
+  const headerWrapStyle: React.CSSProperties = {
+    backgroundColor: "#ffffff",
+    borderRadius: "18px",
+    boxShadow: "0 10px 28px rgba(15,23,42,0.08)",
+    border: "1px solid rgba(148,163,184,0.16)",
+    padding: "18px 20px 0px",
     display: "flex",
-    gap: "10px",
-    borderBottom: "1px solid #e5e7eb",
-    paddingBottom: "10px",
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: "20px",
   };
 
-  function TabButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
-    return (
-      <button
-        onClick={onClick}
-        style={{
-          padding: "10px 14px",
-          borderRadius: "12px",
-          border: "1px solid #e5e7eb",
-          background: active ? "#eff6ff" : "#ffffff",
-          color: active ? "#1d4ed8" : "#475569",
-          fontWeight: 900,
-          cursor: "pointer",
-        }}
-      >
-        {label}
-      </button>
-    );
-  }
+  const headerTitleStyle: React.CSSProperties = {
+    fontSize: "22px",
+    fontWeight: 900,
+    color: "#0f172a",
+    paddingBottom: "12px",
+  };
+
+  const tabHeaderRowStyle: React.CSSProperties = {
+    display: "flex",
+    gap: "0px",
+    position: "relative",
+    flex: 1,
+    maxWidth: "400px",
+  };
+
+  const subtleRightStyle: React.CSSProperties = {
+    color: "#64748b",
+    fontWeight: 900,
+    fontSize: "12px",
+    backgroundColor: "rgba(255,255,255,0.75)",
+    border: "1px solid rgba(148,163,184,0.20)",
+    borderRadius: "999px",
+    padding: "8px 10px",
+    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
+    whiteSpace: "nowrap",
+  };
+
+  const TopTab = ({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) => (
+    <button
+      onClick={onClick}
+      style={{
+        all: "unset",
+        cursor: "pointer",
+        textAlign: "center",
+        fontWeight: 900,
+        fontSize: "14px",
+        color: active ? "#2563eb" : "#64748b",
+        padding: "0px 16px 12px",
+        borderBottom: `1px solid ${active ? "transparent" : "rgba(148,163,184,0.35)"}`,
+        position: "relative",
+        flex: 1,
+      }}
+    >
+      {label}
+      {active && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "-1px",
+            left: "0",
+            right: "0",
+            height: "3px",
+            background: "#2563eb",
+            borderRadius: "99px 99px 0 0",
+          }}
+        />
+      )}
+    </button>
+  );
 
   return (
-    <div style={rootStyle}>
-      {/* Tabs */}
-      <div style={tabRowStyle}>
-        <TabButton active={tab === "record"} label="記録" onClick={() => setTab("record")} />
-        {showTimeline && (
-          <TabButton active={tab === "timeline"} label="タイムライン" onClick={() => setTab("timeline")} />
-        )}
+    <div style={pageStyle}>
+      {/* Header & Tabs */}
+      <div style={headerWrapStyle}>
+        <div style={headerTitleStyle}>レポート</div>
+        <div style={tabHeaderRowStyle}>
+          <TopTab active={tab === "record"} label="記録" onClick={() => setTab("record")} />
+          {showTimeline && <TopTab active={tab === "timeline"} label="タイムライン" onClick={() => setTab("timeline")} />}
+        </div>
       </div>
 
       {tab === "timeline" ? (
-        <Card title="タイムライン">
-          <div style={{ color: "#64748b", fontSize: "14px" }}>
-            ここは後で「レポート要約」「先生コメント」「提出履歴」などを流せます。
+        <SoftCard title="タイムライン" right={<span style={subtleRightStyle}>後で拡張</span>}>
+          <div style={{ color: "#64748b", fontSize: "14px", fontWeight: 800 }}>
+            ここは後で「先生コメント」「要約」「提出履歴」などを流せます。
           </div>
-        </Card>
+        </SoftCard>
       ) : (
         <>
           {/* 学習推移 */}
-          <Card
+          <SoftCard
             title="学習推移"
-            right={
-              <div style={{ color: "#64748b", fontWeight: 800, fontSize: "12px" }}>
-                データ元: {STUDY_LOGS_TABLE}.minutes（集計）
-              </div>
-            }
+            right={<span style={subtleRightStyle}>study_logs.minutes を集計</span>}
           >
             <div
               style={{
@@ -480,35 +558,35 @@ export default function ReportView({
                 gap: "12px",
               }}
             >
-              <div style={{ padding: "12px", borderRadius: "14px", background: "#f8fafc", border: "1px solid #e5e7eb" }}>
-                <div style={{ color: "#64748b", fontSize: "12px", fontWeight: 800 }}>今日</div>
-                <div style={{ fontSize: "18px", fontWeight: 900, color: "#0f172a" }}>{minutesLabel(todayMinutes)}</div>
-              </div>
-
-              <div style={{ padding: "12px", borderRadius: "14px", background: "#f8fafc", border: "1px solid #e5e7eb" }}>
-                <div style={{ color: "#64748b", fontSize: "12px", fontWeight: 800 }}>今週</div>
-                <div style={{ fontSize: "18px", fontWeight: 900, color: "#0f172a" }}>{minutesLabel(weekMinutes)}</div>
-              </div>
-
-              <div style={{ padding: "12px", borderRadius: "14px", background: "#f8fafc", border: "1px solid #e5e7eb" }}>
-                <div style={{ color: "#64748b", fontSize: "12px", fontWeight: 800 }}>今月</div>
-                <div style={{ fontSize: "18px", fontWeight: 900, color: "#0f172a" }}>{minutesLabel(monthMinutes)}</div>
-              </div>
+              <StatPill label="今日" value={minutesLabel(todayMinutes)} />
+              <StatPill label="今週" value={minutesLabel(weekMinutes)} />
+              <StatPill label="今月" value={minutesLabel(monthMinutes)} />
             </div>
 
-            <div style={{ marginTop: "10px", display: "flex", justifyContent: "space-between" }}>
-              <div style={{ color: "#94a3b8", fontSize: "12px", fontWeight: 700 }}>
+            <div
+              style={{
+                marginTop: "12px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "10px",
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ color: "#64748b", fontSize: "12px", fontWeight: 900 }}>
                 総学習時間（全期間）: {minutesLabel(totalMinutes)}
               </div>
+
               <button
                 onClick={() => loadLogs()}
                 style={{
-                  border: "1px solid #e5e7eb",
-                  background: "#ffffff",
-                  borderRadius: "12px",
-                  padding: "8px 10px",
+                  border: "1px solid rgba(148,163,184,0.24)",
+                  background: "rgba(255,255,255,0.75)",
+                  borderRadius: "999px",
+                  padding: "10px 14px",
                   fontWeight: 900,
                   cursor: "pointer",
+                  boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
                 }}
               >
                 再読み込み
@@ -516,28 +594,32 @@ export default function ReportView({
             </div>
 
             {logsLoading && (
-              <div style={{ marginTop: "8px", color: "#94a3b8", fontSize: "12px" }}>読み込み中...</div>
+              <div style={{ marginTop: "8px", color: "#94a3b8", fontSize: "12px", fontWeight: 900 }}>
+                読み込み中...
+              </div>
             )}
-          </Card>
+          </SoftCard>
 
           {/* 週間目標 */}
-          <Card
+          <SoftCard
             title="週間目標"
             right={
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <div style={{ fontWeight: 900, color: "#0f172a" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                <div style={subtleRightStyle}>
                   {currentWeekTarget ? `${minutesLabel(currentWeekTarget)} 目標` : "未設定"}
                 </div>
                 {canEditGoals && (
                   <button
                     onClick={() => upsertGoal("week")}
                     style={{
-                      border: "1px solid #e5e7eb",
-                      background: "#ffffff",
-                      borderRadius: "12px",
-                      padding: "8px 10px",
+                      border: "1px solid rgba(59,130,246,0.22)",
+                      background: "linear-gradient(180deg, rgba(96,165,250,0.90), rgba(59,130,246,0.90))",
+                      color: "#ffffff",
+                      borderRadius: "999px",
+                      padding: "10px 14px",
                       fontWeight: 900,
                       cursor: "pointer",
+                      boxShadow: "0 14px 28px rgba(59,130,246,0.18)",
                     }}
                   >
                     目標を設定
@@ -546,9 +628,9 @@ export default function ReportView({
               </div>
             }
           >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-              <div style={{ color: "#475569", fontWeight: 800 }}>
-                実績: {minutesLabel(weekMinutes)}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
+              <div style={{ color: "#0f172a", fontWeight: 900 }}>
+                実績: <span style={{ color: "#1d4ed8" }}>{minutesLabel(weekMinutes)}</span>
               </div>
               <div style={{ color: "#0f172a", fontWeight: 900 }}>
                 {currentWeekTarget ? `${Math.floor(weekPercent)}%` : "—"}
@@ -558,34 +640,38 @@ export default function ReportView({
             {currentWeekTarget ? (
               <ProgressBar percent={weekPercent} />
             ) : (
-              <div style={{ color: "#64748b", fontSize: "13px", fontWeight: 700 }}>
-                目標が未設定です。右上の「目標を設定」から追加できます。
+              <div style={{ color: "#64748b", fontSize: "13px", fontWeight: 900 }}>
+                目標が未設定です。「目標を設定」から追加できます。
               </div>
             )}
 
             {goalsLoading && (
-              <div style={{ marginTop: "8px", color: "#94a3b8", fontSize: "12px" }}>読み込み中...</div>
+              <div style={{ marginTop: "10px", color: "#94a3b8", fontSize: "12px", fontWeight: 900 }}>
+                読み込み中...
+              </div>
             )}
-          </Card>
+          </SoftCard>
 
           {/* 月間目標 */}
-          <Card
+          <SoftCard
             title="月間目標"
             right={
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <div style={{ fontWeight: 900, color: "#0f172a" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                <div style={subtleRightStyle}>
                   {currentMonthTarget ? `${minutesLabel(currentMonthTarget)} 目標` : "未設定"}
                 </div>
                 {canEditGoals && (
                   <button
                     onClick={() => upsertGoal("month")}
                     style={{
-                      border: "1px solid #e5e7eb",
-                      background: "#ffffff",
-                      borderRadius: "12px",
-                      padding: "8px 10px",
+                      border: "1px solid rgba(59,130,246,0.22)",
+                      background: "linear-gradient(180deg, rgba(96,165,250,0.90), rgba(59,130,246,0.90))",
+                      color: "#ffffff",
+                      borderRadius: "999px",
+                      padding: "10px 14px",
                       fontWeight: 900,
                       cursor: "pointer",
+                      boxShadow: "0 14px 28px rgba(59,130,246,0.18)",
                     }}
                   >
                     目標を設定
@@ -594,9 +680,9 @@ export default function ReportView({
               </div>
             }
           >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-              <div style={{ color: "#475569", fontWeight: 800 }}>
-                実績: {minutesLabel(monthMinutes)}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
+              <div style={{ color: "#0f172a", fontWeight: 900 }}>
+                実績: <span style={{ color: "#1d4ed8" }}>{minutesLabel(monthMinutes)}</span>
               </div>
               <div style={{ color: "#0f172a", fontWeight: 900 }}>
                 {currentMonthTarget ? `${Math.floor(monthPercent)}%` : "—"}
@@ -606,27 +692,36 @@ export default function ReportView({
             {currentMonthTarget ? (
               <ProgressBar percent={monthPercent} />
             ) : (
-              <div style={{ color: "#64748b", fontSize: "13px", fontWeight: 700 }}>
-                目標が未設定です。右上の「目標を設定」から追加できます。
+              <div style={{ color: "#64748b", fontSize: "13px", fontWeight: 900 }}>
+                目標が未設定です。「目標を設定」から追加できます。
               </div>
             )}
-          </Card>
+          </SoftCard>
 
           {/* 成績 */}
           {showGrades && (
-            <Card title="成績（小テスト/問題集）">
-              <div style={{ color: "#64748b", fontSize: "13px", fontWeight: 700, marginBottom: "10px" }}>
-                既存の「小テスト確認」機能を利用します。
+            <SoftCard
+              title="成績（小テスト/問題集）"
+              right={<span style={subtleRightStyle}>既存機能</span>}
+            >
+              <div style={{ color: "#64748b", fontSize: "13px", fontWeight: 900, marginBottom: "12px" }}>
+                「確認する」で問題集の進捗を確認できます。
               </div>
-              <div style={{ borderTop: "1px dashed #e5e7eb", paddingTop: "12px" }}>
+              <div style={{ borderTop: "1px dashed rgba(148,163,184,0.35)", paddingTop: "12px" }}>
                 <StudentGrades userId={ownerUserId} editable={mode !== "student"} />
               </div>
-            </Card>
+            </SoftCard>
           )}
 
           {/* 学習ログ入力 */}
-          <Card title="学習時間の記入">
-            <div style={{ display: "grid", gridTemplateColumns: "160px 1fr 140px", gap: "10px" }}>
+          <SoftCard title="学習時間の記入" right={<span style={subtleRightStyle}>study_logs に保存</span>}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "160px 1fr 140px",
+                gap: "10px",
+              }}
+            >
               <div>
                 <label style={{ fontSize: "12px", fontWeight: 900, color: "#475569" }}>日付</label>
                 <input
@@ -636,10 +731,12 @@ export default function ReportView({
                   style={{
                     width: "100%",
                     marginTop: "6px",
-                    border: "1px solid #e5e7eb",
-                    borderRadius: "12px",
-                    padding: "10px",
-                    fontWeight: 800,
+                    border: "1px solid rgba(148,163,184,0.30)",
+                    borderRadius: "14px",
+                    padding: "12px 12px",
+                    fontWeight: 900,
+                    backgroundColor: "rgba(255,255,255,0.85)",
+                    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
                   }}
                 />
               </div>
@@ -649,7 +746,7 @@ export default function ReportView({
                 <Input
                   className="mt-1"
                   value={formSubject}
-                  onChange={(e) => setFormSubject((e.target as HTMLInputElement).value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormSubject(e.target.value)}
                 />
               </div>
 
@@ -658,7 +755,7 @@ export default function ReportView({
                 <Input
                   className="mt-1"
                   value={formMinutes}
-                  onChange={(e) => setFormMinutes((e.target as HTMLInputElement).value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormMinutes(e.target.value)}
                 />
               </div>
             </div>
@@ -668,7 +765,7 @@ export default function ReportView({
               <Textarea
                 className="mt-1 h-24"
                 value={formMemo}
-                onChange={(e) => setFormMemo((e.target as HTMLTextAreaElement).value)}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setFormMemo(e.target.value)}
               />
             </div>
 
@@ -678,40 +775,42 @@ export default function ReportView({
               </Button>
             </div>
 
-            <div style={{ marginTop: "12px", borderTop: "1px dashed #e5e7eb", paddingTop: "12px" }}>
-              <div style={{ fontWeight: 900, color: "#0f172a", marginBottom: "8px" }}>
+            <div style={{ marginTop: "14px", borderTop: "1px dashed rgba(148,163,184,0.35)", paddingTop: "14px" }}>
+              <div style={{ fontWeight: 900, color: "#0f172a", marginBottom: "10px" }}>
                 最近の学習ログ
               </div>
 
               {logsLoading ? (
-                <div style={{ color: "#94a3b8", fontSize: "13px" }}>読み込み中...</div>
+                <div style={{ color: "#94a3b8", fontSize: "13px", fontWeight: 900 }}>読み込み中...</div>
               ) : logs.length === 0 ? (
-                <div style={{ color: "#94a3b8", fontSize: "13px" }}>まだ学習ログがありません。</div>
+                <div style={{ color: "#94a3b8", fontSize: "13px", fontWeight: 900 }}>まだ学習ログがありません。</div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                   {logs.slice(0, 8).map((l) => (
                     <div
                       key={l.id}
                       style={{
-                        border: "1px solid #e5e7eb",
-                        borderRadius: "14px",
-                        padding: "10px 12px",
-                        background: "#ffffff",
+                        border: "1px solid rgba(148,163,184,0.22)",
+                        borderRadius: "16px",
+                        padding: "12px 12px",
+                        background: "rgba(255,255,255,0.78)",
+                        boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
                         <div style={{ fontWeight: 900, color: "#0f172a" }}>
                           {l.subject}
-                          <span style={{ marginLeft: "10px", color: "#64748b", fontWeight: 800, fontSize: "12px" }}>
-                            {l.studied_at_date}
+                          <span style={{ marginLeft: "10px", color: "#64748b", fontWeight: 900, fontSize: "12px" }}>
+                            {l.studied_at}
                           </span>
                         </div>
                         <div style={{ fontWeight: 900, color: "#1d4ed8" }}>
                           {minutesLabel(l.minutes)}
                         </div>
                       </div>
+
                       {l.memo && (
-                        <div style={{ marginTop: "6px", color: "#475569", fontSize: "13px", whiteSpace: "pre-wrap", fontWeight: 700 }}>
+                        <div style={{ marginTop: "8px", color: "#475569", fontSize: "13px", whiteSpace: "pre-wrap", fontWeight: 800 }}>
                           {l.memo}
                         </div>
                       )}
@@ -720,20 +819,13 @@ export default function ReportView({
                 </div>
               )}
             </div>
-          </Card>
+          </SoftCard>
 
           {/* カレンダー */}
           {showCalendar && (
-            <Card
-              title="カレンダー"
-              right={
-                <div style={{ color: "#64748b", fontWeight: 800, fontSize: "12px" }}>
-                  データはCalendarBoard側のcalendar_eventsから
-                </div>
-              }
-            >
+            <SoftCard title="カレンダー" right={<span style={subtleRightStyle}>calendar_events</span>}>
               <CalendarBoard ownerUserId={ownerUserId} permissions={calendarPermissions} />
-            </Card>
+            </SoftCard>
           )}
         </>
       )}
