@@ -1,4 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+/*
+ * src/components/CalendarBoard.tsx
+ * Responsibility:
+ * - 月カレンダー表示 / 日付選択 / 予定一覧表示 / 追加編集モーダル
+ * - “誰が誰の予定を見ているか” などの判断は Props.permissions に集約
+ *
+ * Data model:
+ * - calendar_events: scope = 'personal' | 'school'
+ * - personal: owner_id = 生徒本人
+ * - school:   owner_id = 作成者(先生)などでもOK（全員が閲覧する想定）
+ */
+
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import Button from "./ui/Button";
 import Input, { Textarea } from "./ui/Input";
@@ -21,15 +33,67 @@ type EventRow = {
   created_at: string;
 };
 
+export type CalendarPermissions = {
+  viewPersonal: boolean;
+  editPersonal: boolean;
+  viewSchool: boolean;
+  editSchool: boolean;
+};
+
 type Props = {
-  viewerRole: "student" | "teacher" | "admin";
   ownerUserId: string; // 表示対象ユーザー（生徒なら自分、先生なら選択した生徒）
-  canEditPersonal: boolean; // 生徒本人ならtrue
-  canEditSchool: boolean; // teacher/adminならtrue
-  // optional control from parent
+  permissions?: CalendarPermissions; // ★ ここが重要：optional にする
   selectedDay?: string;
   onSelectDay?: (ymd: string) => void;
 };
+
+const DEFAULT_PERMISSIONS: CalendarPermissions = {
+  viewPersonal: false,
+  editPersonal: false,
+  viewSchool: false,
+  editSchool: false,
+};
+
+/** ErrorBoundary：子コンポーネントが落ちても画面全体を真っ白にしない */
+class SafeBoundary extends React.Component<
+  { fallback?: React.ReactNode; children: React.ReactNode },
+  { hasError: boolean; message: string }
+> {
+  constructor(props: { fallback?: React.ReactNode; children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, message: "" };
+  }
+  static getDerivedStateFromError(err: Error) {
+    return { hasError: true, message: String(err?.message ?? err) };
+  }
+  componentDidCatch(err: Error) {
+    console.error("❌ CalendarBoard child crashed:", err);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          style={{
+            border: "1px solid #fecaca",
+            background: "#fff1f2",
+            color: "#9f1239",
+            borderRadius: 12,
+            padding: 12,
+            fontSize: 12,
+            lineHeight: 1.6,
+          }}
+        >
+          <div style={{ fontWeight: 900, marginBottom: 6 }}>
+            画面の一部でエラーが発生しました（落ちないように保護中）
+          </div>
+          <div style={{ whiteSpace: "pre-wrap" }}>{this.state.message}</div>
+          {this.props.fallback ?? null}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function toISODate(d: Date): string {
   const y = d.getFullYear();
@@ -59,23 +123,43 @@ function formatHM(ts: string) {
   return `${hh}:${mm}`;
 }
 
+function canAddOnDay(dayISO: string) {
+  const today = toISODate(new Date());
+  return dayISO >= today; // 未来/当日だけOK（過去追加は不可）
+}
+
+function navBtnStyle(color: string): React.CSSProperties {
+  return {
+    width: 48,
+    height: 40,
+    borderRadius: 12,
+    border: "1px solid #e5e7eb",
+    backgroundColor: "#ffffff",
+    fontSize: 24,
+    color,
+    display: "grid",
+    placeItems: "center",
+    cursor: "pointer",
+    userSelect: "none",
+  };
+}
+
 export default function CalendarBoard({
-  viewerRole,
   ownerUserId,
-  canEditPersonal,
-  canEditSchool,
+  permissions,
   selectedDay,
   onSelectDay,
 }: Props) {
-  // viewerRole is accepted for future logic (permissions/UI) but currently unused
-  void viewerRole;
+  // ★ ここが最重要：permissions が undefined でも絶対落ちない
+  const perms = permissions ?? DEFAULT_PERMISSIONS;
+  const { viewPersonal, editPersonal, viewSchool, editSchool } = perms;
 
   const [month, setMonth] = useState<Date>(() => startOfMonth(new Date()));
   const [events, setEvents] = useState<EventRow[]>([]);
   const [loading, setLoading] = useState(false);
 
   const [selectedDate, setSelectedDate] = useState<string>(() =>
-    toISODate(new Date())
+    selectedDay ? selectedDay : toISODate(new Date())
   );
   const [openForm, setOpenForm] = useState(false);
   const [editing, setEditing] = useState<EventRow | null>(null);
@@ -88,7 +172,6 @@ export default function CalendarBoard({
   const [formEndTime, setFormEndTime] = useState("10:00");
 
   const monthRange = useMemo(() => {
-    // grid 用に少し広めに取る
     const gridStart = startOfCalendarGrid(month);
     const gridEnd = new Date(
       gridStart.getFullYear(),
@@ -102,9 +185,6 @@ export default function CalendarBoard({
       gridStart,
     };
   }, [month]);
-
-  const canCreatePersonal = canEditPersonal;
-  const canCreateSchool = canEditSchool;
 
   const dateToEvents = useMemo(() => {
     const map: Record<string, EventRow[]> = {};
@@ -125,13 +205,22 @@ export default function CalendarBoard({
     if (!ownerUserId) return;
     setLoading(true);
 
-    // personal(ownerUserId) + school(全員分)
+    const ors: string[] = [];
+    if (viewPersonal) ors.push(`and(scope.eq.personal,owner_id.eq.${ownerUserId})`);
+    if (viewSchool) ors.push(`scope.eq.school`);
+
+    if (ors.length === 0) {
+      setEvents([]);
+      setLoading(false);
+      return;
+    }
+
     const { data, error } = await supabase
       .from("calendar_events")
       .select(
-        "id,scope,owner_id,title,description,start_at,end_at,all_day,day,details,start_time,end_time,created_at"
+        "id,scope,owner_id,title,description,start_at,end_at,all_day,day,start_time,end_time,created_at"
       )
-      .or(`and(scope.eq.personal,owner_id.eq.${ownerUserId}),scope.eq.school`)
+      .or(ors.join(","))
       .gte("start_at", monthRange.start)
       .lte("start_at", monthRange.end)
       .order("start_at", { ascending: true });
@@ -148,16 +237,15 @@ export default function CalendarBoard({
   useEffect(() => {
     loadEvents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ownerUserId, monthRange.start, monthRange.end]);
+  }, [ownerUserId, monthRange.start, monthRange.end, viewPersonal, viewSchool]);
 
-  // If parent controls selectedDay, sync it into local state
   useEffect(() => {
     if (selectedDay && selectedDay !== selectedDate) setSelectedDate(selectedDay);
   }, [selectedDay, selectedDate]);
 
   function selectDate(ymd: string) {
     setSelectedDate(ymd);
-    if (onSelectDay) onSelectDay(ymd);
+    onSelectDay?.(ymd);
   }
 
   function openNew(scope: Scope) {
@@ -187,16 +275,28 @@ export default function CalendarBoard({
     setEditing(null);
   }
 
+  function canEditScope(scope: Scope) {
+    return scope === "personal" ? editPersonal : editSchool;
+  }
+
+  function canEditOnSelectedDay() {
+    return canAddOnDay(selectedDate);
+  }
+
   async function save() {
     if (!ownerUserId) return;
 
-    // 権限ガード（UIだけでなく安全側）
-    if (formScope === "personal" && !canEditPersonal) {
-      alert("この生徒の個人予定は編集できません。");
+    if (!canEditOnSelectedDay()) {
+      alert("過去の日付には追加できません。未来の日付を選んでください。");
       return;
     }
-    if (formScope === "school" && !canEditSchool) {
-      alert("塾予定は教師/管理者のみ編集できます。");
+
+    if (!canEditScope(formScope)) {
+      alert(
+        formScope === "personal"
+          ? "個人予定は編集できません。"
+          : "塾予定は編集できません。"
+      );
       return;
     }
 
@@ -209,14 +309,12 @@ export default function CalendarBoard({
       ? new Date(`${day}T23:59:59`).toISOString()
       : new Date(`${day}T${formEndTime}:00`).toISOString();
 
+    const currentUserId =
+      (await supabase.auth.getUser()).data.user?.id ?? ownerUserId;
+
     const payload: Partial<EventRow> = {
       scope: formScope,
-      // personal は ownerUserId（=生徒本人）で固定
-      // school は作成者をowner_idにする（teacher/adminのuid）
-      owner_id:
-        formScope === "personal"
-          ? ownerUserId
-          : (await supabase.auth.getUser()).data.user?.id ?? ownerUserId,
+      owner_id: formScope === "personal" ? ownerUserId : currentUserId,
       title: formTitle.trim() || "(無題)",
       description: formDesc.trim() || null,
       all_day: formAllDay,
@@ -243,80 +341,90 @@ export default function CalendarBoard({
   async function remove(ev: EventRow) {
     if (!confirm(`「${ev.title}」を削除しますか？`)) return;
 
-    // 権限ガード
-    if (ev.scope === "personal" && !canEditPersonal) {
-      alert("この生徒の個人予定は削除できません。");
-      return;
-    }
-    if (ev.scope === "school" && !canEditSchool) {
-      alert("塾予定は教師/管理者のみ削除できます。");
+    if (!canEditScope(ev.scope)) {
+      alert(
+        ev.scope === "personal"
+          ? "個人予定は削除できません。"
+          : "塾予定は削除できません。"
+      );
       return;
     }
 
-    const { error } = await supabase.from("calendar_events").delete().eq("id", ev.id);
+    const { error } = await supabase
+      .from("calendar_events")
+      .delete()
+      .eq("id", ev.id);
     if (error) return alert("削除失敗: " + error.message);
 
     await loadEvents();
   }
 
-  // 42セル(6週)のカレンダー生成
   const cells = useMemo(() => {
     const arr: { dateISO: string; inMonth: boolean }[] = [];
     const base = monthRange.gridStart;
     for (let i = 0; i < 42; i++) {
       const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
       const iso = toISODate(d);
-      arr.push({
-        dateISO: iso,
-        inMonth: d.getMonth() === month.getMonth(),
-      });
+      arr.push({ dateISO: iso, inMonth: d.getMonth() === month.getMonth() });
     }
     return arr;
   }, [monthRange.gridStart, month]);
 
   const selectedEvents = dateToEvents[selectedDate] ?? [];
+  const canCreatePersonal = editPersonal && canEditOnSelectedDay();
+  const canCreateSchool = editSchool && canEditOnSelectedDay();
+
+  const nothingViewable = !viewPersonal && !viewSchool;
 
   return (
-    <div className="space-y-6">
-      {/* Header（矢印を大きく＆中央寄せ） */}
-      <div style={{ backgroundColor: "#ffffff", borderRadius: "1rem" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "24px", padding: "12px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* permissions未設定 / 全false のときに「白紙っぽい」を防ぐ */}
+      {nothingViewable && (
+        <div
+          style={{
+            border: "1px solid #fde68a",
+            background: "#fffbeb",
+            color: "#92400e",
+            borderRadius: 12,
+            padding: 12,
+            fontSize: 12,
+            lineHeight: 1.6,
+          }}
+        >
+          <div style={{ fontWeight: 900, marginBottom: 6 }}>
+            カレンダー権限がありません（permissions が未設定 or 全て false）
+          </div>
+          <div>
+            呼び出し側で <code>permissions</code> を渡してください。
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <div style={{ backgroundColor: "#ffffff", borderRadius: 16 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 24,
+            padding: 12,
+          }}
+        >
           <button
-            style={{
-              width: "48px",
-              height: "40px",
-              borderRadius: "0.75rem",
-              border: "1px solid #e5e7eb",
-              backgroundColor: "#ffffff",
-              fontSize: "24px",
-              color: "#3b82f6",
-              display: "grid",
-              placeItems: "center",
-              cursor: "pointer",
-            }}
+            style={navBtnStyle("#3b82f6")}
             aria-label="前の月"
             onClick={() => setMonth(addMonths(month, -1))}
           >
             ‹
           </button>
 
-          <div style={{ textAlign: "center", fontWeight: 800, color: "#111827", minWidth: "120px" }}>
+          <div style={{ textAlign: "center", fontWeight: 900, color: "#0f172a", minWidth: 120 }}>
             {monthRange.label}
           </div>
 
           <button
-            style={{
-              width: "48px",
-              height: "40px",
-              borderRadius: "0.75rem",
-              border: "1px solid #e5e7eb",
-              backgroundColor: "#ffffff",
-              fontSize: "24px",
-              color: "#3b82f6",
-              display: "grid",
-              placeItems: "center",
-              cursor: "pointer",
-            }}
+            style={navBtnStyle("#3b82f6")}
             aria-label="次の月"
             onClick={() => setMonth(addMonths(month, 1))}
           >
@@ -326,9 +434,9 @@ export default function CalendarBoard({
       </div>
 
       {/* Calendar grid */}
-      <div className="grid grid-cols-7 gap-1 text-center text-xs">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, textAlign: "center" }}>
         {["日", "月", "火", "水", "木", "金", "土"].map((w) => (
-          <div key={w} className="py-2 font-semibold text-gray-600">
+          <div key={w} style={{ padding: "8px 0", fontWeight: 700, color: "#6b7280", fontSize: 12 }}>
             {w}
           </div>
         ))}
@@ -343,42 +451,41 @@ export default function CalendarBoard({
               key={c.dateISO}
               onClick={() => selectDate(c.dateISO)}
               style={{
-                minHeight: "54px",
-                borderRadius: "0.375rem",
+                minHeight: 60,
+                borderRadius: 12,
                 border: "1px solid",
-                borderColor: c.inMonth 
-                  ? (isSelected ? "#3b82f6" : "#e5e7eb")
-                  : "#e5e7eb",
-                padding: "4px 4px",
-                textAlign: "center",
-                backgroundColor: isSelected ? "#eff6ff" : (c.inMonth ? "#ffffff" : "#f9fafb"),
-                color: c.inMonth ? "#000000" : "#9ca3af",
+                borderColor: c.inMonth ? (isSelected ? "#3b82f6" : "#e5e7eb") : "#e5e7eb",
+                padding: 8,
+                backgroundColor: isSelected ? "#eff6ff" : c.inMonth ? "#ffffff" : "#f9fafb",
+                color: c.inMonth ? "#0f172a" : "#94a3b8",
                 cursor: "pointer",
-                fontSize: "12px",
-                fontWeight: 600,
-                boxShadow: isSelected ? "0 0 0 2px rgba(59, 130, 246, 0.4)" : "none",
+                boxShadow: isSelected ? "0 0 0 2px rgba(59,130,246,0.35)" : "none",
               }}
             >
-              <div style={{ fontSize: "12px", fontWeight: 600 }}>{dayNum}</div>
+              <div style={{ fontSize: 12, fontWeight: 900 }}>{dayNum}</div>
+
               {evs.length > 0 && (
-                <div style={{ fontSize: "10px", color: "#6b7280", marginTop: "4px" }}>{evs.length}件</div>
+                <div style={{ fontSize: 10, color: "#64748b", marginTop: 4, fontWeight: 800 }}>
+                  {evs.length}件
+                </div>
               )}
 
-              {/* 予定の簡易表示（最大2件） */}
-              <div style={{ marginTop: "4px", display: "flex", flexDirection: "column", gap: "4px" }}>
+              <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 4 }}>
                 {evs.slice(0, 2).map((e) => (
                   <div
                     key={e.id}
                     style={{
-                      fontSize: "10px",
+                      fontSize: 10,
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
-                      borderRadius: "0.25rem",
-                      padding: "2px 4px",
-                      backgroundColor: e.scope === "school" ? "#dbeafe" : "#000000",
+                      borderRadius: 8,
+                      padding: "3px 6px",
+                      backgroundColor: e.scope === "school" ? "rgba(59,130,246,0.14)" : "#0f172a",
                       color: e.scope === "school" ? "#1d4ed8" : "#ffffff",
+                      fontWeight: 800,
                     }}
+                    title={e.title}
                   >
                     {e.title}
                   </div>
@@ -389,200 +496,298 @@ export default function CalendarBoard({
         })}
       </div>
 
-      {/* Create buttons（カレンダーの下側に移動） */}
-      <div className="flex flex-wrap gap-2 pt-2">
-        <button
-          className={["btn-ghost px-3 py-2 text-sm font-semibold", !canCreatePersonal ? "opacity-50 cursor-not-allowed" : ""].join(" ")}
-          onClick={() => {
-            selectDate(toISODate(new Date()));
-            openNew("personal");
-          }}
-          disabled={!canCreatePersonal}
-        >
-          ＋ 個人予定を追加
-        </button>
-
-        <button
-          className={["btn-ghost px-3 py-2 text-sm font-semibold text-blue-600", !canCreateSchool ? "opacity-50 cursor-not-allowed" : ""].join(" ")}
-          onClick={() => {
-            selectDate(toISODate(new Date()));
-            openNew("school");
-          }}
-          disabled={!canCreateSchool}
-        >
-          ＋ 塾予定を追加（先生）
-        </button>
-
-        {loading && (
-          <span className="text-sm text-gray-500 ml-1">読み込み中...</span>
+      {/* Create buttons */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        {viewPersonal && (
+          <button
+            onClick={() => openNew("personal")}
+            disabled={!canCreatePersonal}
+            title={!canEditOnSelectedDay() ? "過去の日付には追加できません" : undefined}
+            style={{
+              padding: "10px 12px",
+              borderRadius: 12,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+              fontWeight: 800,
+              fontSize: 12,
+              opacity: canCreatePersonal ? 1 : 0.5,
+              cursor: canCreatePersonal ? "pointer" : "not-allowed",
+            }}
+          >
+            ＋ 個人予定を追加
+          </button>
         )}
+
+        {viewSchool && (
+          <button
+            onClick={() => openNew("school")}
+            disabled={!canCreateSchool}
+            title={!canEditOnSelectedDay() ? "過去の日付には追加できません" : undefined}
+            style={{
+              padding: "10px 12px",
+              borderRadius: 12,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+              fontWeight: 900,
+              fontSize: 12,
+              color: "#2563eb",
+              opacity: canCreateSchool ? 1 : 0.5,
+              cursor: canCreateSchool ? "pointer" : "not-allowed",
+            }}
+          >
+            ＋ 塾予定を追加
+          </button>
+        )}
+
+        {loading && <span style={{ fontSize: 12, color: "#6b7280" }}>読み込み中...</span>}
       </div>
 
       {/* Selected day panel */}
-      <div className="bg-white border rounded-2xl p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="font-bold text-blue-700">{selectedDate}</div>
-            <StudySummaryForDate userId={ownerUserId} dateISO={selectedDate} />
-          </div>
-        </div>
+      <div style={{ background: "#ffffff", border: "1px solid #e5e7eb", borderRadius: 16, padding: 16 }}>
+        <div style={{ fontWeight: 900, color: "#1d4ed8", marginBottom: 8 }}>{selectedDate}</div>
+
+        <SafeBoundary
+          fallback={
+            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>
+              （StudySummaryForDate が原因ならここに出ます）
+            </div>
+          }
+        >
+          <StudySummaryForDate userId={ownerUserId} dateISO={selectedDate} />
+        </SafeBoundary>
 
         {selectedEvents.length === 0 ? (
-          <p className="text-sm text-gray-500">予定はありません。</p>
+          <div style={{ marginTop: 10, fontSize: 12, color: "#6b7280" }}>予定はありません。</div>
         ) : (
-          <ul className="space-y-2">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
             {selectedEvents.map((e) => {
-              const editable =
-                (e.scope === "personal" && canEditPersonal) ||
-                (e.scope === "school" && canEditSchool);
-
+              const editable = canEditScope(e.scope);
               return (
-                <li key={e.id} className="border rounded-xl p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                <div key={e.id} style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span
-                          className={[
-                            "text-[10px] px-2 py-1 rounded-full",
-                            e.scope === "school"
-                              ? "bg-gray-100"
-                              : "bg-black text-white",
-                          ].join(" ")}
+                          style={{
+                            fontSize: 10,
+                            padding: "4px 8px",
+                            borderRadius: 999,
+                            background: e.scope === "school" ? "#eff6ff" : "#0f172a",
+                            color: e.scope === "school" ? "#1d4ed8" : "#ffffff",
+                            fontWeight: 900,
+                          }}
                         >
                           {e.scope === "school" ? "塾" : "個人"}
                         </span>
-                        <div className="font-semibold truncate">{e.title}</div>
+
+                        <div
+                          style={{
+                            fontWeight: 900,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {e.title}
+                        </div>
                       </div>
 
-                      <div className="text-xs text-gray-600 mt-1">
-                        {e.all_day
-                          ? "終日"
-                          : `${formatHM(e.start_at)} - ${formatHM(e.end_at)}`}
+                      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+                        {e.all_day ? "終日" : `${formatHM(e.start_at)} - ${formatHM(e.end_at)}`}
                       </div>
 
                       {e.description && (
-                        <div className="text-sm text-gray-700 mt-2 whitespace-pre-wrap">
+                        <div style={{ marginTop: 8, fontSize: 13, color: "#334155", whiteSpace: "pre-wrap" }}>
                           {e.description}
                         </div>
                       )}
                     </div>
 
                     {editable && (
-                      <div className="flex gap-2 shrink-0">
+                      <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                         <button
-                          className="border rounded px-3 py-1 text-sm"
                           onClick={() => openEdit(e)}
+                          style={{
+                            padding: "8px 10px",
+                            borderRadius: 10,
+                            border: "1px solid #e5e7eb",
+                            background: "#ffffff",
+                            fontWeight: 800,
+                            fontSize: 12,
+                            cursor: "pointer",
+                          }}
                         >
                           編集
                         </button>
                         <button
-                          className="border rounded px-3 py-1 text-sm text-red-600"
                           onClick={() => remove(e)}
+                          style={{
+                            padding: "8px 10px",
+                            borderRadius: 10,
+                            border: "1px solid #e5e7eb",
+                            background: "#ffffff",
+                            fontWeight: 900,
+                            fontSize: 12,
+                            color: "#dc2626",
+                            cursor: "pointer",
+                          }}
                         >
                           削除
                         </button>
                       </div>
                     )}
                   </div>
-                </li>
+                </div>
               );
             })}
-          </ul>
+          </div>
         )}
       </div>
 
       {/* Form modal */}
       {openForm && (
-        <div className="fixed inset-0 bg-black/40 grid place-items-center p-4 z-50">
-          <div className="w-full max-w-lg bg-white rounded-2xl border p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="font-bold">
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.4)",
+            display: "grid",
+            placeItems: "center",
+            padding: 16,
+            zIndex: 50,
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 680,
+              background: "#ffffff",
+              borderRadius: 16,
+              border: "1px solid #e5e7eb",
+              padding: 16,
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+              <div style={{ fontWeight: 900 }}>
                 {editing ? "予定を編集" : "予定を追加"}（{selectedDate}）
               </div>
-              <button className="border rounded px-3 py-1" onClick={closeForm}>
+              <button
+                onClick={closeForm}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid #e5e7eb",
+                  background: "#ffffff",
+                  fontWeight: 800,
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
                 閉じる
               </button>
             </div>
 
-            <div className="flex gap-2">
+            <div style={{ display: "flex", gap: 8 }}>
               <button
-                className={`px-3 py-2 rounded border text-sm ${
-                  formScope === "personal" ? "bg-black text-white" : ""
-                }`}
                 onClick={() => setFormScope("personal")}
-                disabled={!canCreatePersonal}
+                disabled={!editPersonal}
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  border: "1px solid #e5e7eb",
+                  background: formScope === "personal" ? "#0f172a" : "#ffffff",
+                  color: formScope === "personal" ? "#ffffff" : "#0f172a",
+                  fontWeight: 900,
+                  opacity: editPersonal ? 1 : 0.5,
+                  cursor: editPersonal ? "pointer" : "not-allowed",
+                }}
               >
                 個人
               </button>
+
               <button
-                className={`px-3 py-2 rounded border text-sm ${
-                  formScope === "school" ? "bg-black text-white" : ""
-                }`}
                 onClick={() => setFormScope("school")}
-                disabled={!canCreateSchool}
+                disabled={!editSchool}
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  border: "1px solid #e5e7eb",
+                  background: formScope === "school" ? "#0f172a" : "#ffffff",
+                  color: formScope === "school" ? "#ffffff" : "#0f172a",
+                  fontWeight: 900,
+                  opacity: editSchool ? 1 : 0.5,
+                  cursor: editSchool ? "pointer" : "not-allowed",
+                }}
               >
-                塾（先生）
+                塾
               </button>
             </div>
 
             <div>
-              <label className="block text-sm">タイトル</label>
+              <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 6 }}>タイトル</div>
               <Input
-                className="mt-1"
                 value={formTitle}
-                onChange={(e) =>
-                  setFormTitle((e.target as HTMLInputElement).value)
-                }
+                onChange={(e) => setFormTitle((e.target as HTMLInputElement).value)}
               />
             </div>
 
             <div>
-              <label className="block text-sm">詳細</label>
+              <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 6 }}>詳細</div>
               <Textarea
-                className="mt-1 h-24"
+                className="h-24"
                 value={formDesc}
-                onChange={(e) =>
-                  setFormDesc((e.target as HTMLTextAreaElement).value)
-                }
+                onChange={(e) => setFormDesc((e.target as HTMLTextAreaElement).value)}
               />
             </div>
 
-            <div className="flex items-center gap-2">
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 800 }}>
               <input
-                id="allDay"
                 type="checkbox"
                 checked={formAllDay}
                 onChange={(e) => setFormAllDay(e.target.checked)}
               />
-              <label htmlFor="allDay" className="text-sm">
-                終日
-              </label>
-            </div>
+              終日
+            </label>
 
             {!formAllDay && (
-              <div className="grid grid-cols-2 gap-2">
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                 <div>
-                  <label className="block text-sm">開始</label>
+                  <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 6 }}>開始</div>
                   <input
                     type="time"
-                    className="mt-1 w-full border rounded px-3 py-2"
                     value={formStartTime}
                     onChange={(e) => setFormStartTime(e.target.value)}
+                    style={{
+                      width: "100%",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 12,
+                      padding: "10px 12px",
+                      fontWeight: 800,
+                    }}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm">終了</label>
+                  <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 6 }}>終了</div>
                   <input
                     type="time"
-                    className="mt-1 w-full border rounded px-3 py-2"
                     value={formEndTime}
                     onChange={(e) => setFormEndTime(e.target.value)}
+                    style={{
+                      width: "100%",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 12,
+                      padding: "10px 12px",
+                      fontWeight: 800,
+                    }}
                   />
                 </div>
               </div>
             )}
 
-            <div className="flex gap-2 justify-end">
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
               <Button onClick={save}>{editing ? "更新" : "追加"}</Button>
             </div>
           </div>

@@ -54,7 +54,7 @@ export default function StudentGrades({ userId, editable = false }: Props) {
     }>).map((r) => {
       const raw = Array.isArray(r.marks) ? (r.marks as unknown[]) : [];
       const marks: Mark[] = raw.map((m) =>
-        m === "O" || m === "X" || m === "D" ? (m as Mark) : ""
+        m === "O" || m === "X" || m === "△" ? (m as Mark) : ""
       );
       return {
         id: r.id,
