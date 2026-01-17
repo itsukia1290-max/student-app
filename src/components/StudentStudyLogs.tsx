@@ -156,7 +156,7 @@ export default function StudentStudyLogs({ userId, editable = true }: Props) {
         <div style={innerCard()}>
           <div style={innerHead()}>
             <div style={innerTitle()}>今日の勉強を記録する</div>
-            <div style={innerSub()}>科目・時間・日付を入力</div>
+            <div style={innerSub()}>科目・時間・日付</div>
           </div>
 
           <form onSubmit={handleSave} style={{ display: "grid", gap: 12 }}>
@@ -289,7 +289,13 @@ function innerCard(): React.CSSProperties {
 }
 
 function innerHead(): React.CSSProperties {
-  return { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", marginBottom: 12 };
+  return {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 10,
+    alignItems: "baseline",
+    marginBottom: 12,
+  };
 }
 
 function innerTitle(): React.CSSProperties {
@@ -377,8 +383,3 @@ function logItem(): React.CSSProperties {
     padding: 10,
   };
 }
-
-/*
-  2カラムは MyPage 側で実装しているが、
-  ここでもやりたいなら、CSSメディアクエリ or window幅監視にするのが正攻法。
-*/

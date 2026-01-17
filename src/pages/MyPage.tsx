@@ -28,6 +28,27 @@ type Profile = {
 
 type Tab = "profile" | "goals" | "grades" | "records";
 
+/** matchMedia ベースの安全なメディアクエリ */
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const onChange = () => setMatches(mql.matches);
+
+    setMatches(mql.matches);
+    if (mql.addEventListener) mql.addEventListener("change", onChange);
+    else mql.addListener(onChange);
+
+    return () => {
+      if (mql.removeEventListener) mql.removeEventListener("change", onChange);
+      else mql.removeListener(onChange);
+    };
+  }, [query]);
+
+  return matches;
+}
+
 export default function MyPage() {
   const { user } = useAuth();
   const { isStaff } = useIsStaff();
@@ -36,6 +57,8 @@ export default function MyPage() {
   const [form, setForm] = useState<Profile | null>(null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+
+  const isWide = useMediaQuery("(min-width: 860px)");
 
   // ===== Load profile =====
   useEffect(() => {
@@ -178,15 +201,12 @@ export default function MyPage() {
     gap: 14,
   };
 
-  // records layout
   const recordsGrid: React.CSSProperties = {
     display: "grid",
     gap: 14,
-    gridTemplateColumns: "1fr",
+    gridTemplateColumns: isWide ? "1.35fr 1fr" : "1fr",
+    alignItems: "start",
   };
-
-  const recordsLeft: React.CSSProperties = { minWidth: 0 };
-  const recordsRight: React.CSSProperties = { minWidth: 0 };
 
   // ================== guard ==================
   if (!user) {
@@ -223,13 +243,7 @@ export default function MyPage() {
               {!form ? (
                 <InfoText>読み込み中...</InfoText>
               ) : (
-                <ProfileForm
-                  form={form}
-                  setForm={setForm}
-                  onSave={onSave}
-                  saving={saving}
-                  msg={msg}
-                />
+                <ProfileForm form={form} setForm={setForm} onSave={onSave} saving={saving} msg={msg} />
               )}
             </Card>
           </div>
@@ -284,13 +298,7 @@ export default function MyPage() {
                 {!form ? (
                   <InfoText>読み込み中...</InfoText>
                 ) : (
-                  <ProfileForm
-                    form={form}
-                    setForm={setForm}
-                    onSave={onSave}
-                    saving={saving}
-                    msg={msg}
-                  />
+                  <ProfileForm form={form} setForm={setForm} onSave={onSave} saving={saving} msg={msg} />
                 )}
               </Card>
 
@@ -332,30 +340,25 @@ export default function MyPage() {
                   padding: "2px 2px 0",
                 }}
               >
-                <div style={{ fontSize: 16, fontWeight: 900, color: "#0f172a" }}>
-                  記録
-                </div>
+                <div style={{ fontSize: 16, fontWeight: 900, color: "#0f172a" }}>記録</div>
                 <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b" }}>
                   勉強時間の記録とカレンダーをまとめて管理
                 </div>
               </div>
 
-              <div
-                style={{
-                  ...recordsGrid,
-                  // 860px以上で2カラム
-                  ...(window.innerWidth >= 860
-                    ? { gridTemplateColumns: "1.35fr 1fr" }
-                    : {}),
-                }}
-              >
-                <div style={recordsLeft}>
-                  <Card title="勉強時間の記録" right={<span style={{ fontSize: 12, fontWeight: 900, color: "#64748b" }}>入力 + 履歴</span>}>
+              <div style={recordsGrid}>
+                {/* LEFT */}
+                <div style={{ minWidth: 0 }}>
+                  <Card
+                    title="勉強時間の記録"
+                    right={<span style={{ fontSize: 12, fontWeight: 900, color: "#64748b" }}>入力 + 履歴</span>}
+                  >
                     <StudentStudyLogs userId={user.id} editable={true} />
                   </Card>
                 </div>
 
-                <div style={recordsRight}>
+                {/* RIGHT */}
+                <div style={{ minWidth: 0 }}>
                   <Card
                     title="カレンダー"
                     right={
@@ -477,6 +480,8 @@ function inputStyle(): React.CSSProperties {
     fontWeight: 800,
     outline: "none",
     backgroundColor: "rgba(255,255,255,0.95)",
+    boxSizing: "border-box",
+    maxWidth: "100%",
   };
 }
 

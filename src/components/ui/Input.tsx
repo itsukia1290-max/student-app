@@ -5,14 +5,32 @@
 
 import React from "react";
 
+const baseStyle: React.CSSProperties = {
+  width: "100%",
+  maxWidth: "100%",
+  boxSizing: "border-box",
+};
+
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  const { className, ...rest } = props;
-  return <input {...rest} className={["form-input", className].filter(Boolean).join(" ")} />;
+  const { className, style, ...rest } = props;
+  return (
+    <input
+      {...rest}
+      style={{ ...baseStyle, ...(style ?? {}) }}
+      className={["form-input", className].filter(Boolean).join(" ")}
+    />
+  );
 }
 
 export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  const { className, ...rest } = props;
-  return <textarea {...rest} className={["form-input", className].filter(Boolean).join(" ")} />;
+  const { className, style, ...rest } = props;
+  return (
+    <textarea
+      {...rest}
+      style={{ ...baseStyle, ...(style ?? {}) }}
+      className={["form-input", className].filter(Boolean).join(" ")}
+    />
+  );
 }
 
 export default Input;
