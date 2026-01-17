@@ -19,17 +19,10 @@ type Props = {
   editable?: boolean; // 生徒: false / 教師: true
 };
 
-/*
- * src/components/StudentGrades.tsx
- * Responsibility: 生徒の問題集・成績表示コンポーネント
- * - `userId` の問題集スコアや成績を一覧表示・編集する
- */
-
 export default function StudentGrades({ userId, editable = false }: Props) {
   const [rows, setRows] = useState<GradeRow[]>([]);
   const [savingIds, setSavingIds] = useState<Record<string, boolean>>({});
 
-  // ---- 読み込み ----
   async function load() {
     if (!userId) return;
     const { data, error } = await supabase
@@ -43,7 +36,7 @@ export default function StudentGrades({ userId, editable = false }: Props) {
       return;
     }
 
-    const rows: GradeRow[] = ((data ?? []) as unknown as Array<{
+    const mapped: GradeRow[] = ((data ?? []) as unknown as Array<{
       id: string;
       user_id: string;
       title: string;
@@ -53,9 +46,7 @@ export default function StudentGrades({ userId, editable = false }: Props) {
       updated_at: string;
     }>).map((r) => {
       const raw = Array.isArray(r.marks) ? (r.marks as unknown[]) : [];
-      const marks: Mark[] = raw.map((m) =>
-        m === "O" || m === "X" || m === "△" ? (m as Mark) : ""
-      );
+      const marks: Mark[] = raw.map((m) => (m === "O" || m === "X" || m === "D" ? (m as Mark) : ""));
       return {
         id: r.id,
         user_id: r.user_id,
@@ -67,7 +58,7 @@ export default function StudentGrades({ userId, editable = false }: Props) {
       };
     });
 
-    setRows(rows);
+    setRows(mapped);
   }
 
   useEffect(() => {
@@ -75,7 +66,6 @@ export default function StudentGrades({ userId, editable = false }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // ---- 追加（教師のみ）----
   async function addWorkbook() {
     if (!editable) return;
     const title = window.prompt("問題集の名前は？（例：英文法Vintage）");
@@ -103,47 +93,35 @@ export default function StudentGrades({ userId, editable = false }: Props) {
     }
 
     const row = data as unknown as GradeRow;
-    // 念のためマークの整形
-    row.marks = (Array.isArray(row.marks) ? row.marks : []).map((m) =>
-      m === "O" || m === "X" || m === "D" ? (m as Mark) : ""
-    );
+    row.marks = (Array.isArray(row.marks) ? row.marks : []).map((m) => (m === "O" || m === "X" || m === "D" ? (m as Mark) : ""));
     setRows((prev) => [...prev, row]);
   }
 
-  // ---- ローカル更新 & 保存 ----
   function setMarkLocal(rowId: string, idx: number, next: Mark) {
     setRows((prev) =>
-      prev.map((r) =>
-        r.id === rowId
-          ? { ...r, marks: r.marks.map((m, i) => (i === idx ? next : m)) }
-          : r
-      )
+      prev.map((r) => (r.id === rowId ? { ...r, marks: r.marks.map((m, i) => (i === idx ? next : m)) } : r))
     );
   }
 
   async function saveRow(row: GradeRow) {
     if (!editable) return;
     setSavingIds((s) => ({ ...s, [row.id]: true }));
-    const { error } = await supabase
-      .from("student_grades")
-      .update({ marks: row.marks })
-      .eq("id", row.id);
+
+    const { error } = await supabase.from("student_grades").update({ marks: row.marks }).eq("id", row.id);
+
     setSavingIds((s) => {
-      const rest = Object.fromEntries(
-        Object.entries(s).filter(([key]) => key !== row.id)
-      );
+      const rest = Object.fromEntries(Object.entries(s).filter(([key]) => key !== row.id));
       return rest;
     });
+
     if (error) alert("保存失敗: " + error.message);
   }
 
   async function deleteRow(row: GradeRow) {
     if (!editable) return;
     if (!confirm(`「${row.title}」を削除します。よろしいですか？`)) return;
-    const { error } = await supabase
-      .from("student_grades")
-      .delete()
-      .eq("id", row.id);
+
+    const { error } = await supabase.from("student_grades").delete().eq("id", row.id);
     if (error) {
       alert("削除失敗: " + error.message);
       return;
@@ -175,75 +153,69 @@ export default function StudentGrades({ userId, editable = false }: Props) {
   const empty = useMemo(() => rows.length === 0, [rows]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold">問題集の成績</h3>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <div style={{ fontSize: 14, fontWeight: 900, color: "#0f172a" }}>問題集の成績</div>
         {editable && (
-          <button onClick={addWorkbook} className="text-sm border rounded px-2 py-1">
+          <button onClick={addWorkbook} style={ghostBtn()}>
             ＋ 追加（教師）
           </button>
         )}
       </div>
 
       {empty ? (
-        <p className="text-sm text-gray-500">登録された問題集はありません。</p>
+        <div style={muted()}>登録された問題集はありません。</div>
       ) : (
-        <div className="space-y-6">
+        <div style={{ display: "grid", gap: 12 }}>
           {rows.map((row) => {
             const s = summarize(row.marks);
             const saving = !!savingIds[row.id];
+
             return (
-              <div key={row.id} className="border rounded-xl bg-white p-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium">{row.title}</div>
-                    <div className="text-xs text-gray-500">
+              <div key={row.id} style={panel()}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 900, color: "#0f172a", fontSize: 14 }}>{row.title}</div>
+                    <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b", marginTop: 4 }}>
                       {row.problem_count}問 / O:{s.o} X:{s.x} △:{s.d} 未:{s.blank}
                     </div>
                   </div>
+
                   {editable && (
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => saveRow(row)}
-                        disabled={saving}
-                        className="text-sm border rounded px-2 py-1"
-                      >
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => saveRow(row)} disabled={saving} style={ghostBtn()}>
                         {saving ? "保存中..." : "保存"}
                       </button>
-                      <button
-                        onClick={() => deleteRow(row)}
-                        className="text-sm border rounded px-2 py-1 text-red-600"
-                      >
+                      <button onClick={() => deleteRow(row)} style={dangerBtn()}>
                         削除
                       </button>
                     </div>
                   )}
                 </div>
 
-                {/* マトリクス */}
-                <div className="mt-3 grid grid-cols-8 gap-2">
-                  {row.marks.map((m, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      disabled={!editable}
-                      onClick={() =>
-                        editable && setMarkLocal(row.id, i, cycleMark(m))
-                      }
-                      className={`h-9 rounded border flex items-center justify-center ${
-                        m === "O"
-                          ? "bg-green-600 text-white"
-                          : m === "X"
-                          ? "bg-red-600 text-white"
-                          : m === "D"
-                          ? "bg-yellow-500 text-white"
-                          : "bg-white"
-                      } ${editable ? "cursor-pointer" : "cursor-default"}`}
-                      title={`#${i + 1}`}
-                    >
-                      {m || `${i + 1}`}
-                    </button>
-                  ))}
+                <div
+                  style={{
+                    marginTop: 12,
+                    display: "grid",
+                    gridTemplateColumns: "repeat(8, minmax(0, 1fr))",
+                    gap: 8,
+                  }}
+                >
+                  {row.marks.map((m, i) => {
+                    const clickable = editable;
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        disabled={!editable}
+                        onClick={() => clickable && setMarkLocal(row.id, i, cycleMark(m))}
+                        style={markTile(m, clickable)}
+                        title={`#${i + 1}`}
+                      >
+                        {m || `${i + 1}`}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -252,4 +224,56 @@ export default function StudentGrades({ userId, editable = false }: Props) {
       )}
     </div>
   );
+}
+
+function muted(): React.CSSProperties {
+  return { fontSize: 13, fontWeight: 800, color: "#64748b" };
+}
+
+function panel(): React.CSSProperties {
+  return {
+    borderRadius: 18,
+    border: "1px solid rgba(148,163,184,0.18)",
+    background: "rgba(255,255,255,0.90)",
+    padding: 14,
+  };
+}
+
+function ghostBtn(): React.CSSProperties {
+  return {
+    border: "1px solid rgba(148,163,184,0.22)",
+    background: "rgba(255,255,255,0.9)",
+    borderRadius: 9999,
+    padding: "8px 12px",
+    fontWeight: 900,
+    fontSize: 12,
+    cursor: "pointer",
+    color: "#0f172a",
+  };
+}
+
+function dangerBtn(): React.CSSProperties {
+  return {
+    ...ghostBtn(),
+    color: "#dc2626",
+    borderColor: "rgba(220,38,38,0.30)",
+    background: "rgba(254,242,242,0.90)",
+  };
+}
+
+function markTile(m: "O" | "X" | "D" | "", clickable: boolean): React.CSSProperties {
+  const base: React.CSSProperties = {
+    height: 40,
+    borderRadius: 14,
+    border: "1px solid rgba(148,163,184,0.22)",
+    background: "rgba(255,255,255,0.95)",
+    fontWeight: 900,
+    cursor: clickable ? "pointer" : "default",
+    userSelect: "none",
+  };
+
+  if (m === "O") return { ...base, background: "rgba(34,197,94,0.18)", color: "#166534", borderColor: "rgba(34,197,94,0.28)" };
+  if (m === "X") return { ...base, background: "rgba(239,68,68,0.14)", color: "#991b1b", borderColor: "rgba(239,68,68,0.24)" };
+  if (m === "D") return { ...base, background: "rgba(245,158,11,0.16)", color: "#92400e", borderColor: "rgba(245,158,11,0.28)" };
+  return base;
 }

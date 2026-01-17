@@ -1,8 +1,6 @@
 // src/components/StudentGoals.tsx
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-import Button from "./ui/Button";
-import Input, { Textarea } from "./ui/Input";
 
 type Props = {
   userId: string;
@@ -22,12 +20,9 @@ type Goal = {
   updated_at: string;
 };
 
-// ------- 期間キーの計算系ユーティリティ -------
-
-// ISO 週番号をざっくり出す関数（よくある実装）
+// ISO 週番号（簡易）
 function getISOWeek(date: Date): number {
   const tmp = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  // 木曜日の週を基準にする
   const dayNum = tmp.getUTCDay() || 7;
   tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
@@ -38,41 +33,30 @@ function getISOWeek(date: Date): number {
 function getCurrentWeekKey(now = new Date()): string {
   const year = now.getFullYear();
   const week = getISOWeek(now);
-  return `${year}-W${String(week).padStart(2, "0")}`; // 例: 2025-W03
+  return `${year}-W${String(week).padStart(2, "0")}`;
 }
 
 function getCurrentMonthKey(now = new Date()): string {
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
-  return `${year}-${String(month).padStart(2, "0")}`; // 例: 2025-03
+  return `${year}-${String(month).padStart(2, "0")}`;
 }
 
 function labelOfPeriod(type: PeriodType, key: string): string {
   if (type === "week") {
-    // "2025-W03" → "2025年第3週"
     const [y, w] = key.split("-W");
     return `${y}年第${parseInt(w ?? "0", 10)}週`;
   } else {
-    // "2025-03" → "2025年3月"
     const [y, m] = key.split("-");
     return `${y}年${parseInt(m ?? "0", 10)}月`;
   }
 }
 
-// ----------------------------------------------------
-
-/*
- * src/components/StudentGoals.tsx
- * Responsibility: 週刊/月間目標の表示と編集を行うコンポーネント
- * - `userId` の現在期間と過去履歴を取得し、upsert による保存を行う
- */
-
 export default function StudentGoals({ userId, editable }: Props) {
   const [periodType, setPeriodType] = useState<PeriodType>("week");
 
   const currentKey = useMemo(
-    () =>
-      periodType === "week" ? getCurrentWeekKey(new Date()) : getCurrentMonthKey(new Date()),
+    () => (periodType === "week" ? getCurrentWeekKey(new Date()) : getCurrentMonthKey(new Date())),
     [periodType]
   );
 
@@ -85,7 +69,6 @@ export default function StudentGoals({ userId, editable }: Props) {
   const [title, setTitle] = useState("");
   const [detail, setDetail] = useState("");
 
-  // 期間切り替え・ユーザー変更時にロード
   useEffect(() => {
     let cancelled = false;
 
@@ -93,7 +76,6 @@ export default function StudentGoals({ userId, editable }: Props) {
       setLoading(true);
       setMsg(null);
 
-      // 1. 現在期間の目標 1件
       const { data: cur, error: errCur } = await supabase
         .from("student_goals")
         .select("*")
@@ -102,12 +84,12 @@ export default function StudentGoals({ userId, editable }: Props) {
         .eq("period_key", currentKey)
         .maybeSingle();
 
-      if (errCur) {
-        console.error("❌ load current goal:", errCur.message);
-        if (!cancelled) setMsg("目標の読み込みに失敗しました: " + errCur.message);
-      }
-
       if (!cancelled) {
+        if (errCur) {
+          console.error("❌ load current goal:", errCur.message);
+          setMsg("目標の読み込みに失敗しました: " + errCur.message);
+        }
+
         if (cur) {
           const g = cur as Goal;
           setCurrentGoal(g);
@@ -120,7 +102,6 @@ export default function StudentGoals({ userId, editable }: Props) {
         }
       }
 
-      // 2. 履歴（同じ period_type の過去 10 件ぐらい）
       const { data: hist, error: errHist } = await supabase
         .from("student_goals")
         .select("*")
@@ -130,19 +111,14 @@ export default function StudentGoals({ userId, editable }: Props) {
         .order("period_key", { ascending: false })
         .limit(10);
 
-      if (errHist) {
-        console.error("❌ load history goals:", errHist.message);
-      }
-
       if (!cancelled) {
+        if (errHist) console.error("❌ load history goals:", errHist.message);
         setHistory((hist ?? []) as Goal[]);
+        setLoading(false);
       }
-
-      setLoading(false);
     }
 
     load();
-
     return () => {
       cancelled = true;
     };
@@ -157,17 +133,16 @@ export default function StudentGoals({ userId, editable }: Props) {
 
     const nowIso = new Date().toISOString();
 
-    // 「同じ user_id + period_type + period_key は1件だけ」の upsert
     const { data, error } = await supabase
       .from("student_goals")
       .upsert(
         {
-          id: currentGoal?.id, // 既存があればそれを更新
+          id: currentGoal?.id,
           user_id: userId,
           period_type: periodType,
           period_key: currentKey,
-          title: title || null,
-          detail: detail || null,
+          title: title.trim() || null,
+          detail: detail.trim() || null,
           created_at: currentGoal?.created_at ?? nowIso,
           updated_at: nowIso,
         },
@@ -180,142 +155,211 @@ export default function StudentGoals({ userId, editable }: Props) {
       console.error("❌ save goal:", error.message);
       setMsg("保存に失敗しました: " + error.message);
     } else {
-      const g = data as Goal;
-      setCurrentGoal(g);
+      setCurrentGoal((data as Goal) ?? null);
       setMsg("保存しました。");
     }
 
     setSaving(false);
   }
 
-  function renderCurrentForm() {
-    const label = labelOfPeriod(periodType, currentKey);
-
-    if (!editable && !currentGoal) {
-      // 生徒側など、閲覧専用で未設定のとき
-      return (
-        <p className="text-sm text-gray-500">
-          {label} の目標はまだ登録されていません。
-        </p>
-      );
-    }
-
-    return (
-      <form onSubmit={onSave} className="space-y-3">
-        <p className="text-sm text-gray-600">
-          現在の期間: <span className="font-semibold">{label}</span>
-        </p>
-        {editable && !currentGoal && (
-          <p className="text-xs text-orange-600">
-            まだこの期間の目標が未設定です。目標を入力して「保存」すると作成されます。
-          </p>
-        )}
-        {!editable && currentGoal && (
-          <p className="text-xs text-gray-500">
-            教師・生徒の両方が編集できる目標です（現在は閲覧のみ）。
-          </p>
-        )}
-
-        <div>
-          <label className="block text-sm mb-1">一言目標（例：英単語を毎日100語）</label>
-          <Input
-            className="mt-1 w-full"
-            value={title}
-            onChange={(e) => setTitle((e.target as HTMLInputElement).value)}
-            disabled={!editable}
-          />
-        </div>
-        <div>
-          <label className="block text-sm mb-1">詳細・振り返りメモ</label>
-          <Textarea
-            className="mt-1 w-full min-h-20"
-            value={detail}
-            onChange={(e) => setDetail((e.target as HTMLTextAreaElement).value)}
-            disabled={!editable}
-          />
-        </div>
-
-        {editable && (
-          <Button type="submit" disabled={saving}>{saving ? "保存中..." : "保存"}</Button>
-        )}
-        {msg && <p className="text-xs text-gray-600 mt-1">{msg}</p>}
-      </form>
-    );
-  }
+  const label = labelOfPeriod(periodType, currentKey);
 
   return (
-    <div className="space-y-6">
-      {/* 期間切り替えボタン */}
-      <div className="flex gap-2 mb-2">
-        <button
-          type="button"
-          onClick={() => setPeriodType("week")}
-          className={`px-3 py-1 rounded ${
-            periodType === "week" ? "bg-black text-white" : "border"
-          }`}
-        >
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* period switch */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Pill active={periodType === "week"} onClick={() => setPeriodType("week")}>
           週目標
-        </button>
-        <button
-          type="button"
-          onClick={() => setPeriodType("month")}
-          className={`px-3 py-1 rounded ${
-            periodType === "month" ? "bg-black text-white" : "border"
-          }`}
-        >
+        </Pill>
+        <Pill active={periodType === "month"} onClick={() => setPeriodType("month")}>
           月目標
-        </button>
+        </Pill>
       </div>
 
-      {/* 現在の期間の目標 */}
-      <section>
-        <h3 className="font-semibold mb-2">現在の目標</h3>
-        {loading ? (
-          <p className="text-sm text-gray-500">読み込み中...</p>
-        ) : (
-          renderCurrentForm()
-        )}
-      </section>
+      {/* current */}
+      <div style={panel()}>
+        <div style={panelHead()}>
+          <div style={panelTitle()}>現在の目標</div>
+          <div style={panelSub()}>現在の期間: {label}</div>
+        </div>
 
-      {/* 過去の目標一覧 */}
-      <section>
-        <h3 className="font-semibold mb-2">過去の目標（直近10件）</h3>
         {loading ? (
-          <p className="text-sm text-gray-500">読み込み中...</p>
-        ) : history.length === 0 ? (
-          <p className="text-sm text-gray-500">過去の目標はまだありません。</p>
+          <div style={muted()}>読み込み中...</div>
         ) : (
-          <ul className="space-y-2 text-sm">
-            {history.map((g) => (
-              <li
-                key={g.id}
-                className="border rounded-lg bg-white p-3 flex flex-col gap-1"
-              >
-                <div className="flex justify-between items-center">
-                  <span className="font-semibold">
-                    {labelOfPeriod(g.period_type, g.period_key)}
-                  </span>
-                  <span className="text-[10px] text-gray-400">
-                    更新: {new Date(g.updated_at).toLocaleString()}
-                  </span>
-                </div>
-                {g.title && (
-                  <p className="text-gray-900">
-                    <span className="font-medium">目標：</span>
-                    {g.title}
-                  </p>
-                )}
-                {g.detail && (
-                  <p className="text-gray-700 whitespace-pre-wrap">
-                    <span className="font-medium">メモ：</span>
-                    {g.detail}
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
+          <form onSubmit={onSave} style={{ display: "grid", gap: 10 }}>
+            {editable && !currentGoal && (
+              <div style={warn()}>
+                まだこの期間の目標が未設定です。入力して「保存」すると作成されます。
+              </div>
+            )}
+
+            <div>
+              <div style={fieldLabel()}>一言目標</div>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                disabled={!editable}
+                placeholder="例：英単語を毎日100語"
+                style={input()}
+              />
+            </div>
+
+            <div>
+              <div style={fieldLabel()}>詳細・振り返りメモ</div>
+              <textarea
+                value={detail}
+                onChange={(e) => setDetail(e.target.value)}
+                disabled={!editable}
+                placeholder="例：今週は○○ができた / 来週は△△を改善"
+                style={textarea()}
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, alignItems: "center" }}>
+              {msg && <div style={{ ...muted(), marginRight: "auto" }}>{msg}</div>}
+              {editable && (
+                <button type="submit" disabled={saving} style={primaryBtn()}>
+                  {saving ? "保存中..." : "保存"}
+                </button>
+              )}
+            </div>
+          </form>
         )}
-      </section>
+      </div>
+
+      {/* history */}
+      <div style={panel()}>
+        <div style={panelHead()}>
+          <div style={panelTitle()}>過去の目標（直近10件）</div>
+          <div style={panelSub()}>期間タイプ: {periodType === "week" ? "週" : "月"}</div>
+        </div>
+
+        {loading ? (
+          <div style={muted()}>読み込み中...</div>
+        ) : history.length === 0 ? (
+          <div style={muted()}>過去の目標はまだありません。</div>
+        ) : (
+          <div style={{ display: "grid", gap: 10 }}>
+            {history.map((g) => (
+              <div key={g.id} style={item()}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <div style={{ fontWeight: 900, color: "#0f172a" }}>
+                    {labelOfPeriod(g.period_type, g.period_key)}
+                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 900, color: "#94a3b8" }}>
+                    更新: {new Date(g.updated_at).toLocaleString()}
+                  </div>
+                </div>
+
+                {g.title && (
+                  <div style={{ marginTop: 6, fontWeight: 800, color: "#0f172a" }}>
+                    <span style={{ color: "#1d4ed8" }}>目標：</span>
+                    {g.title}
+                  </div>
+                )}
+
+                {g.detail && (
+                  <div style={{ marginTop: 6, fontSize: 13, fontWeight: 800, color: "#334155", whiteSpace: "pre-wrap" }}>
+                    <span style={{ color: "#1d4ed8" }}>メモ：</span>
+                    {g.detail}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
+}
+
+function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        border: "1px solid rgba(148,163,184,0.22)",
+        background: active ? "rgba(59,130,246,0.14)" : "rgba(255,255,255,0.85)",
+        color: active ? "#1d4ed8" : "#0f172a",
+        borderRadius: 9999,
+        padding: "10px 14px",
+        fontWeight: 900,
+        fontSize: 13,
+        cursor: "pointer",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function panel(): React.CSSProperties {
+  return {
+    borderRadius: 18,
+    border: "1px solid rgba(148, 163, 184, 0.18)",
+    background: "rgba(255,255,255,0.88)",
+    padding: 14,
+  };
+}
+function panelHead(): React.CSSProperties {
+  return { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", marginBottom: 10 };
+}
+function panelTitle(): React.CSSProperties {
+  return { fontSize: 14, fontWeight: 900, color: "#0f172a" };
+}
+function panelSub(): React.CSSProperties {
+  return { fontSize: 12, fontWeight: 900, color: "#64748b" };
+}
+function muted(): React.CSSProperties {
+  return { fontSize: 13, fontWeight: 800, color: "#64748b" };
+}
+function warn(): React.CSSProperties {
+  return {
+    border: "1px solid rgba(245,158,11,0.35)",
+    background: "rgba(255,251,235,0.85)",
+    color: "#92400e",
+    borderRadius: 14,
+    padding: 10,
+    fontWeight: 900,
+    fontSize: 12,
+  };
+}
+function fieldLabel(): React.CSSProperties {
+  return { fontSize: 12, fontWeight: 900, color: "#0f172a", marginBottom: 6 };
+}
+function input(): React.CSSProperties {
+  return {
+    width: "100%",
+    border: "1px solid rgba(148,163,184,0.30)",
+    borderRadius: 14,
+    padding: "12px 14px",
+    fontSize: 14,
+    fontWeight: 800,
+    outline: "none",
+    background: "rgba(255,255,255,0.95)",
+  };
+}
+function textarea(): React.CSSProperties {
+  return { ...input(), minHeight: 110, resize: "vertical" };
+}
+function primaryBtn(): React.CSSProperties {
+  return {
+    border: "none",
+    backgroundColor: "#60a5fa",
+    color: "#ffffff",
+    borderRadius: 9999,
+    padding: "10px 16px",
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow: "0 10px 20px rgba(37, 99, 235, 0.18)",
+  };
+}
+function item(): React.CSSProperties {
+  return {
+    borderRadius: 16,
+    border: "1px solid rgba(148,163,184,0.18)",
+    background: "linear-gradient(180deg, rgba(239,246,255,0.6), rgba(255,255,255,0.95))",
+    padding: 12,
+  };
 }
