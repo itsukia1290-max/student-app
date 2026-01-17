@@ -5,12 +5,10 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-import Button from "./ui/Button";
-import Input, { Textarea } from "./ui/Input";
 
 type Props = {
   userId: string;
-  editable?: boolean; // ★ 追加（デフォルト true）
+  editable?: boolean;
 };
 
 type StudyLog = {
@@ -28,28 +26,20 @@ type DayGroup = {
   logs: StudyLog[];
 };
 
-export default function StudentStudyLogs({
-  userId,
-  editable = true,
-}: Props) {
+export default function StudentStudyLogs({ userId, editable = true }: Props) {
   const [logs, setLogs] = useState<StudyLog[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 入力フォーム（editable=true のときだけ使う）
+  // 入力フォーム
   const [subject, setSubject] = useState("");
-  const [hours, setHours] = useState<string>("1"); // 表示は「時間」、保存は「分」
-  const [studiedAt, setStudiedAt] = useState<string>(() => {
-    const d = new Date();
-    return d.toISOString().slice(0, 10); // YYYY-MM-DD
-  });
+  const [hours, setHours] = useState<string>("1");
+  const [studiedAt, setStudiedAt] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [memo, setMemo] = useState("");
 
-  // どの日付の内訳を開いているか
   const [openDates, setOpenDates] = useState<Record<string, boolean>>({});
 
-  // 勉強記録の読み込み
   useEffect(() => {
     if (!userId) return;
 
@@ -65,15 +55,15 @@ export default function StudentStudyLogs({
         .order("studied_at", { ascending: false })
         .order("created_at", { ascending: false });
 
-      if (!cancelled) {
-        if (error) {
-          console.error("❌ load study_logs:", error.message);
-          setError("勉強記録の読み込みに失敗しました。");
-        } else {
-          setLogs((data ?? []) as StudyLog[]);
-        }
-        setLoading(false);
+      if (cancelled) return;
+
+      if (error) {
+        console.error("❌ load study_logs:", error.message);
+        setError("勉強記録の読み込みに失敗しました。");
+      } else {
+        setLogs((data ?? []) as StudyLog[]);
       }
+      setLoading(false);
     })();
 
     return () => {
@@ -81,44 +71,31 @@ export default function StudentStudyLogs({
     };
   }, [userId]);
 
-  // 日付ごとにログをまとめて、合計時間を計算
   const groupedByDay: DayGroup[] = useMemo(() => {
     const map: Record<string, StudyLog[]> = {};
-
     for (const log of logs) {
-      if (!map[log.studied_at]) {
-        map[log.studied_at] = [];
-      }
-      map[log.studied_at].push(log);
+      (map[log.studied_at] ??= []).push(log);
     }
 
     const groups: DayGroup[] = Object.entries(map).map(([date, items]) => {
-      const totalMinutes = items.reduce(
-        (sum, l) => sum + l.minutes,
-        0
-      );
+      const totalMinutes = items.reduce((sum, l) => sum + l.minutes, 0);
       const sorted = [...items].sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() -
-          new Date(a.created_at).getTime()
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
       return { date, totalMinutes, logs: sorted };
     });
 
-    groups.sort((a, b) => (a.date < b.date ? 1 : -1)); // 新しい日付が上
+    groups.sort((a, b) => (a.date < b.date ? 1 : -1));
     return groups;
   }, [logs]);
 
   function toggleDate(date: string) {
-    setOpenDates((prev) => ({
-      ...prev,
-      [date]: !prev[date],
-    }));
+    setOpenDates((prev) => ({ ...prev, [date]: !prev[date] }));
   }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    if (!editable) return; // 念のため
+    if (!editable) return;
 
     setError(null);
 
@@ -157,176 +134,251 @@ export default function StudentStudyLogs({
     if (error) {
       console.error("❌ insert study_logs:", error.message);
       setError("勉強記録の保存に失敗しました。");
-    } else if (data) {
+      setSaving(false);
+      return;
+    }
+
+    if (data) {
       setLogs((prev) => [data as StudyLog, ...prev]);
       setSubject("");
       setHours("1");
       setMemo("");
-
-      // 新しく記録した日の内訳を自動で開く
-      setOpenDates((prev) => ({
-        ...prev,
-        [(data as StudyLog).studied_at]: true,
-      }));
+      setOpenDates((prev) => ({ ...prev, [(data as StudyLog).studied_at]: true }));
     }
 
     setSaving(false);
   }
 
   return (
-    <div className="space-y-6">
-      {/* 入力フォーム（生徒用 only） */}
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* 入力 */}
       {editable && (
-        <form
-          onSubmit={handleSave}
-          className="space-y-4 rounded-2xl border bg-white p-4"
-        >
-          <h3 className="text-lg font-bold">今日の勉強を記録する</h3>
+        <div style={innerCard()}>
+          <div style={innerHead()}>
+            <div style={innerTitle()}>今日の勉強を記録する</div>
+            <div style={innerSub()}>科目・時間・日付を入力</div>
+          </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="md:col-span-1">
-              <label className="block text-sm">科目</label>
-              <Input
-                className="mt-1"
-                placeholder="例: 数学、英語、物理 など"
-                value={subject}
-                onChange={(e) =>
-                  setSubject((e.target as HTMLInputElement).value)
-                }
-              />
+          <form onSubmit={handleSave} style={{ display: "grid", gap: 12 }}>
+            <div style={grid3()}>
+              <div style={{ minWidth: 0 }}>
+                <div style={label()}>科目</div>
+                <input
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder="例: 数学、英語、物理 など"
+                  style={input()}
+                />
+              </div>
+
+              <div style={{ minWidth: 0 }}>
+                <div style={label()}>時間（時間単位）</div>
+                <input
+                  type="number"
+                  min={0.25}
+                  step={0.25}
+                  value={hours}
+                  onChange={(e) => setHours(e.target.value)}
+                  style={input()}
+                />
+              </div>
+
+              <div style={{ minWidth: 0 }}>
+                <div style={label()}>日付</div>
+                <input
+                  type="date"
+                  value={studiedAt}
+                  onChange={(e) => setStudiedAt(e.target.value)}
+                  style={input()}
+                />
+              </div>
             </div>
 
             <div>
-              <label className="block text-sm">時間（時間単位）</label>
-              <Input
-                type="number"
-                min={0.25}
-                step={0.25}
-                className="mt-1"
-                value={hours}
-                onChange={(e) =>
-                  setHours((e.target as HTMLInputElement).value)
-                }
+              <div style={label()}>メモ（任意）</div>
+              <textarea
+                value={memo}
+                onChange={(e) => setMemo(e.target.value)}
+                placeholder="例: 過去問○年分、ワークP.50〜60 など"
+                style={{ ...input(), minHeight: 90, resize: "vertical" }}
               />
             </div>
 
-            <div>
-              <label className="block text-sm">日付</label>
-              <Input
-                type="date"
-                className="mt-1"
-                value={studiedAt}
-                onChange={(e) =>
-                  setStudiedAt((e.target as HTMLInputElement).value)
-                }
-              />
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button type="submit" disabled={saving} style={primaryBtn(saving)}>
+                {saving ? "保存中..." : "記録する"}
+              </button>
+              {error && <div style={{ fontSize: 12, fontWeight: 900, color: "#dc2626" }}>{error}</div>}
             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm">メモ（任意）</label>
-            <Textarea
-              className="mt-1 h-20"
-              placeholder="どんな勉強をしたか簡単にメモ（例: 過去問○年分、ワークP.50〜60 など）"
-              value={memo}
-              onChange={(e) =>
-                setMemo((e.target as HTMLTextAreaElement).value)
-              }
-            />
-          </div>
-
-          <div className="flex items-center gap-3">
-            <Button type="submit" disabled={saving}>
-              {saving ? "保存中..." : "記録する"}
-            </Button>
-            {error && <p className="text-sm text-red-600">{error}</p>}
-          </div>
-        </form>
+          </form>
+        </div>
       )}
 
-      {/* 日付ごとの合計＋内訳（生徒・先生共通） */}
-      <div className="rounded-2xl border bg-white p-4">
-        <h3 className="text-lg font-bold mb-3">
-          {editable ? "過去の勉強記録" : "勉強記録（閲覧）"}
-        </h3>
+      {/* 履歴 */}
+      <div style={innerCard()}>
+        <div style={innerHead()}>
+          <div style={innerTitle()}>{editable ? "過去の勉強記録" : "勉強記録（閲覧）"}</div>
+          <div style={innerSub()}>日付をクリックで内訳</div>
+        </div>
 
         {loading ? (
-          <p className="text-sm text-gray-500">読み込み中...</p>
+          <div style={muted()}>読み込み中...</div>
         ) : groupedByDay.length === 0 ? (
-          <p className="text-sm text-gray-500">
-            まだ勉強記録がありません。
-          </p>
+          <div style={muted()}>まだ勉強記録がありません。</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b">
-                  <th className="py-1 px-2 text-left">日付</th>
-                  <th className="py-1 px-2 text-right">合計時間</th>
-                  <th className="py-1 px-2 text-left">内訳</th>
-                </tr>
-              </thead>
-              <tbody>
-                {groupedByDay.map((group) => {
-                  const isOpen = openDates[group.date] ?? false;
-                  return (
-                    <Fragment key={group.date}>
-                      <tr
-                        className="border-b cursor-pointer hover:bg-gray-50"
-                        onClick={() => toggleDate(group.date)}
-                      >
-                        <td className="py-2 px-2">{group.date}</td>
-                        <td className="py-2 px-2 text-right">
-                          {(group.totalMinutes / 60).toFixed(2)} h
-                        </td>
-                        <td className="py-2 px-2">
-                          <span className="text-xs text-gray-500">
-                            {isOpen
-                              ? "クリックして閉じる"
-                              : "クリックして内訳を表示"}
-                          </span>
-                        </td>
-                      </tr>
+          <div style={{ display: "grid", gap: 10 }}>
+            {groupedByDay.map((group) => {
+              const isOpen = openDates[group.date] ?? false;
+              return (
+                <Fragment key={group.date}>
+                  <button type="button" onClick={() => toggleDate(group.date)} style={dayRow(isOpen)}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
+                      <div style={{ fontWeight: 900, color: "#0f172a" }}>{group.date}</div>
+                      <div style={{ fontWeight: 900, color: "#1d4ed8" }}>
+                        {(group.totalMinutes / 60).toFixed(2)} h
+                      </div>
+                    </div>
+                    <div style={{ marginTop: 4, ...muted() }}>
+                      {isOpen ? "クリックして閉じる" : "クリックして内訳を表示"}
+                    </div>
+                  </button>
 
-                      {isOpen && (
-                        <tr className="border-b bg-gray-50/50">
-                          <td className="py-2 px-2" colSpan={3}>
-                            <div className="text-xs text-gray-700">
-                              <div className="font-semibold mb-1">
-                                内訳
-                              </div>
-                              <div className="space-y-1">
-                                {group.logs.map((log) => (
-                                  <div
-                                    key={log.id}
-                                    className="flex flex-col md:flex-row md:items-baseline md:gap-3"
-                                  >
-                                    <span className="font-medium">
-                                      {log.subject}
-                                    </span>
-                                    <span className="md:ml-auto">
-                                      {(log.minutes / 60).toFixed(2)} h
-                                    </span>
-                                    {log.memo && (
-                                      <span className="text-gray-500 md:ml-3">
-                                        {log.memo}
-                                      </span>
-                                    )}
-                                  </div>
-                                ))}
+                  {isOpen && (
+                    <div style={detailBox()}>
+                      <div style={{ fontSize: 12, fontWeight: 900, color: "#0f172a", marginBottom: 8 }}>
+                        内訳
+                      </div>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {group.logs.map((log) => (
+                          <div key={log.id} style={logItem()}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                              <div style={{ fontWeight: 900, color: "#0f172a" }}>{log.subject}</div>
+                              <div style={{ fontWeight: 900, color: "#1d4ed8" }}>
+                                {(log.minutes / 60).toFixed(2)} h
                               </div>
                             </div>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
+                            {log.memo && (
+                              <div style={{ marginTop: 6, fontSize: 12, fontWeight: 800, color: "#64748b" }}>
+                                {log.memo}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </Fragment>
+              );
+            })}
           </div>
         )}
       </div>
     </div>
   );
 }
+
+/* ===== styles ===== */
+
+function innerCard(): React.CSSProperties {
+  return {
+    borderRadius: 18,
+    border: "1px solid rgba(148,163,184,0.18)",
+    background: "rgba(255,255,255,0.92)",
+    padding: 14,
+  };
+}
+
+function innerHead(): React.CSSProperties {
+  return { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", marginBottom: 12 };
+}
+
+function innerTitle(): React.CSSProperties {
+  return { fontSize: 14, fontWeight: 900, color: "#0f172a" };
+}
+
+function innerSub(): React.CSSProperties {
+  return { fontSize: 12, fontWeight: 900, color: "#64748b" };
+}
+
+function grid3(): React.CSSProperties {
+  return {
+    display: "grid",
+    gap: 10,
+    gridTemplateColumns: "1fr",
+  };
+}
+
+function label(): React.CSSProperties {
+  return { fontSize: 12, fontWeight: 900, color: "#0f172a", marginBottom: 6 };
+}
+
+function input(): React.CSSProperties {
+  return {
+    width: "100%",
+    maxWidth: "100%",
+    boxSizing: "border-box",
+    border: "1px solid rgba(148,163,184,0.30)",
+    borderRadius: 14,
+    padding: "12px 14px",
+    fontSize: 14,
+    fontWeight: 800,
+    outline: "none",
+    background: "rgba(255,255,255,0.96)",
+  };
+}
+
+function primaryBtn(disabled: boolean): React.CSSProperties {
+  return {
+    border: "none",
+    backgroundColor: "#60a5fa",
+    color: "#ffffff",
+    borderRadius: 9999,
+    padding: "10px 16px",
+    fontWeight: 900,
+    cursor: disabled ? "default" : "pointer",
+    opacity: disabled ? 0.6 : 1,
+    boxShadow: "0 10px 20px rgba(37, 99, 235, 0.18)",
+  };
+}
+
+function muted(): React.CSSProperties {
+  return { fontSize: 12, fontWeight: 900, color: "#64748b" };
+}
+
+function dayRow(open: boolean): React.CSSProperties {
+  return {
+    width: "100%",
+    textAlign: "left",
+    borderRadius: 18,
+    border: "1px solid rgba(148,163,184,0.18)",
+    background: open
+      ? "linear-gradient(180deg, rgba(239,246,255,0.80), rgba(255,255,255,0.96))"
+      : "rgba(255,255,255,0.96)",
+    padding: 12,
+    cursor: "pointer",
+  };
+}
+
+function detailBox(): React.CSSProperties {
+  return {
+    marginTop: -4,
+    borderRadius: 18,
+    border: "1px solid rgba(148,163,184,0.18)",
+    background: "rgba(248,250,252,0.92)",
+    padding: 12,
+  };
+}
+
+function logItem(): React.CSSProperties {
+  return {
+    borderRadius: 14,
+    border: "1px solid rgba(148,163,184,0.18)",
+    background: "rgba(255,255,255,0.96)",
+    padding: 10,
+  };
+}
+
+/*
+  2カラムは MyPage 側で実装しているが、
+  ここでもやりたいなら、CSSメディアクエリ or window幅監視にするのが正攻法。
+*/

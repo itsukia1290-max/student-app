@@ -86,13 +86,11 @@ export default function MyPage() {
 
   // ===== Calendar permissions (必ず渡す) =====
   const calendarPermissions: CalendarPermissions = useMemo(() => {
-    // 生徒マイページは「本人の個人予定は編集OK」「塾予定は閲覧のみ」
-    // スタッフが生徒を閲覧する画面などに流用する場合はここを変更
     return {
       viewPersonal: true,
       editPersonal: true,
       viewSchool: true,
-      editSchool: !!isStaff, // 生徒はfalse、スタッフはtrue
+      editSchool: !!isStaff,
     };
   }, [isStaff]);
 
@@ -180,6 +178,16 @@ export default function MyPage() {
     gap: 14,
   };
 
+  // records layout
+  const recordsGrid: React.CSSProperties = {
+    display: "grid",
+    gap: 14,
+    gridTemplateColumns: "1fr",
+  };
+
+  const recordsLeft: React.CSSProperties = { minWidth: 0 };
+  const recordsRight: React.CSSProperties = { minWidth: 0 };
+
   // ================== guard ==================
   if (!user) {
     return (
@@ -215,7 +223,13 @@ export default function MyPage() {
               {!form ? (
                 <InfoText>読み込み中...</InfoText>
               ) : (
-                <ProfileForm form={form} setForm={setForm} onSave={onSave} saving={saving} msg={msg} />
+                <ProfileForm
+                  form={form}
+                  setForm={setForm}
+                  onSave={onSave}
+                  saving={saving}
+                  msg={msg}
+                />
               )}
             </Card>
           </div>
@@ -257,7 +271,7 @@ export default function MyPage() {
           </div>
         </div>
 
-        {/* ② サマリ（あとで消してOK） */}
+        {/* サマリ */}
         <div style={{ marginTop: 14 }}>
           <StudentDashboardSummary userId={user.id} />
         </div>
@@ -270,7 +284,13 @@ export default function MyPage() {
                 {!form ? (
                   <InfoText>読み込み中...</InfoText>
                 ) : (
-                  <ProfileForm form={form} setForm={setForm} onSave={onSave} saving={saving} msg={msg} />
+                  <ProfileForm
+                    form={form}
+                    setForm={setForm}
+                    onSave={onSave}
+                    saving={saving}
+                    msg={msg}
+                  />
                 )}
               </Card>
 
@@ -303,20 +323,53 @@ export default function MyPage() {
 
           {tab === "records" && (
             <>
-              <Card title="勉強時間の記録">
-                <StudentStudyLogs userId={user.id} editable={true} />
-              </Card>
-
-              <Card
-                title="カレンダー"
-                right={
-                  <span style={{ fontSize: 12, fontWeight: 900, color: "#64748b" }}>
-                    個人=編集OK / 塾=閲覧
-                  </span>
-                }
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                  gap: 10,
+                  padding: "2px 2px 0",
+                }}
               >
-                <CalendarBoard ownerUserId={user.id} permissions={calendarPermissions} />
-              </Card>
+                <div style={{ fontSize: 16, fontWeight: 900, color: "#0f172a" }}>
+                  記録
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b" }}>
+                  勉強時間の記録とカレンダーをまとめて管理
+                </div>
+              </div>
+
+              <div
+                style={{
+                  ...recordsGrid,
+                  // 860px以上で2カラム
+                  ...(window.innerWidth >= 860
+                    ? { gridTemplateColumns: "1.35fr 1fr" }
+                    : {}),
+                }}
+              >
+                <div style={recordsLeft}>
+                  <Card title="勉強時間の記録" right={<span style={{ fontSize: 12, fontWeight: 900, color: "#64748b" }}>入力 + 履歴</span>}>
+                    <StudentStudyLogs userId={user.id} editable={true} />
+                  </Card>
+                </div>
+
+                <div style={recordsRight}>
+                  <Card
+                    title="カレンダー"
+                    right={
+                      <span style={{ fontSize: 12, fontWeight: 900, color: "#64748b" }}>
+                        個人=編集OK / 塾=閲覧
+                      </span>
+                    }
+                  >
+                    <div style={{ minHeight: 420 }}>
+                      <CalendarBoard ownerUserId={user.id} permissions={calendarPermissions} />
+                    </div>
+                  </Card>
+                </div>
+              </div>
             </>
           )}
         </div>
