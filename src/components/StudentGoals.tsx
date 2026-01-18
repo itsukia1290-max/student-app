@@ -1,29 +1,30 @@
 // src/components/StudentGoals.tsx
 import { useEffect, useMemo, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { supabase } from "../lib/supabase";
 
 type Props = {
   userId: string;
   editable: boolean;
+  initialPeriodType?: "week" | "month";
 };
 
 type PeriodType = "week" | "month";
+type Kind = "weekly" | "monthly";
 
-type Goal = {
+type GoalRow = {
   id: string;
   user_id: string;
-  kind: string;                 // ★ 追加（DB実態）
-  text: string | null;          // ★ title → text
-  detail: string | null;
-  period_type: PeriodType;
+  kind: Kind;
+  period_type: PeriodType | null;
   period_key: string;
-  period_start: string | null;  // DBにあるので持っておく（任意）
-  period_end: string | null;    // DBにあるので持っておく（任意）
+  text: string | null;   // 一言目標
+  detail: string | null; // 詳細・振り返り
   created_at: string;
   updated_at: string;
 };
 
-// ISO週番号（簡易）
+// ISO 週番号（簡易）
 function getISOWeek(date: Date): number {
   const tmp = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const dayNum = tmp.getUTCDay() || 7;
@@ -32,16 +33,19 @@ function getISOWeek(date: Date): number {
   const weekNo = Math.ceil(((tmp.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
   return weekNo;
 }
+
 function getCurrentWeekKey(now = new Date()): string {
   const year = now.getFullYear();
   const week = getISOWeek(now);
   return `${year}-W${String(week).padStart(2, "0")}`;
 }
+
 function getCurrentMonthKey(now = new Date()): string {
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
   return `${year}-${String(month).padStart(2, "0")}`;
 }
+
 function labelOfPeriod(type: PeriodType, key: string): string {
   if (type === "week") {
     const [y, w] = key.split("-W");
@@ -52,21 +56,31 @@ function labelOfPeriod(type: PeriodType, key: string): string {
   }
 }
 
-export default function StudentGoals({ userId, editable }: Props) {
-  const [periodType, setPeriodType] = useState<PeriodType>("week");
+function kindFromPeriod(periodType: PeriodType): Kind {
+  return periodType === "week" ? "weekly" : "monthly";
+}
+
+export default function StudentGoals({ userId, editable, initialPeriodType = "week" }: Props) {
+  const [periodType, setPeriodType] = useState<PeriodType>(initialPeriodType);
+
+  useEffect(() => {
+    setPeriodType(initialPeriodType);
+  }, [initialPeriodType]);
 
   const currentKey = useMemo(
     () => (periodType === "week" ? getCurrentWeekKey(new Date()) : getCurrentMonthKey(new Date())),
     [periodType]
   );
 
-  const [currentGoal, setCurrentGoal] = useState<Goal | null>(null);
-  const [history, setHistory] = useState<Goal[]>([]);
+  const kind = useMemo(() => kindFromPeriod(periodType), [periodType]);
+
+  const [currentGoal, setCurrentGoal] = useState<GoalRow | null>(null);
+  const [history, setHistory] = useState<GoalRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const [text, setText] = useState("");     // ★ title → text
+  const [text, setText] = useState("");
   const [detail, setDetail] = useState("");
 
   useEffect(() => {
@@ -78,53 +92,51 @@ export default function StudentGoals({ userId, editable }: Props) {
 
       const { data: cur, error: errCur } = await supabase
         .from("student_goals")
-        .select("id,user_id,kind,text,detail,period_type,period_key,period_start,period_end,created_at,updated_at")
+        .select("id,user_id,kind,period_type,period_key,text,detail,created_at,updated_at")
         .eq("user_id", userId)
-        .eq("period_type", periodType)
+        .eq("kind", kind)
         .eq("period_key", currentKey)
         .maybeSingle();
 
-      if (!cancelled) {
-        if (errCur) {
-          console.error("❌ load current goal:", errCur.message);
-          setMsg("目標の読み込みに失敗しました: " + errCur.message);
-        }
+      if (cancelled) return;
 
-        if (cur) {
-          const g = cur as Goal;
-          setCurrentGoal(g);
-          setText(g.text ?? "");
-          setDetail(g.detail ?? "");
-        } else {
-          setCurrentGoal(null);
-          setText("");
-          setDetail("");
-        }
+      if (errCur) {
+        console.error("❌ load current goal:", errCur.message);
+        setMsg("目標の読み込みに失敗しました: " + errCur.message);
+      }
+
+      if (cur) {
+        const g = cur as GoalRow;
+        setCurrentGoal(g);
+        setText(g.text ?? "");
+        setDetail(g.detail ?? "");
+      } else {
+        setCurrentGoal(null);
+        setText("");
+        setDetail("");
       }
 
       const { data: hist, error: errHist } = await supabase
         .from("student_goals")
-        .select("id,user_id,kind,text,detail,period_type,period_key,period_start,period_end,created_at,updated_at")
+        .select("id,user_id,kind,period_type,period_key,text,detail,created_at,updated_at")
         .eq("user_id", userId)
-        .eq("period_type", periodType)
+        .eq("kind", kind)
         .neq("period_key", currentKey)
         .order("period_key", { ascending: false })
         .limit(10);
 
-      if (!cancelled) {
-        if (errHist) console.error("❌ load history goals:", errHist.message);
-        setHistory((hist ?? []) as Goal[]);
-        setLoading(false);
-      }
+      if (errHist) console.error("❌ load history goals:", errHist.message);
+      setHistory((hist ?? []) as GoalRow[]);
+      setLoading(false);
     }
 
     load();
     return () => {
       cancelled = true;
     };
-  }, [userId, periodType, currentKey]);
+  }, [userId, kind, currentKey]);
 
-  async function onSave(e: React.FormEvent) {
+  async function onSave(e: FormEvent) {
     e.preventDefault();
     if (!editable) return;
 
@@ -133,30 +145,25 @@ export default function StudentGoals({ userId, editable }: Props) {
 
     const nowIso = new Date().toISOString();
 
-    const { data, error } = await supabase
-      .from("student_goals")
-      .upsert(
-        {
-          id: currentGoal?.id,
-          user_id: userId,
-          kind: "goal",                 // ★ これが必須：CHECK制約を通す
-          period_type: periodType,
-          period_key: currentKey,
-          text: text.trim() || null,    // ★ title → text
-          detail: detail.trim() || null,
-          created_at: currentGoal?.created_at ?? nowIso,
-          updated_at: nowIso,
-        },
-        { onConflict: "user_id,period_type,period_key" }
-      )
-      .select()
-      .maybeSingle();
+    const payload = {
+      user_id: userId,
+      kind,                      // ★必須：weekly/monthly
+      period_type: periodType,    // 参考情報として入れる
+      period_key: currentKey,
+      text: text.trim() || null,
+      detail: detail.trim() || null,
+      updated_at: nowIso,
+    };
 
-    if (error) {
-      console.error("❌ save goal:", error.message);
-      setMsg("保存に失敗しました: " + error.message);
+    const res = currentGoal?.id
+      ? await supabase.from("student_goals").update(payload).eq("id", currentGoal.id).select().maybeSingle()
+      : await supabase.from("student_goals").insert({ ...payload, created_at: nowIso }).select().maybeSingle();
+
+    if (res.error) {
+      console.error("❌ save goal:", res.error.message);
+      setMsg("保存に失敗しました: " + res.error.message);
     } else {
-      setCurrentGoal((data as Goal) ?? null);
+      setCurrentGoal((res.data as GoalRow) ?? null);
       setMsg("保存しました。");
     }
 
@@ -167,11 +174,17 @@ export default function StudentGoals({ userId, editable }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* period switch */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <Pill active={periodType === "week"} onClick={() => setPeriodType("week")}>週目標</Pill>
-        <Pill active={periodType === "month"} onClick={() => setPeriodType("month")}>月目標</Pill>
+        <Pill active={periodType === "week"} onClick={() => setPeriodType("week")}>
+          週目標
+        </Pill>
+        <Pill active={periodType === "month"} onClick={() => setPeriodType("month")}>
+          月目標
+        </Pill>
       </div>
 
+      {/* current */}
       <div style={panel()}>
         <div style={panelHead()}>
           <div style={panelTitle()}>現在の目標</div>
@@ -222,6 +235,7 @@ export default function StudentGoals({ userId, editable }: Props) {
         )}
       </div>
 
+      {/* history */}
       <div style={panel()}>
         <div style={panelHead()}>
           <div style={panelTitle()}>過去の目標（直近10件）</div>
@@ -238,7 +252,7 @@ export default function StudentGoals({ userId, editable }: Props) {
               <div key={g.id} style={item()}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                   <div style={{ fontWeight: 900, color: "#0f172a" }}>
-                    {labelOfPeriod(g.period_type, g.period_key)}
+                    {labelOfPeriod(periodType, g.period_key)}
                   </div>
                   <div style={{ fontSize: 11, fontWeight: 900, color: "#94a3b8" }}>
                     更新: {new Date(g.updated_at).toLocaleString()}
@@ -267,8 +281,7 @@ export default function StudentGoals({ userId, editable }: Props) {
   );
 }
 
-// --- styles (元のまま) ---
-function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button
       type="button"
@@ -288,8 +301,14 @@ function Pill({ active, onClick, children }: { active: boolean; onClick: () => v
     </button>
   );
 }
+
 function panel(): React.CSSProperties {
-  return { borderRadius: 18, border: "1px solid rgba(148, 163, 184, 0.18)", background: "rgba(255,255,255,0.88)", padding: 14 };
+  return {
+    borderRadius: 18,
+    border: "1px solid rgba(148, 163, 184, 0.18)",
+    background: "rgba(255,255,255,0.88)",
+    padding: 14,
+  };
 }
 function panelHead(): React.CSSProperties {
   return { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", marginBottom: 10 };
@@ -304,20 +323,51 @@ function muted(): React.CSSProperties {
   return { fontSize: 13, fontWeight: 800, color: "#64748b" };
 }
 function warn(): React.CSSProperties {
-  return { border: "1px solid rgba(245,158,11,0.35)", background: "rgba(255,251,235,0.85)", color: "#92400e", borderRadius: 14, padding: 10, fontWeight: 900, fontSize: 12 };
+  return {
+    border: "1px solid rgba(245,158,11,0.35)",
+    background: "rgba(255,251,235,0.85)",
+    color: "#92400e",
+    borderRadius: 14,
+    padding: 10,
+    fontWeight: 900,
+    fontSize: 12,
+  };
 }
 function fieldLabel(): React.CSSProperties {
   return { fontSize: 12, fontWeight: 900, color: "#0f172a", marginBottom: 6 };
 }
 function input(): React.CSSProperties {
-  return { width: "100%", border: "1px solid rgba(148,163,184,0.30)", borderRadius: 14, padding: "12px 14px", fontSize: 14, fontWeight: 800, outline: "none", background: "rgba(255,255,255,0.95)" };
+  return {
+    width: "100%",
+    border: "1px solid rgba(148,163,184,0.30)",
+    borderRadius: 14,
+    padding: "12px 14px",
+    fontSize: 14,
+    fontWeight: 800,
+    outline: "none",
+    background: "rgba(255,255,255,0.95)",
+  };
 }
 function textarea(): React.CSSProperties {
   return { ...input(), minHeight: 110, resize: "vertical" };
 }
 function primaryBtn(): React.CSSProperties {
-  return { border: "none", backgroundColor: "#60a5fa", color: "#ffffff", borderRadius: 9999, padding: "10px 16px", fontWeight: 900, cursor: "pointer", boxShadow: "0 10px 20px rgba(37, 99, 235, 0.18)" };
+  return {
+    border: "none",
+    backgroundColor: "#60a5fa",
+    color: "#ffffff",
+    borderRadius: 9999,
+    padding: "10px 16px",
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow: "0 10px 20px rgba(37, 99, 235, 0.18)",
+  };
 }
 function item(): React.CSSProperties {
-  return { borderRadius: 16, border: "1px solid rgba(148,163,184,0.18)", background: "linear-gradient(180deg, rgba(239,246,255,0.6), rgba(255,255,255,0.95))", padding: 12 };
+  return {
+    borderRadius: 16,
+    border: "1px solid rgba(148,163,184,0.18)",
+    background: "linear-gradient(180deg, rgba(239,246,255,0.6), rgba(255,255,255,0.95))",
+    padding: 12,
+  };
 }

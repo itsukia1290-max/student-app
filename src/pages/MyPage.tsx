@@ -25,11 +25,22 @@ type Profile = {
 };
 
 type Tab = "profile" | "goals" | "grades" | "records";
+type GoalPeriod = "week" | "month";
 
-export default function MyPage() {
+type Props = {
+  initialTab?: Tab;
+  initialGoalPeriod?: GoalPeriod;
+};
+
+export default function MyPage({ initialTab = "profile", initialGoalPeriod = "week" }: Props) {
   const { user } = useAuth();
   const { isStaff } = useIsStaff();
-  const [tab, setTab] = useState<Tab>("profile");
+  const [tab, setTab] = useState<Tab>(initialTab);
+
+  // ★ Report→MyPage遷移時に確実に反映
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
 
   const [form, setForm] = useState<Profile | null>(null);
   const [saving, setSaving] = useState(false);
@@ -84,12 +95,11 @@ export default function MyPage() {
 
   // ===== Calendar permissions (必ず渡す) =====
   const calendarPermissions: CalendarPermissions = useMemo(() => {
-    // 生徒マイページは「本人の個人予定は編集OK」「塾予定は閲覧のみ」
     return {
       viewPersonal: true,
       editPersonal: true,
       viewSchool: true,
-      editSchool: !!isStaff, // 生徒はfalse、スタッフはtrue
+      editSchool: !!isStaff,
     };
   }, [isStaff]);
 
@@ -209,11 +219,7 @@ export default function MyPage() {
 
           <div style={body}>
             <Card title="プロフィール">
-              {!form ? (
-                <InfoText>読み込み中...</InfoText>
-              ) : (
-                <ProfileForm form={form} setForm={setForm} onSave={onSave} saving={saving} msg={msg} />
-              )}
+              {!form ? <InfoText>読み込み中...</InfoText> : <ProfileForm form={form} setForm={setForm} onSave={onSave} saving={saving} msg={msg} />}
             </Card>
           </div>
         </div>
@@ -259,11 +265,7 @@ export default function MyPage() {
           {tab === "profile" && (
             <>
               <Card title="プロフィール">
-                {!form ? (
-                  <InfoText>読み込み中...</InfoText>
-                ) : (
-                  <ProfileForm form={form} setForm={setForm} onSave={onSave} saving={saving} msg={msg} />
-                )}
+                {!form ? <InfoText>読み込み中...</InfoText> : <ProfileForm form={form} setForm={setForm} onSave={onSave} saving={saving} msg={msg} />}
               </Card>
 
               <Card title="所属グループ">
@@ -283,7 +285,7 @@ export default function MyPage() {
 
           {tab === "goals" && (
             <Card title="目標">
-              <StudentGoals userId={user.id} editable={true} />
+              <StudentGoals userId={user.id} editable={true} initialPeriodType={initialGoalPeriod} />
             </Card>
           )}
 
@@ -301,11 +303,7 @@ export default function MyPage() {
 
               <Card
                 title="カレンダー"
-                right={
-                  <span style={{ fontSize: 12, fontWeight: 900, color: "#64748b" }}>
-                    個人=編集OK / 塾=閲覧
-                  </span>
-                }
+                right={<span style={{ fontSize: 12, fontWeight: 900, color: "#64748b" }}>個人=編集OK / 塾=閲覧</span>}
               >
                 <CalendarBoard ownerUserId={user.id} permissions={calendarPermissions} />
               </Card>
@@ -319,15 +317,7 @@ export default function MyPage() {
 
 /* ================= UI parts ================= */
 
-function TabBtn({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
+function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
@@ -349,15 +339,7 @@ function TabBtn({
   );
 }
 
-function Card({
-  title,
-  right,
-  children,
-}: {
-  title: string;
-  right?: React.ReactNode;
-  children: React.ReactNode;
-}) {
+function Card({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section
       style={{
@@ -369,15 +351,7 @@ function Card({
         backdropFilter: "blur(8px)",
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 10,
-          marginBottom: 12,
-        }}
-      >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
         <div style={{ fontSize: 15, fontWeight: 900, color: "#0f172a" }}>{title}</div>
         {right ?? null}
       </div>
@@ -392,14 +366,7 @@ function InfoText({ children }: { children: React.ReactNode }) {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label
-      style={{
-        display: "grid",
-        gridTemplateColumns: "160px 1fr",
-        gap: 12,
-        alignItems: "start",
-      }}
-    >
+    <label style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 12, alignItems: "start" }}>
       <div style={{ fontSize: 13, fontWeight: 900, color: "#0f172a", paddingTop: 10 }}>{label}</div>
       <div>{children}</div>
     </label>
@@ -435,11 +402,7 @@ function ProfileForm({
   return (
     <form onSubmit={onSave} style={{ display: "grid", gap: 12, maxWidth: 720 }}>
       <Field label="氏名">
-        <input
-          style={inputStyle()}
-          value={form.name ?? ""}
-          onChange={(e) => setForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
-        />
+        <input style={inputStyle()} value={form.name ?? ""} onChange={(e) => setForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))} />
       </Field>
 
       <Field label="電話番号">
@@ -447,9 +410,7 @@ function ProfileForm({
           style={inputStyle()}
           placeholder="例）090-xxxx-xxxx"
           value={form.phone ?? ""}
-          onChange={(e) =>
-            setForm((prev) => (prev ? { ...prev, phone: e.target.value || null } : prev))
-          }
+          onChange={(e) => setForm((prev) => (prev ? { ...prev, phone: e.target.value || null } : prev))}
         />
       </Field>
 
@@ -457,9 +418,7 @@ function ProfileForm({
         <textarea
           style={{ ...inputStyle(), minHeight: 120, resize: "vertical" }}
           value={form.memo ?? ""}
-          onChange={(e) =>
-            setForm((prev) => (prev ? { ...prev, memo: e.target.value || null } : prev))
-          }
+          onChange={(e) => setForm((prev) => (prev ? { ...prev, memo: e.target.value || null } : prev))}
         />
       </Field>
 

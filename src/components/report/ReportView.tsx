@@ -1,14 +1,6 @@
 // src/components/report/ReportView.tsx
-//
-// Responsibility:
-// - Report画面の「共通レイアウト」(カード/セクション/余白/見出し) を統一
-// - 学習推移/目標(週・月)/成績/カレンダー/学習ログ入力 を組み合わせて表示
-//
-// NOTE:
-// - 目標は MyPage の StudentGoals と同じ "student_goals" スキーマを使う
-//   (user_id, period_type, period_key, title, detail)
-
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { supabase } from "../../lib/supabase";
 
 import CalendarBoard from "../CalendarBoard";
@@ -17,17 +9,16 @@ import StudentGrades from "../StudentGrades";
 import Button from "../ui/Button";
 import Input, { Textarea } from "../ui/Input";
 
-// ★ 学習サマリ（MyPageから移植）
 import StudentDashboardSummary from "../StudentDashboardSummary";
+import { useNav } from "../../hooks/useNav";
 
 const GOALS_TABLE = "student_goals";
 const STUDY_LOGS_TABLE = "study_logs";
 
 type Mode = "student" | "teacher";
-type PeriodType = "week" | "month";
 
 type Props = {
-  ownerUserId: string; // 生徒本人 or 先生が閲覧している対象生徒
+  ownerUserId: string;
   mode: Mode;
 
   showTimeline?: boolean;
@@ -35,7 +26,6 @@ type Props = {
   showCalendar?: boolean;
 
   calendarPermissions: CalendarPermissions;
-  canEditGoals?: boolean; // 生徒本人のみ true 推奨
 };
 
 type StudyLogRow = {
@@ -43,27 +33,43 @@ type StudyLogRow = {
   user_id: string;
   subject: string;
   minutes: number;
-  studied_at: string; // date: "YYYY-MM-DD"
+  studied_at: string;
   memo: string | null;
   created_at: string;
 };
 
+type Kind = "weekly" | "monthly";
+
 type GoalRow = {
   id: string;
   user_id: string;
-  period_type: PeriodType;
-  period_key: string; // "2026-W03" or "2026-01"
-  title: string | null;
+  kind: Kind;
+  period_type: string | null;
+  period_key: string | null;
+  text: string | null;
   detail: string | null;
   created_at: string;
   updated_at: string;
 };
 
-function toISODate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${dd}`;
+// ISO 週番号（簡易）
+function getISOWeek(date: Date): number {
+  const tmp = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = tmp.getUTCDay() || 7;
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((tmp.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return weekNo;
+}
+function currentWeekKey(now = new Date()): string {
+  const year = now.getFullYear();
+  const week = getISOWeek(now);
+  return `${year}-W${String(week).padStart(2, "0")}`;
+}
+function currentMonthKey(now = new Date()): string {
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  return `${year}-${String(month).padStart(2, "0")}`;
 }
 
 function minutesLabel(totalMinutes: number) {
@@ -74,39 +80,17 @@ function minutesLabel(totalMinutes: number) {
   return `${h}時間${m}分`;
 }
 
-// ISO 週番号（StudentGoals.tsx と同じ）
-function getISOWeek(date: Date): number {
-  const tmp = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = tmp.getUTCDay() || 7;
-  tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil(((tmp.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return weekNo;
-}
-function getCurrentWeekKey(now = new Date()): string {
-  const year = now.getFullYear();
-  const week = getISOWeek(now);
-  return `${year}-W${String(week).padStart(2, "0")}`;
-}
-function getCurrentMonthKey(now = new Date()): string {
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
-  return `${year}-${String(month).padStart(2, "0")}`;
-}
-function labelOfPeriod(type: PeriodType, key: string): string {
-  if (type === "week") {
-    const [y, w] = key.split("-W");
-    return `${y}年第${parseInt(w ?? "0", 10)}週`;
-  } else {
-    const [y, m] = key.split("-");
-    return `${y}年${parseInt(m ?? "0", 10)}月`;
-  }
+function toISODate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
 }
 
-// 月曜始まり（実績集計用：study_logs は date 文字列なので比較でOK）
+// 月曜始まり集計（学習実績の表示用）
 function startOfWeekISO(dateISO: string) {
   const d = new Date(`${dateISO}T00:00:00`);
-  const day = d.getDay(); // 0 Sun
+  const day = d.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
   return toISODate(d);
@@ -127,39 +111,20 @@ function endOfMonthISO(dateISO: string) {
   return toISODate(d);
 }
 
-function SoftCard({
-  title,
-  right,
-  children,
-}: {
-  title: string;
-  right?: React.ReactNode;
-  children: React.ReactNode;
-}) {
+function SoftCard({ title, right, children }: { title: string; right?: ReactNode; children: ReactNode }) {
   return (
     <section
       style={{
         borderRadius: "22px",
         padding: "16px",
-        background:
-          "linear-gradient(180deg, rgba(239,246,255,0.92), rgba(255,255,255,0.92))",
+        background: "linear-gradient(180deg, rgba(239,246,255,0.92), rgba(255,255,255,0.92))",
         border: "1px solid rgba(59,130,246,0.14)",
         boxShadow: "0 18px 40px rgba(15, 23, 42, 0.06)",
         backdropFilter: "blur(6px)",
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "10px",
-          marginBottom: "12px",
-        }}
-      >
-        <div style={{ fontWeight: 900, color: "#0f172a", fontSize: "16px" }}>
-          {title}
-        </div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", marginBottom: "12px" }}>
+        <div style={{ fontWeight: 900, color: "#0f172a", fontSize: "16px" }}>{title}</div>
         {right}
       </div>
       {children}
@@ -174,11 +139,12 @@ export default function ReportView({
   showGrades = true,
   showCalendar = true,
   calendarPermissions,
-  canEditGoals = true,
 }: Props) {
+  const nav = useNav();
+
   const todayISO = toISODate(new Date());
-  const weekKey = useMemo(() => getCurrentWeekKey(new Date()), []);
-  const monthKey = useMemo(() => getCurrentMonthKey(new Date()), []);
+  const weekKey = useMemo(() => currentWeekKey(new Date()), []);
+  const monthKey = useMemo(() => currentMonthKey(new Date()), []);
 
   const [tab, setTab] = useState<"record" | "timeline">("record");
 
@@ -186,9 +152,8 @@ export default function ReportView({
   const [logs, setLogs] = useState<StudyLogRow[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
 
-  // goals (MyPage 방식)
-  const [weekGoal, setWeekGoal] = useState<GoalRow | null>(null);
-  const [monthGoal, setMonthGoal] = useState<GoalRow | null>(null);
+  // student_goals
+  const [goals, setGoals] = useState<GoalRow[]>([]);
   const [goalsLoading, setGoalsLoading] = useState(false);
 
   // add form
@@ -224,28 +189,19 @@ export default function ReportView({
     if (!ownerUserId) return;
     setGoalsLoading(true);
 
-    const [wRes, mRes] = await Promise.all([
-      supabase
-        .from(GOALS_TABLE)
-        .select("*")
-        .eq("user_id", ownerUserId)
-        .eq("period_type", "week")
-        .eq("period_key", weekKey)
-        .maybeSingle(),
-      supabase
-        .from(GOALS_TABLE)
-        .select("*")
-        .eq("user_id", ownerUserId)
-        .eq("period_type", "month")
-        .eq("period_key", monthKey)
-        .maybeSingle(),
-    ]);
+    const { data, error } = await supabase
+      .from(GOALS_TABLE)
+      .select("id,user_id,kind,period_type,period_key,text,detail,created_at,updated_at")
+      .eq("user_id", ownerUserId)
+      .order("updated_at", { ascending: false })
+      .limit(50);
 
-    if (wRes.error) console.error("❌ load week goal:", wRes.error.message);
-    if (mRes.error) console.error("❌ load month goal:", mRes.error.message);
-
-    setWeekGoal((wRes.data as GoalRow) ?? null);
-    setMonthGoal((mRes.data as GoalRow) ?? null);
+    if (error) {
+      console.error("❌ load student_goals:", error.message);
+      setGoals([]);
+    } else {
+      setGoals((data ?? []) as GoalRow[]);
+    }
 
     setGoalsLoading(false);
   }
@@ -256,77 +212,34 @@ export default function ReportView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerUserId]);
 
-  // 実績（study_logs 集計）
+  // 学習実績（表示用）
   const weekMinutes = useMemo(() => {
     const s = startOfWeekISO(todayISO);
     const e = endOfWeekISO(todayISO);
-    return logs
-      .filter((l) => l.studied_at >= s && l.studied_at <= e)
-      .reduce((sum, l) => sum + (l.minutes ?? 0), 0);
+    return logs.filter((l) => l.studied_at >= s && l.studied_at <= e).reduce((sum, l) => sum + (l.minutes ?? 0), 0);
   }, [logs, todayISO]);
 
   const monthMinutes = useMemo(() => {
     const s = startOfMonthISO(todayISO);
     const e = endOfMonthISO(todayISO);
-    return logs
-      .filter((l) => l.studied_at >= s && l.studied_at <= e)
-      .reduce((sum, l) => sum + (l.minutes ?? 0), 0);
+    return logs.filter((l) => l.studied_at >= s && l.studied_at <= e).reduce((sum, l) => sum + (l.minutes ?? 0), 0);
   }, [logs, todayISO]);
 
-  // （任意）進捗バーは「数値目標」が無いので、ここでは “実績だけ” にする。
-  // ただし「目標文に 10時間 とか書いてある」場合もあるので、バーは出さない方が安全。
-
-  async function upsertTextGoal(periodType: PeriodType) {
-    if (!ownerUserId) return;
-    if (!canEditGoals) return;
-
-    const key = periodType === "week" ? weekKey : monthKey;
-    const current = periodType === "week" ? weekGoal : monthGoal;
-
-    const currentTitle = current?.title ?? "";
-    const currentDetail = current?.detail ?? "";
-
-    const title = window.prompt(
-      `${periodType === "week" ? "週" : "月"}目標（ひとこと）を入力してください`,
-      currentTitle
+  const currentWeeklyGoal = useMemo(() => {
+    return (
+      goals.find((g) => g.kind === "weekly" && g.period_key === weekKey) ??
+      goals.find((g) => g.kind === "weekly") ??
+      null
     );
-    if (title == null) return;
+  }, [goals, weekKey]);
 
-    const detail = window.prompt(
-      `詳細・振り返りメモ（任意）`,
-      currentDetail
+  const currentMonthlyGoal = useMemo(() => {
+    return (
+      goals.find((g) => g.kind === "monthly" && g.period_key === monthKey) ??
+      goals.find((g) => g.kind === "monthly") ??
+      null
     );
-    if (detail == null) return;
-
-    const nowIso = new Date().toISOString();
-
-    const { data, error } = await supabase
-      .from(GOALS_TABLE)
-      .upsert(
-        {
-          id: current?.id,
-          user_id: ownerUserId,
-          period_type: periodType,
-          period_key: key,
-          title: title.trim() || null,
-          detail: detail.trim() || null,
-          created_at: current?.created_at ?? nowIso,
-          updated_at: nowIso,
-        },
-        { onConflict: "user_id,period_type,period_key" }
-      )
-      .select()
-      .maybeSingle();
-
-    if (error) {
-      alert("目標の保存に失敗: " + error.message);
-      return;
-    }
-
-    const saved = (data as GoalRow) ?? null;
-    if (periodType === "week") setWeekGoal(saved);
-    else setMonthGoal(saved);
-  }
+  }, [goals, monthKey]);
 
   async function addLog() {
     if (!ownerUserId) return;
@@ -371,7 +284,6 @@ export default function ReportView({
       "radial-gradient(1000px 400px at 20% -10%, rgba(96,165,250,0.30), rgba(255,255,255,0)), radial-gradient(900px 380px at 90% 0%, rgba(191,219,254,0.55), rgba(255,255,255,0)), #f8fafc",
   };
 
-  // タイトル→タブを縦並び
   const headerWrapStyle: React.CSSProperties = {
     backgroundColor: "#ffffff",
     borderRadius: "18px",
@@ -397,15 +309,7 @@ export default function ReportView({
     width: "100%",
   };
 
-  const TopTab = ({
-    active,
-    label,
-    onClick,
-  }: {
-    active: boolean;
-    label: string;
-    onClick: () => void;
-  }) => (
+  const TopTab = ({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) => (
     <button
       onClick={onClick}
       style={{
@@ -450,79 +354,39 @@ export default function ReportView({
     whiteSpace: "nowrap",
   };
 
-  function GoalCard({
-    periodType,
-    goal,
-    actualMinutes,
-  }: {
-    periodType: PeriodType;
-    goal: GoalRow | null;
-    actualMinutes: number;
-  }) {
-    const label = labelOfPeriod(periodType, periodType === "week" ? weekKey : monthKey);
-    const title = goal?.title?.trim() || "";
-    const detail = goal?.detail?.trim() || "";
+  const primarySmallBtn: React.CSSProperties = {
+    border: "1px solid rgba(59,130,246,0.22)",
+    background: "linear-gradient(180deg, rgba(96,165,250,0.90), rgba(59,130,246,0.90))",
+    color: "#ffffff",
+    borderRadius: "999px",
+    padding: "10px 14px",
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow: "0 14px 28px rgba(59,130,246,0.18)",
+  };
 
+  function GoalBlock({ g }: { g: GoalRow | null }) {
+    if (goalsLoading) {
+      return <div style={{ color: "#94a3b8", fontSize: "13px", fontWeight: 900 }}>読み込み中...</div>;
+    }
+    if (!g || (!g.text && !g.detail)) {
+      return <div style={{ color: "#64748b", fontSize: "13px", fontWeight: 900 }}>未設定です。</div>;
+    }
     return (
-      <SoftCard
-        title={periodType === "week" ? "週間目標" : "月間目標"}
-        right={
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-            <div style={subtleRightStyle}>{title ? `目標: ${title}` : "未設定"}</div>
-            {canEditGoals && (
-              <button
-                onClick={() => upsertTextGoal(periodType)}
-                style={{
-                  border: "1px solid rgba(59,130,246,0.22)",
-                  background:
-                    "linear-gradient(180deg, rgba(96,165,250,0.90), rgba(59,130,246,0.90))",
-                  color: "#ffffff",
-                  borderRadius: "999px",
-                  padding: "10px 14px",
-                  fontWeight: 900,
-                  cursor: "pointer",
-                  boxShadow: "0 14px 28px rgba(59,130,246,0.18)",
-                }}
-              >
-                編集
-              </button>
-            )}
-          </div>
-        }
-      >
-        <div style={{ color: "#64748b", fontSize: "12px", fontWeight: 900, marginBottom: 10 }}>
-          対象期間: {label}
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ color: "#0f172a", fontWeight: 900 }}>
-            実績: <span style={{ color: "#1d4ed8" }}>{minutesLabel(actualMinutes)}</span>
-          </div>
-          {goalsLoading && (
-            <div style={{ color: "#94a3b8", fontSize: "12px", fontWeight: 900 }}>
-              目標読み込み中...
-            </div>
-          )}
-        </div>
-
-        {title ? (
-          <div style={{ marginTop: 10, fontWeight: 900, color: "#0f172a" }}>
-            <span style={{ color: "#1d4ed8" }}>目標：</span>
-            {title}
-          </div>
-        ) : (
-          <div style={{ marginTop: 10, color: "#64748b", fontSize: "13px", fontWeight: 900 }}>
-            目標が未設定です。
+      <div style={{ display: "grid", gap: 10 }}>
+        {g.text && (
+          <div style={{ fontWeight: 900, color: "#0f172a" }}>
+            <span style={{ color: "#1d4ed8" }}>一言目標：</span>
+            {g.text}
           </div>
         )}
-
-        {detail && (
-          <div style={{ marginTop: 8, color: "#334155", fontSize: "13px", whiteSpace: "pre-wrap", fontWeight: 800 }}>
-            <span style={{ color: "#1d4ed8" }}>メモ：</span>
-            {detail}
+        {g.detail && (
+          <div style={{ fontSize: "13px", fontWeight: 800, color: "#334155", whiteSpace: "pre-wrap" }}>
+            <span style={{ color: "#1d4ed8" }}>詳細：</span>
+            {g.detail}
           </div>
         )}
-      </SoftCard>
+      </div>
     );
   }
 
@@ -534,13 +398,7 @@ export default function ReportView({
 
         <div style={tabHeaderRowStyle}>
           <TopTab active={tab === "record"} label="記録" onClick={() => setTab("record")} />
-          {showTimeline && (
-            <TopTab
-              active={tab === "timeline"}
-              label="タイムライン"
-              onClick={() => setTab("timeline")}
-            />
-          )}
+          {showTimeline && <TopTab active={tab === "timeline"} label="タイムライン" onClick={() => setTab("timeline")} />}
         </div>
       </div>
 
@@ -552,16 +410,48 @@ export default function ReportView({
         </SoftCard>
       ) : (
         <>
-          {/* 学習推移：外枠(SoftCard)を消して直置き（枠の二重を解消） */}
+          {/* 学習サマリ（枠の二重は回避して直置き） */}
           <div style={{ marginTop: "2px" }}>
             <StudentDashboardSummary userId={ownerUserId} />
           </div>
 
-          {/* 週間目標（MyPageの文字目標） */}
-          <GoalCard periodType="week" goal={weekGoal} actualMinutes={weekMinutes} />
+          {/* 週間目標（文字目標） */}
+          <SoftCard
+            title="週間目標"
+            right={
+              mode === "student" ? (
+                <button style={primarySmallBtn} onClick={() => nav.openMyGoals("week")}>
+                  目標を追加
+                </button>
+              ) : (
+                <span style={subtleRightStyle}>生徒の目標</span>
+              )
+            }
+          >
+            <div style={{ marginBottom: 10, color: "#0f172a", fontWeight: 900 }}>
+              今週の学習実績: <span style={{ color: "#1d4ed8" }}>{minutesLabel(weekMinutes)}</span>
+            </div>
+            <GoalBlock g={currentWeeklyGoal} />
+          </SoftCard>
 
-          {/* 月間目標（MyPageの文字目標） */}
-          <GoalCard periodType="month" goal={monthGoal} actualMinutes={monthMinutes} />
+          {/* 月間目標（文字目標） */}
+          <SoftCard
+            title="月間目標"
+            right={
+              mode === "student" ? (
+                <button style={primarySmallBtn} onClick={() => nav.openMyGoals("month")}>
+                  目標を追加
+                </button>
+              ) : (
+                <span style={subtleRightStyle}>生徒の目標</span>
+              )
+            }
+          >
+            <div style={{ marginBottom: 10, color: "#0f172a", fontWeight: 900 }}>
+              今月の学習実績: <span style={{ color: "#1d4ed8" }}>{minutesLabel(monthMinutes)}</span>
+            </div>
+            <GoalBlock g={currentMonthlyGoal} />
+          </SoftCard>
 
           {/* 成績 */}
           {showGrades && (
@@ -577,13 +467,7 @@ export default function ReportView({
 
           {/* 学習ログ入力 */}
           <SoftCard title="学習時間の記入" right={<span style={subtleRightStyle}>study_logs に保存</span>}>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "160px 1fr 140px",
-                gap: "10px",
-              }}
-            >
+            <div style={{ display: "grid", gridTemplateColumns: "160px 1fr 140px", gap: "10px" }}>
               <div>
                 <label style={{ fontSize: "12px", fontWeight: 900, color: "#475569" }}>日付</label>
                 <input
@@ -605,30 +489,18 @@ export default function ReportView({
 
               <div>
                 <label style={{ fontSize: "12px", fontWeight: 900, color: "#475569" }}>科目</label>
-                <Input
-                  className="mt-1"
-                  value={formSubject}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormSubject(e.target.value)}
-                />
+                <Input className="mt-1" value={formSubject} onChange={(e) => setFormSubject(e.target.value)} />
               </div>
 
               <div>
                 <label style={{ fontSize: "12px", fontWeight: 900, color: "#475569" }}>分</label>
-                <Input
-                  className="mt-1"
-                  value={formMinutes}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormMinutes(e.target.value)}
-                />
+                <Input className="mt-1" value={formMinutes} onChange={(e) => setFormMinutes(e.target.value)} />
               </div>
             </div>
 
             <div style={{ marginTop: "10px" }}>
               <label style={{ fontSize: "12px", fontWeight: 900, color: "#475569" }}>メモ（任意）</label>
-              <Textarea
-                className="mt-1 h-24"
-                value={formMemo}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setFormMemo(e.target.value)}
-              />
+              <Textarea className="mt-1 h-24" value={formMemo} onChange={(e) => setFormMemo(e.target.value)} />
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "10px" }}>
@@ -638,9 +510,7 @@ export default function ReportView({
             </div>
 
             <div style={{ marginTop: "14px", borderTop: "1px dashed rgba(148,163,184,0.35)", paddingTop: "14px" }}>
-              <div style={{ fontWeight: 900, color: "#0f172a", marginBottom: "10px" }}>
-                最近の学習ログ
-              </div>
+              <div style={{ fontWeight: 900, color: "#0f172a", marginBottom: "10px" }}>最近の学習ログ</div>
 
               {logsLoading ? (
                 <div style={{ color: "#94a3b8", fontSize: "13px", fontWeight: 900 }}>読み込み中...</div>
@@ -666,9 +536,7 @@ export default function ReportView({
                             {l.studied_at}
                           </span>
                         </div>
-                        <div style={{ fontWeight: 900, color: "#1d4ed8" }}>
-                          {minutesLabel(l.minutes)}
-                        </div>
+                        <div style={{ fontWeight: 900, color: "#1d4ed8" }}>{minutesLabel(l.minutes)}</div>
                       </div>
 
                       {l.memo && (
