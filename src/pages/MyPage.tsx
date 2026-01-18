@@ -293,28 +293,18 @@ export default function MyPage() {
         {/* Body */}
         <div style={body}>
           {tab === "profile" && (
-            <>
-              <Card title="プロフィール">
-                {!form ? (
-                  <InfoText>読み込み中...</InfoText>
-                ) : (
-                  <ProfileForm form={form} setForm={setForm} onSave={onSave} saving={saving} msg={msg} />
-                )}
-              </Card>
+            <Card title="プロフィール">
+              {!form ? (
+                <InfoText>読み込み中...</InfoText>
+              ) : (
+                <ProfileForm form={form} setForm={setForm} onSave={onSave} saving={saving} msg={msg} />
+              )}
 
-              <Card title="所属グループ">
-                <div
-                  style={{
-                    borderRadius: 14,
-                    border: "1px solid rgba(148,163,184,0.22)",
-                    background: "#ffffff",
-                    padding: 12,
-                  }}
-                >
-                  <StudentGroups userId={user.id} />
-                </div>
-              </Card>
-            </>
+              {/* ここから追加：プロフィールカード内に所属グループを統合 */}
+              <div style={{ marginTop: 16 }}>
+                <StudentGroups userId={user.id} showHeader={true} />
+              </div>
+            </Card>
           )}
 
           {tab === "goals" && (
