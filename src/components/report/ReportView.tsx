@@ -4,15 +4,11 @@
 // - Report画面の「共通レイアウト」(カード/セクション/余白/見出し) を統一
 // - 学習推移/目標(週・月)/成績/カレンダー/学習ログ入力 を組み合わせて表示
 //
-// Data sources:
-// - study_logs: 学習ログ（minutes, studied_at, subject, memo）
-//   -> 学習推移（今日/今週/今月/総学習時間）もここから集計する
-// - student_goals: 目標（週・月など）を保存
-//
-// IMPORTANT:
-// - あなたのDBでは study_logs の日付列は studied_at(date) です（studied_at_date ではない）
+// NOTE:
+// - 目標は MyPage の StudentGoals と同じ "student_goals" スキーマを使う
+//   (user_id, period_type, period_key, title, detail)
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 import CalendarBoard from "../CalendarBoard";
@@ -21,10 +17,14 @@ import StudentGrades from "../StudentGrades";
 import Button from "../ui/Button";
 import Input, { Textarea } from "../ui/Input";
 
+// ★ 学習サマリ（MyPageから移植）
+import StudentDashboardSummary from "../StudentDashboardSummary";
+
 const GOALS_TABLE = "student_goals";
 const STUDY_LOGS_TABLE = "study_logs";
 
 type Mode = "student" | "teacher";
+type PeriodType = "week" | "month";
 
 type Props = {
   ownerUserId: string; // 生徒本人 or 先生が閲覧している対象生徒
@@ -35,7 +35,7 @@ type Props = {
   showCalendar?: boolean;
 
   calendarPermissions: CalendarPermissions;
-  canEditGoals?: boolean;
+  canEditGoals?: boolean; // 生徒本人のみ true 推奨
 };
 
 type StudyLogRow = {
@@ -43,7 +43,7 @@ type StudyLogRow = {
   user_id: string;
   subject: string;
   minutes: number;
-  studied_at: string; // ★ date: "YYYY-MM-DD"
+  studied_at: string; // date: "YYYY-MM-DD"
   memo: string | null;
   created_at: string;
 };
@@ -51,13 +51,10 @@ type StudyLogRow = {
 type GoalRow = {
   id: string;
   user_id: string;
-  kind: string; // "goal" など
-  text: string | null;
-  period_type: string | null; // "week" | "month"
-  period_key: string | null; // 例: "2026-01" / 週キー
-  period_start: string | null; // date
-  period_end: string | null; // date
-  detail: string | null; // JSON文字列でもOK
+  period_type: PeriodType;
+  period_key: string; // "2026-W03" or "2026-01"
+  title: string | null;
+  detail: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -77,11 +74,36 @@ function minutesLabel(totalMinutes: number) {
   return `${h}時間${m}分`;
 }
 
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
+// ISO 週番号（StudentGoals.tsx と同じ）
+function getISOWeek(date: Date): number {
+  const tmp = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = tmp.getUTCDay() || 7;
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((tmp.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return weekNo;
+}
+function getCurrentWeekKey(now = new Date()): string {
+  const year = now.getFullYear();
+  const week = getISOWeek(now);
+  return `${year}-W${String(week).padStart(2, "0")}`;
+}
+function getCurrentMonthKey(now = new Date()): string {
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+function labelOfPeriod(type: PeriodType, key: string): string {
+  if (type === "week") {
+    const [y, w] = key.split("-W");
+    return `${y}年第${parseInt(w ?? "0", 10)}週`;
+  } else {
+    const [y, m] = key.split("-");
+    return `${y}年${parseInt(m ?? "0", 10)}月`;
+  }
 }
 
-// 月曜始まり
+// 月曜始まり（実績集計用：study_logs は date 文字列なので比較でOK）
 function startOfWeekISO(dateISO: string) {
   const d = new Date(`${dateISO}T00:00:00`);
   const day = d.getDay(); // 0 Sun
@@ -94,7 +116,6 @@ function endOfWeekISO(dateISO: string) {
   s.setDate(s.getDate() + 6);
   return toISODate(s);
 }
-
 function startOfMonthISO(dateISO: string) {
   const d = new Date(`${dateISO}T00:00:00`);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
@@ -104,13 +125,6 @@ function endOfMonthISO(dateISO: string) {
   d.setMonth(d.getMonth() + 1);
   d.setDate(d.getDate() - 1);
   return toISODate(d);
-}
-
-function weekKey(dateISO: string) {
-  return startOfWeekISO(dateISO); // 週キー = 週開始日
-}
-function monthKey(dateISO: string) {
-  return dateISO.slice(0, 7); // "YYYY-MM"
 }
 
 function SoftCard({
@@ -153,58 +167,6 @@ function SoftCard({
   );
 }
 
-function StatPill({ label, value }: { label: string; value: string }) {
-  return (
-    <div
-      style={{
-        borderRadius: "18px",
-        padding: "14px 14px",
-        backgroundColor: "rgba(255,255,255,0.78)",
-        border: "1px solid rgba(148,163,184,0.22)",
-        boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)",
-        minHeight: "66px",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        gap: "6px",
-      }}
-    >
-      <div style={{ color: "#64748b", fontSize: "12px", fontWeight: 900 }}>
-        {label}
-      </div>
-      <div style={{ color: "#0f172a", fontSize: "20px", fontWeight: 900 }}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function ProgressBar({ percent }: { percent: number }) {
-  const p = clamp(percent, 0, 100);
-  return (
-    <div
-      style={{
-        width: "100%",
-        height: "10px",
-        borderRadius: "999px",
-        background: "rgba(59,130,246,0.14)",
-        overflow: "hidden",
-        border: "1px solid rgba(59,130,246,0.18)",
-      }}
-    >
-      <div
-        style={{
-          width: `${p}%`,
-          height: "100%",
-          borderRadius: "999px",
-          background: "linear-gradient(90deg, #60a5fa, #3b82f6)",
-          transition: "width 200ms ease",
-        }}
-      />
-    </div>
-  );
-}
-
 export default function ReportView({
   ownerUserId,
   mode,
@@ -215,6 +177,8 @@ export default function ReportView({
   canEditGoals = true,
 }: Props) {
   const todayISO = toISODate(new Date());
+  const weekKey = useMemo(() => getCurrentWeekKey(new Date()), []);
+  const monthKey = useMemo(() => getCurrentMonthKey(new Date()), []);
 
   const [tab, setTab] = useState<"record" | "timeline">("record");
 
@@ -222,8 +186,9 @@ export default function ReportView({
   const [logs, setLogs] = useState<StudyLogRow[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
 
-  // student_goals
-  const [goals, setGoals] = useState<GoalRow[]>([]);
+  // goals (MyPage 방식)
+  const [weekGoal, setWeekGoal] = useState<GoalRow | null>(null);
+  const [monthGoal, setMonthGoal] = useState<GoalRow | null>(null);
   const [goalsLoading, setGoalsLoading] = useState(false);
 
   // add form
@@ -237,7 +202,6 @@ export default function ReportView({
     if (!ownerUserId) return;
     setLogsLoading(true);
 
-    // ★ studied_at に修正
     const { data, error } = await supabase
       .from(STUDY_LOGS_TABLE)
       .select("id,user_id,subject,minutes,studied_at,memo,created_at")
@@ -260,21 +224,28 @@ export default function ReportView({
     if (!ownerUserId) return;
     setGoalsLoading(true);
 
-    const { data, error } = await supabase
-      .from(GOALS_TABLE)
-      .select(
-        "id,user_id,kind,text,period_type,period_key,period_start,period_end,detail,created_at,updated_at"
-      )
-      .eq("user_id", ownerUserId)
-      .order("created_at", { ascending: false })
-      .limit(50);
+    const [wRes, mRes] = await Promise.all([
+      supabase
+        .from(GOALS_TABLE)
+        .select("*")
+        .eq("user_id", ownerUserId)
+        .eq("period_type", "week")
+        .eq("period_key", weekKey)
+        .maybeSingle(),
+      supabase
+        .from(GOALS_TABLE)
+        .select("*")
+        .eq("user_id", ownerUserId)
+        .eq("period_type", "month")
+        .eq("period_key", monthKey)
+        .maybeSingle(),
+    ]);
 
-    if (error) {
-      console.error("❌ load student_goals:", error.message);
-      setGoals([]);
-    } else {
-      setGoals((data ?? []) as GoalRow[]);
-    }
+    if (wRes.error) console.error("❌ load week goal:", wRes.error.message);
+    if (mRes.error) console.error("❌ load month goal:", mRes.error.message);
+
+    setWeekGoal((wRes.data as GoalRow) ?? null);
+    setMonthGoal((mRes.data as GoalRow) ?? null);
 
     setGoalsLoading(false);
   }
@@ -285,15 +256,7 @@ export default function ReportView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerUserId]);
 
-  // -------------------------
-  // 学習推移（study_logsから集計）
-  // -------------------------
-  const todayMinutes = useMemo(() => {
-    return logs
-      .filter((l) => l.studied_at === todayISO)
-      .reduce((sum, l) => sum + (l.minutes ?? 0), 0);
-  }, [logs, todayISO]);
-
+  // 実績（study_logs 集計）
   const weekMinutes = useMemo(() => {
     const s = startOfWeekISO(todayISO);
     const e = endOfWeekISO(todayISO);
@@ -310,104 +273,59 @@ export default function ReportView({
       .reduce((sum, l) => sum + (l.minutes ?? 0), 0);
   }, [logs, todayISO]);
 
-  const totalMinutes = useMemo(() => {
-    return logs.reduce((sum, l) => sum + (l.minutes ?? 0), 0);
-  }, [logs]);
+  // （任意）進捗バーは「数値目標」が無いので、ここでは “実績だけ” にする。
+  // ただし「目標文に 10時間 とか書いてある」場合もあるので、バーは出さない方が安全。
 
-  // ---- goals: detail JSON { target_minutes } 優先 ----
-  function parseTargetMinutes(r: GoalRow | undefined): number | null {
-    if (!r) return null;
-
-    if (r.detail) {
-      try {
-        const obj = JSON.parse(r.detail);
-        const v = obj?.target_minutes;
-        if (typeof v === "number" && Number.isFinite(v) && v > 0) return v;
-      } catch {
-        // ignore
-      }
-    }
-    if (r.text) {
-      const n = Number(r.text);
-      if (Number.isFinite(n) && n > 0) return Math.floor(n);
-    }
-    return null;
-  }
-
-  const currentWeekTarget = useMemo(() => {
-    const key = weekKey(todayISO);
-    const row =
-      goals.find((r) => r.kind === "goal" && r.period_type === "week" && r.period_key === key) ||
-      goals.find((r) => r.kind === "goal" && r.period_type === "week");
-    return parseTargetMinutes(row);
-  }, [goals, todayISO]);
-
-  const currentMonthTarget = useMemo(() => {
-    const key = monthKey(todayISO);
-    const row =
-      goals.find((r) => r.kind === "goal" && r.period_type === "month" && r.period_key === key) ||
-      goals.find((r) => r.kind === "goal" && r.period_type === "month");
-    return parseTargetMinutes(row);
-  }, [goals, todayISO]);
-
-  const weekPercent = useMemo(() => {
-    if (!currentWeekTarget || currentWeekTarget <= 0) return 0;
-    return (weekMinutes / currentWeekTarget) * 100;
-  }, [weekMinutes, currentWeekTarget]);
-
-  const monthPercent = useMemo(() => {
-    if (!currentMonthTarget || currentMonthTarget <= 0) return 0;
-    return (monthMinutes / currentMonthTarget) * 100;
-  }, [monthMinutes, currentMonthTarget]);
-
-  async function upsertGoal(periodType: "week" | "month") {
+  async function upsertTextGoal(periodType: PeriodType) {
     if (!ownerUserId) return;
     if (!canEditGoals) return;
 
-    const label = periodType === "week" ? "週" : "月";
-    const current = periodType === "week" ? currentWeekTarget : currentMonthTarget;
+    const key = periodType === "week" ? weekKey : monthKey;
+    const current = periodType === "week" ? weekGoal : monthGoal;
 
-    const input = window.prompt(
-      `${label}間目標を「分」で入力してください。\n例：600（=10時間）`,
-      current ? String(current) : ""
+    const currentTitle = current?.title ?? "";
+    const currentDetail = current?.detail ?? "";
+
+    const title = window.prompt(
+      `${periodType === "week" ? "週" : "月"}目標（ひとこと）を入力してください`,
+      currentTitle
     );
-    if (input == null) return;
+    if (title == null) return;
 
-    const n = Number(input);
-    if (!Number.isFinite(n) || n <= 0) {
-      alert("正の数（分）で入力してください。");
+    const detail = window.prompt(
+      `詳細・振り返りメモ（任意）`,
+      currentDetail
+    );
+    if (detail == null) return;
+
+    const nowIso = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from(GOALS_TABLE)
+      .upsert(
+        {
+          id: current?.id,
+          user_id: ownerUserId,
+          period_type: periodType,
+          period_key: key,
+          title: title.trim() || null,
+          detail: detail.trim() || null,
+          created_at: current?.created_at ?? nowIso,
+          updated_at: nowIso,
+        },
+        { onConflict: "user_id,period_type,period_key" }
+      )
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      alert("目標の保存に失敗: " + error.message);
       return;
     }
 
-    const key = periodType === "week" ? weekKey(todayISO) : monthKey(todayISO);
-    const start = periodType === "week" ? startOfWeekISO(todayISO) : startOfMonthISO(todayISO);
-    const end = periodType === "week" ? endOfWeekISO(todayISO) : endOfMonthISO(todayISO);
-
-    const existing = goals.find(
-      (r) => r.kind === "goal" && r.period_type === periodType && r.period_key === key
-    );
-
-    const payload = {
-      user_id: ownerUserId,
-      kind: "goal",
-      period_type: periodType,
-      period_key: key,
-      period_start: start,
-      period_end: end,
-      text: null,
-      detail: JSON.stringify({ target_minutes: Math.floor(n) }),
-    };
-
-    const res = existing
-      ? await supabase.from(GOALS_TABLE).update(payload).eq("id", existing.id)
-      : await supabase.from(GOALS_TABLE).insert(payload);
-
-    if (res.error) {
-      alert("目標の保存に失敗: " + res.error.message);
-      return;
-    }
-
-    await loadGoals();
+    const saved = (data as GoalRow) ?? null;
+    if (periodType === "week") setWeekGoal(saved);
+    else setMonthGoal(saved);
   }
 
   async function addLog() {
@@ -420,7 +338,6 @@ export default function ReportView({
 
     setSavingLog(true);
 
-    // ★ studied_at に修正
     const { error } = await supabase.from(STUDY_LOGS_TABLE).insert({
       user_id: ownerUserId,
       subject: formSubject.trim(),
@@ -454,6 +371,7 @@ export default function ReportView({
       "radial-gradient(1000px 400px at 20% -10%, rgba(96,165,250,0.30), rgba(255,255,255,0)), radial-gradient(900px 380px at 90% 0%, rgba(191,219,254,0.55), rgba(255,255,255,0)), #f8fafc",
   };
 
+  // タイトル→タブを縦並び
   const headerWrapStyle: React.CSSProperties = {
     backgroundColor: "#ffffff",
     borderRadius: "18px",
@@ -461,40 +379,33 @@ export default function ReportView({
     border: "1px solid rgba(148,163,184,0.16)",
     padding: "18px 20px 0px",
     display: "flex",
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    gap: "20px",
+    flexDirection: "column",
+    gap: "10px",
   };
 
   const headerTitleStyle: React.CSSProperties = {
     fontSize: "22px",
     fontWeight: 900,
     color: "#0f172a",
-    paddingBottom: "12px",
+    paddingBottom: "6px",
   };
 
   const tabHeaderRowStyle: React.CSSProperties = {
     display: "flex",
     gap: "0px",
     position: "relative",
-    flex: 1,
-    maxWidth: "400px",
+    width: "100%",
   };
 
-  const subtleRightStyle: React.CSSProperties = {
-    color: "#64748b",
-    fontWeight: 900,
-    fontSize: "12px",
-    backgroundColor: "rgba(255,255,255,0.75)",
-    border: "1px solid rgba(148,163,184,0.20)",
-    borderRadius: "999px",
-    padding: "8px 10px",
-    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
-    whiteSpace: "nowrap",
-  };
-
-  const TopTab = ({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) => (
+  const TopTab = ({
+    active,
+    label,
+    onClick,
+  }: {
+    active: boolean;
+    label: string;
+    onClick: () => void;
+  }) => (
     <button
       onClick={onClick}
       style={{
@@ -527,14 +438,109 @@ export default function ReportView({
     </button>
   );
 
+  const subtleRightStyle: React.CSSProperties = {
+    color: "#64748b",
+    fontWeight: 900,
+    fontSize: "12px",
+    backgroundColor: "rgba(255,255,255,0.75)",
+    border: "1px solid rgba(148,163,184,0.20)",
+    borderRadius: "999px",
+    padding: "8px 10px",
+    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
+    whiteSpace: "nowrap",
+  };
+
+  function GoalCard({
+    periodType,
+    goal,
+    actualMinutes,
+  }: {
+    periodType: PeriodType;
+    goal: GoalRow | null;
+    actualMinutes: number;
+  }) {
+    const label = labelOfPeriod(periodType, periodType === "week" ? weekKey : monthKey);
+    const title = goal?.title?.trim() || "";
+    const detail = goal?.detail?.trim() || "";
+
+    return (
+      <SoftCard
+        title={periodType === "week" ? "週間目標" : "月間目標"}
+        right={
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+            <div style={subtleRightStyle}>{title ? `目標: ${title}` : "未設定"}</div>
+            {canEditGoals && (
+              <button
+                onClick={() => upsertTextGoal(periodType)}
+                style={{
+                  border: "1px solid rgba(59,130,246,0.22)",
+                  background:
+                    "linear-gradient(180deg, rgba(96,165,250,0.90), rgba(59,130,246,0.90))",
+                  color: "#ffffff",
+                  borderRadius: "999px",
+                  padding: "10px 14px",
+                  fontWeight: 900,
+                  cursor: "pointer",
+                  boxShadow: "0 14px 28px rgba(59,130,246,0.18)",
+                }}
+              >
+                編集
+              </button>
+            )}
+          </div>
+        }
+      >
+        <div style={{ color: "#64748b", fontSize: "12px", fontWeight: 900, marginBottom: 10 }}>
+          対象期間: {label}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ color: "#0f172a", fontWeight: 900 }}>
+            実績: <span style={{ color: "#1d4ed8" }}>{minutesLabel(actualMinutes)}</span>
+          </div>
+          {goalsLoading && (
+            <div style={{ color: "#94a3b8", fontSize: "12px", fontWeight: 900 }}>
+              目標読み込み中...
+            </div>
+          )}
+        </div>
+
+        {title ? (
+          <div style={{ marginTop: 10, fontWeight: 900, color: "#0f172a" }}>
+            <span style={{ color: "#1d4ed8" }}>目標：</span>
+            {title}
+          </div>
+        ) : (
+          <div style={{ marginTop: 10, color: "#64748b", fontSize: "13px", fontWeight: 900 }}>
+            目標が未設定です。
+          </div>
+        )}
+
+        {detail && (
+          <div style={{ marginTop: 8, color: "#334155", fontSize: "13px", whiteSpace: "pre-wrap", fontWeight: 800 }}>
+            <span style={{ color: "#1d4ed8" }}>メモ：</span>
+            {detail}
+          </div>
+        )}
+      </SoftCard>
+    );
+  }
+
   return (
     <div style={pageStyle}>
       {/* Header & Tabs */}
       <div style={headerWrapStyle}>
         <div style={headerTitleStyle}>レポート</div>
+
         <div style={tabHeaderRowStyle}>
           <TopTab active={tab === "record"} label="記録" onClick={() => setTab("record")} />
-          {showTimeline && <TopTab active={tab === "timeline"} label="タイムライン" onClick={() => setTab("timeline")} />}
+          {showTimeline && (
+            <TopTab
+              active={tab === "timeline"}
+              label="タイムライン"
+              onClick={() => setTab("timeline")}
+            />
+          )}
         </div>
       </div>
 
@@ -546,164 +552,20 @@ export default function ReportView({
         </SoftCard>
       ) : (
         <>
-          {/* 学習推移 */}
-          <SoftCard
-            title="学習推移"
-            right={<span style={subtleRightStyle}>study_logs.minutes を集計</span>}
-          >
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr 1fr",
-                gap: "12px",
-              }}
-            >
-              <StatPill label="今日" value={minutesLabel(todayMinutes)} />
-              <StatPill label="今週" value={minutesLabel(weekMinutes)} />
-              <StatPill label="今月" value={minutesLabel(monthMinutes)} />
-            </div>
+          {/* 学習推移：外枠(SoftCard)を消して直置き（枠の二重を解消） */}
+          <div style={{ marginTop: "2px" }}>
+            <StudentDashboardSummary userId={ownerUserId} />
+          </div>
 
-            <div
-              style={{
-                marginTop: "12px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "10px",
-                flexWrap: "wrap",
-              }}
-            >
-              <div style={{ color: "#64748b", fontSize: "12px", fontWeight: 900 }}>
-                総学習時間（全期間）: {minutesLabel(totalMinutes)}
-              </div>
+          {/* 週間目標（MyPageの文字目標） */}
+          <GoalCard periodType="week" goal={weekGoal} actualMinutes={weekMinutes} />
 
-              <button
-                onClick={() => loadLogs()}
-                style={{
-                  border: "1px solid rgba(148,163,184,0.24)",
-                  background: "rgba(255,255,255,0.75)",
-                  borderRadius: "999px",
-                  padding: "10px 14px",
-                  fontWeight: 900,
-                  cursor: "pointer",
-                  boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
-                }}
-              >
-                再読み込み
-              </button>
-            </div>
-
-            {logsLoading && (
-              <div style={{ marginTop: "8px", color: "#94a3b8", fontSize: "12px", fontWeight: 900 }}>
-                読み込み中...
-              </div>
-            )}
-          </SoftCard>
-
-          {/* 週間目標 */}
-          <SoftCard
-            title="週間目標"
-            right={
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-                <div style={subtleRightStyle}>
-                  {currentWeekTarget ? `${minutesLabel(currentWeekTarget)} 目標` : "未設定"}
-                </div>
-                {canEditGoals && (
-                  <button
-                    onClick={() => upsertGoal("week")}
-                    style={{
-                      border: "1px solid rgba(59,130,246,0.22)",
-                      background: "linear-gradient(180deg, rgba(96,165,250,0.90), rgba(59,130,246,0.90))",
-                      color: "#ffffff",
-                      borderRadius: "999px",
-                      padding: "10px 14px",
-                      fontWeight: 900,
-                      cursor: "pointer",
-                      boxShadow: "0 14px 28px rgba(59,130,246,0.18)",
-                    }}
-                  >
-                    目標を設定
-                  </button>
-                )}
-              </div>
-            }
-          >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
-              <div style={{ color: "#0f172a", fontWeight: 900 }}>
-                実績: <span style={{ color: "#1d4ed8" }}>{minutesLabel(weekMinutes)}</span>
-              </div>
-              <div style={{ color: "#0f172a", fontWeight: 900 }}>
-                {currentWeekTarget ? `${Math.floor(weekPercent)}%` : "—"}
-              </div>
-            </div>
-
-            {currentWeekTarget ? (
-              <ProgressBar percent={weekPercent} />
-            ) : (
-              <div style={{ color: "#64748b", fontSize: "13px", fontWeight: 900 }}>
-                目標が未設定です。「目標を設定」から追加できます。
-              </div>
-            )}
-
-            {goalsLoading && (
-              <div style={{ marginTop: "10px", color: "#94a3b8", fontSize: "12px", fontWeight: 900 }}>
-                読み込み中...
-              </div>
-            )}
-          </SoftCard>
-
-          {/* 月間目標 */}
-          <SoftCard
-            title="月間目標"
-            right={
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-                <div style={subtleRightStyle}>
-                  {currentMonthTarget ? `${minutesLabel(currentMonthTarget)} 目標` : "未設定"}
-                </div>
-                {canEditGoals && (
-                  <button
-                    onClick={() => upsertGoal("month")}
-                    style={{
-                      border: "1px solid rgba(59,130,246,0.22)",
-                      background: "linear-gradient(180deg, rgba(96,165,250,0.90), rgba(59,130,246,0.90))",
-                      color: "#ffffff",
-                      borderRadius: "999px",
-                      padding: "10px 14px",
-                      fontWeight: 900,
-                      cursor: "pointer",
-                      boxShadow: "0 14px 28px rgba(59,130,246,0.18)",
-                    }}
-                  >
-                    目標を設定
-                  </button>
-                )}
-              </div>
-            }
-          >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
-              <div style={{ color: "#0f172a", fontWeight: 900 }}>
-                実績: <span style={{ color: "#1d4ed8" }}>{minutesLabel(monthMinutes)}</span>
-              </div>
-              <div style={{ color: "#0f172a", fontWeight: 900 }}>
-                {currentMonthTarget ? `${Math.floor(monthPercent)}%` : "—"}
-              </div>
-            </div>
-
-            {currentMonthTarget ? (
-              <ProgressBar percent={monthPercent} />
-            ) : (
-              <div style={{ color: "#64748b", fontSize: "13px", fontWeight: 900 }}>
-                目標が未設定です。「目標を設定」から追加できます。
-              </div>
-            )}
-          </SoftCard>
+          {/* 月間目標（MyPageの文字目標） */}
+          <GoalCard periodType="month" goal={monthGoal} actualMinutes={monthMinutes} />
 
           {/* 成績 */}
           {showGrades && (
-            <SoftCard
-              title="成績（小テスト/問題集）"
-              right={<span style={subtleRightStyle}>既存機能</span>}
-            >
+            <SoftCard title="成績（小テスト/問題集）" right={<span style={subtleRightStyle}>既存機能</span>}>
               <div style={{ color: "#64748b", fontSize: "13px", fontWeight: 900, marginBottom: "12px" }}>
                 「確認する」で問題集の進捗を確認できます。
               </div>
