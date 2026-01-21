@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useNav } from "../hooks/useNav"; // ★追加
 
 type Props = {
   userId: string;
@@ -25,7 +26,7 @@ function startOfWeekISO(d = new Date()) {
   // 月曜始まり
   const x = new Date(d);
   const day = x.getDay(); // 0..6 (Sun..Sat)
-  const diff = (day === 0 ? -6 : 1 - day);
+  const diff = day === 0 ? -6 : 1 - day;
   x.setDate(x.getDate() + diff);
   return isoDate(x);
 }
@@ -42,6 +43,8 @@ function hoursText(min: number) {
 }
 
 export default function StudentDashboardSummary({ userId }: Props) {
+  const nav = useNav(); // ★追加
+
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -104,6 +107,19 @@ export default function StudentDashboardSummary({ userId }: Props) {
     };
   }, [userId, today, weekStart, monthStart]);
 
+  const actionBtnStyle: React.CSSProperties = {
+    border: "1px solid rgba(59,130,246,0.22)",
+    background: "linear-gradient(180deg, rgba(96,165,250,0.95), rgba(59,130,246,0.95))",
+    color: "#ffffff",
+    borderRadius: 9999,
+    padding: "10px 12px",
+    fontWeight: 900,
+    fontSize: 12,
+    cursor: "pointer",
+    boxShadow: "0 14px 28px rgba(59,130,246,0.18)",
+    whiteSpace: "nowrap",
+  };
+
   return (
     <div
       style={{
@@ -117,8 +133,15 @@ export default function StudentDashboardSummary({ userId }: Props) {
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
         <div style={{ fontSize: 15, fontWeight: 900, color: "#0f172a" }}>学習サマリ</div>
-        <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b" }}>
-          今日: {today} / 週: {weekStart}〜 / 月: {monthStart}〜
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <button type="button" style={actionBtnStyle} onClick={() => nav.openMyRecords()}>
+            学習記録を追加
+          </button>
+
+          <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b" }}>
+            今日: {today} / 週: {weekStart}〜 / 月: {monthStart}〜
+          </div>
         </div>
       </div>
 
@@ -152,7 +175,7 @@ function SummaryTile({ label, value, hint }: { label: string; value: string; hin
       style={{
         borderRadius: 18,
         border: "1px solid rgba(148,163,184,0.18)",
-        background: "linear-gradient(180deg, rgba(239,246,255,0.85), rgba(255,255,255,0.92))",
+        background: "#ffffff",
         padding: 14,
       }}
     >

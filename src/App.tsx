@@ -14,6 +14,7 @@ import { useMyApproval } from "./hooks/useMyApproval";
 import { useIsStaff } from "./hooks/useIsStaff";
 import BottomNav from "./components/ui/BottomNav";
 import Report from "./pages/Report";
+
 import { NavContext } from "./hooks/useNav";
 import type { View, MyPageTab, GoalPeriod, NavApi } from "./hooks/useNav";
 
@@ -25,13 +26,18 @@ function Shell() {
   const { isStaff } = useIsStaff();
   const [view, setView] = useState<View>("home");
 
-  // ★ MyPage 初期表示制御（Report → MyPage 目標へ飛ばす用）
+  // MyPage 初期表示制御（Report → MyPage へ飛ばす用）
   const [myPageInitialTab, setMyPageInitialTab] = useState<MyPageTab>("profile");
   const [myPageInitialGoalPeriod, setMyPageInitialGoalPeriod] = useState<GoalPeriod>("week");
 
   const openMyGoals = (period: GoalPeriod) => {
     setMyPageInitialTab("goals");
     setMyPageInitialGoalPeriod(period);
+    setView("mypage");
+  };
+
+  const openMyRecords = () => {
+    setMyPageInitialTab("records");
     setView("mypage");
   };
 
@@ -63,6 +69,7 @@ function Shell() {
       value={{
         setView,
         openMyGoals,
+        openMyRecords, // ★追加
         myPageInitialTab,
         myPageInitialGoalPeriod,
       }}
@@ -104,7 +111,11 @@ function AuthGate() {
   const { approved } = useMyApproval();
 
   if (!session) {
-    return mode === "login" ? <Login onSignup={() => setMode("signup")} /> : <Signup onBack={() => setMode("login")} />;
+    return mode === "login" ? (
+      <Login onSignup={() => setMode("signup")} />
+    ) : (
+      <Signup onBack={() => setMode("login")} />
+    );
   }
 
   if (approved === false) return <PendingApproval />;

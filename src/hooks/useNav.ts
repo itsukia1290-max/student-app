@@ -7,7 +7,10 @@ export type GoalPeriod = "week" | "month";
 
 export type NavApi = {
   setView: (v: View) => void;
+
   openMyGoals: (period: GoalPeriod) => void;
+  openMyRecords: () => void; // ★追加
+
   myPageInitialTab: MyPageTab;
   myPageInitialGoalPeriod: GoalPeriod;
 };

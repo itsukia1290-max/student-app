@@ -6,8 +6,6 @@ import { supabase } from "../../lib/supabase";
 import CalendarBoard from "../CalendarBoard";
 import type { CalendarPermissions } from "../CalendarBoard";
 import StudentGrades from "../StudentGrades";
-import Button from "../ui/Button";
-import Input, { Textarea } from "../ui/Input";
 
 import StudentDashboardSummary from "../StudentDashboardSummary";
 import { useNav } from "../../hooks/useNav";
@@ -150,22 +148,13 @@ export default function ReportView({
 
   // study_logs
   const [logs, setLogs] = useState<StudyLogRow[]>([]);
-  const [logsLoading, setLogsLoading] = useState(false);
 
   // student_goals
   const [goals, setGoals] = useState<GoalRow[]>([]);
   const [goalsLoading, setGoalsLoading] = useState(false);
 
-  // add form
-  const [formDate, setFormDate] = useState<string>(todayISO);
-  const [formSubject, setFormSubject] = useState<string>("");
-  const [formMinutes, setFormMinutes] = useState<string>("60");
-  const [formMemo, setFormMemo] = useState<string>("");
-  const [savingLog, setSavingLog] = useState(false);
-
   async function loadLogs() {
     if (!ownerUserId) return;
-    setLogsLoading(true);
 
     const { data, error } = await supabase
       .from(STUDY_LOGS_TABLE)
@@ -181,8 +170,6 @@ export default function ReportView({
     } else {
       setLogs((data ?? []) as StudyLogRow[]);
     }
-
-    setLogsLoading(false);
   }
 
   async function loadGoals() {
@@ -241,38 +228,6 @@ export default function ReportView({
     );
   }, [goals, monthKey]);
 
-  async function addLog() {
-    if (!ownerUserId) return;
-
-    const minutes = Number(formMinutes);
-    if (!formSubject.trim()) return alert("科目を入力してください。");
-    if (!Number.isFinite(minutes) || minutes <= 0) return alert("分数を正しく入力してください。");
-    if (!formDate) return alert("日付を選択してください。");
-
-    setSavingLog(true);
-
-    const { error } = await supabase.from(STUDY_LOGS_TABLE).insert({
-      user_id: ownerUserId,
-      subject: formSubject.trim(),
-      minutes: Math.floor(minutes),
-      studied_at: formDate,
-      memo: formMemo.trim() || null,
-    });
-
-    if (error) {
-      alert("学習ログの保存に失敗: " + error.message);
-      setSavingLog(false);
-      return;
-    }
-
-    setFormSubject("");
-    setFormMinutes("60");
-    setFormMemo("");
-    setSavingLog(false);
-
-    await loadLogs();
-  }
-
   // ---- styles ----
   const pageStyle: React.CSSProperties = {
     display: "flex",
@@ -280,8 +235,7 @@ export default function ReportView({
     gap: "14px",
     padding: "8px",
     borderRadius: "24px",
-    background:
-      "radial-gradient(1000px 400px at 20% -10%, rgba(96,165,250,0.30), rgba(255,255,255,0)), radial-gradient(900px 380px at 90% 0%, rgba(191,219,254,0.55), rgba(255,255,255,0)), #f8fafc",
+    background: "#f8fafc",
   };
 
   const headerWrapStyle: React.CSSProperties = {
@@ -464,92 +418,6 @@ export default function ReportView({
               </div>
             </SoftCard>
           )}
-
-          {/* 学習ログ入力 */}
-          <SoftCard title="学習時間の記入" right={<span style={subtleRightStyle}>study_logs に保存</span>}>
-            <div style={{ display: "grid", gridTemplateColumns: "160px 1fr 140px", gap: "10px" }}>
-              <div>
-                <label style={{ fontSize: "12px", fontWeight: 900, color: "#475569" }}>日付</label>
-                <input
-                  type="date"
-                  value={formDate}
-                  onChange={(e) => setFormDate(e.target.value)}
-                  style={{
-                    width: "100%",
-                    marginTop: "6px",
-                    border: "1px solid rgba(148,163,184,0.30)",
-                    borderRadius: "14px",
-                    padding: "12px 12px",
-                    fontWeight: 900,
-                    backgroundColor: "rgba(255,255,255,0.85)",
-                    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: "12px", fontWeight: 900, color: "#475569" }}>科目</label>
-                <Input className="mt-1" value={formSubject} onChange={(e) => setFormSubject(e.target.value)} />
-              </div>
-
-              <div>
-                <label style={{ fontSize: "12px", fontWeight: 900, color: "#475569" }}>分</label>
-                <Input className="mt-1" value={formMinutes} onChange={(e) => setFormMinutes(e.target.value)} />
-              </div>
-            </div>
-
-            <div style={{ marginTop: "10px" }}>
-              <label style={{ fontSize: "12px", fontWeight: 900, color: "#475569" }}>メモ（任意）</label>
-              <Textarea className="mt-1 h-24" value={formMemo} onChange={(e) => setFormMemo(e.target.value)} />
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "10px" }}>
-              <Button onClick={addLog} disabled={savingLog}>
-                {savingLog ? "保存中..." : "追加"}
-              </Button>
-            </div>
-
-            <div style={{ marginTop: "14px", borderTop: "1px dashed rgba(148,163,184,0.35)", paddingTop: "14px" }}>
-              <div style={{ fontWeight: 900, color: "#0f172a", marginBottom: "10px" }}>最近の学習ログ</div>
-
-              {logsLoading ? (
-                <div style={{ color: "#94a3b8", fontSize: "13px", fontWeight: 900 }}>読み込み中...</div>
-              ) : logs.length === 0 ? (
-                <div style={{ color: "#94a3b8", fontSize: "13px", fontWeight: 900 }}>まだ学習ログがありません。</div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                  {logs.slice(0, 8).map((l) => (
-                    <div
-                      key={l.id}
-                      style={{
-                        border: "1px solid rgba(148,163,184,0.22)",
-                        borderRadius: "16px",
-                        padding: "12px 12px",
-                        background: "rgba(255,255,255,0.78)",
-                        boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
-                        <div style={{ fontWeight: 900, color: "#0f172a" }}>
-                          {l.subject}
-                          <span style={{ marginLeft: "10px", color: "#64748b", fontWeight: 900, fontSize: "12px" }}>
-                            {l.studied_at}
-                          </span>
-                        </div>
-                        <div style={{ fontWeight: 900, color: "#1d4ed8" }}>{minutesLabel(l.minutes)}</div>
-                      </div>
-
-                      {l.memo && (
-                        <div style={{ marginTop: "8px", color: "#475569", fontSize: "13px", whiteSpace: "pre-wrap", fontWeight: 800 }}>
-                          {l.memo}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </SoftCard>
 
           {/* カレンダー */}
           {showCalendar && (
