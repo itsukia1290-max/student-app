@@ -1,8 +1,15 @@
 // src/components/StudentGrades.tsx
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 
-type Mark = "O" | "X" | "D" | "";
+/**
+ * Mark:
+ *  ""  = 未
+ *  "O" = ○
+ *  "X" = ×
+ *  "T" = △ (Triangle)
+ */
+type Mark = "O" | "X" | "T" | "";
 type Mode = "view" | "select";
 
 type GradeRow = {
@@ -11,6 +18,7 @@ type GradeRow = {
   title: string;
   problem_count: number;
   marks: Mark[];
+  labels?: string[]; // 任意ラベル（例: "1", "1(1)", "1(2)" ...）
   created_at: string;
   updated_at: string;
 };
@@ -30,27 +38,34 @@ type Props = {
   editable?: boolean; // 生徒: false / 教師: true
 };
 
-const MARK_LABEL: Record<Mark, string> = { "": "", O: "○", X: "×", D: "△" };
+const MARK_LABEL: Record<Mark, string> = { "": "", O: "○", X: "×", T: "△" };
 
 export default function StudentGrades({ userId, editable = false }: Props) {
   const [rows, setRows] = useState<GradeRow[]>([]);
   const [savingIds, setSavingIds] = useState<Record<string, boolean>>({});
+  const [autoMsg, setAutoMsg] = useState<Record<string, string>>({}); // rowId => status
 
   // selection per grade
   const [mode, setMode] = useState<Record<string, Mode>>({});
-  const [selected, setSelected] = useState<Record<string, Set<number>>>({});
-  const [lastIdx, setLastIdx] = useState<Record<string, number | null>>({});
+  const [selected, setSelected] = useState<Record<string, Set<number>>>({}); // ※備考用に残す（範囲の確定後にここへ入れる）
+  const [rangeText, setRangeText] = useState<Record<string, { start: string; end: string }>>({});
 
   // notes per grade
   const [notesByGrade, setNotesByGrade] = useState<Record<string, NoteRow[]>>({});
   const [noteSaving, setNoteSaving] = useState<Record<string, boolean>>({}); // note_id => saving
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({}); // note_id => draft text
 
+  // debounce timers
+  const rowSaveTimers = useRef<Record<string, number>>({});
+  const noteSaveTimers = useRef<Record<string, number>>({});
+
+  // ---------- load ----------
   async function loadGrades() {
     if (!userId) return;
+
     const { data, error } = await supabase
       .from("student_grades")
-      .select("id,user_id,title,problem_count,marks,created_at,updated_at")
+      .select("id,user_id,title,problem_count,marks,labels,created_at,updated_at")
       .eq("user_id", userId)
       .order("created_at", { ascending: true });
 
@@ -65,17 +80,23 @@ export default function StudentGrades({ userId, editable = false }: Props) {
       title: string;
       problem_count: number;
       marks: unknown;
+      labels?: unknown;
       created_at: string;
       updated_at: string;
     }>).map((r) => {
-      const raw = Array.isArray(r.marks) ? (r.marks as unknown[]) : [];
-      const marks: Mark[] = raw.map((m) => (m === "O" || m === "X" || m === "D" ? (m as Mark) : ""));
+      const rawMarks = Array.isArray(r.marks) ? (r.marks as unknown[]) : [];
+      const marks: Mark[] = rawMarks.map((m) => (m === "O" || m === "X" || m === "T" ? (m as Mark) : ""));
+      const rawLabels = Array.isArray(r.labels) ? (r.labels as unknown[]) : [];
+      const labels: string[] | undefined =
+        rawLabels.length > 0 ? rawLabels.map((x) => (typeof x === "string" ? x : "")).filter(Boolean) : undefined;
+
       return {
         id: r.id,
         user_id: r.user_id,
         title: r.title,
         problem_count: r.problem_count,
         marks,
+        labels,
         created_at: r.created_at,
         updated_at: r.updated_at,
       };
@@ -83,7 +104,7 @@ export default function StudentGrades({ userId, editable = false }: Props) {
 
     setRows(mapped);
 
-    // selection/notes state init（gradeが消えた時の掃除）
+    // state init / cleanup
     setMode((prev) => {
       const next: Record<string, Mode> = {};
       for (const g of mapped) next[g.id] = prev[g.id] ?? "view";
@@ -94,18 +115,18 @@ export default function StudentGrades({ userId, editable = false }: Props) {
       for (const g of mapped) next[g.id] = prev[g.id] ?? new Set();
       return next;
     });
-    setLastIdx((prev) => {
-      const next: Record<string, number | null> = {};
-      for (const g of mapped) next[g.id] = prev[g.id] ?? null;
+    setRangeText((prev) => {
+      const next: Record<string, { start: string; end: string }> = { ...prev };
+      for (const g of mapped) next[g.id] = next[g.id] ?? { start: "", end: "" };
       return next;
     });
 
-    // notesも一括で読み込み
     await loadNotesForGrades(mapped.map((g) => g.id));
   }
 
   async function loadNotesForGrades(gradeIds: string[]) {
     if (gradeIds.length === 0) return;
+
     const { data, error } = await supabase
       .from("student_grade_notes")
       .select("id,grade_id,start_idx,end_idx,note,created_at,updated_at")
@@ -114,24 +135,19 @@ export default function StudentGrades({ userId, editable = false }: Props) {
       .order("end_idx", { ascending: true });
 
     if (error) {
-      // notes未導入の段階だとここが失敗するので、consoleに留める
       console.warn("⚠️ load notes:", error.message);
       return;
     }
 
     const by: Record<string, NoteRow[]> = {};
     for (const g of gradeIds) by[g] = [];
-    for (const r of (data ?? []) as NoteRow[]) {
-      (by[r.grade_id] ??= []).push(r);
-    }
+    for (const r of (data ?? []) as NoteRow[]) (by[r.grade_id] ??= []).push(r);
+
     setNotesByGrade(by);
 
-    // draft初期化
     setNoteDraft((prev) => {
       const next = { ...prev };
-      for (const r of (data ?? []) as NoteRow[]) {
-        if (next[r.id] == null) next[r.id] = r.note ?? "";
-      }
+      for (const r of (data ?? []) as NoteRow[]) if (next[r.id] == null) next[r.id] = r.note ?? "";
       return next;
     });
   }
@@ -144,23 +160,26 @@ export default function StudentGrades({ userId, editable = false }: Props) {
   // ---------- grade CRUD ----------
   async function addWorkbook() {
     if (!editable) return;
-    const title = window.prompt("問題集の名前は？（例：英文法Vintage）");
+
+    const title = window.prompt("問題集の名前は？（例：数学基礎問題精講）");
     if (!title) return;
-    const numStr = window.prompt("問題数は？（1〜1000）");
+
+    const numStr = window.prompt("問題数は？（1〜2000）");
     if (!numStr) return;
 
     const n = Number(numStr);
-    if (!Number.isInteger(n) || n <= 0 || n > 1000) {
-      alert("1〜1000の整数で指定してください。");
+    if (!Number.isInteger(n) || n <= 0 || n > 2000) {
+      alert("1〜2000の整数で指定してください。");
       return;
     }
 
     const marks: Mark[] = Array(n).fill("");
+    const labels = Array.from({ length: n }, (_, i) => String(i + 1)); // デフォルトラベル
 
     const { data, error } = await supabase
       .from("student_grades")
-      .insert([{ user_id: userId, title, problem_count: n, marks }])
-      .select("id,user_id,title,problem_count,marks,created_at,updated_at")
+      .insert([{ user_id: userId, title, problem_count: n, marks, labels }])
+      .select("id,user_id,title,problem_count,marks,labels,created_at,updated_at")
       .single();
 
     if (error) {
@@ -169,34 +188,20 @@ export default function StudentGrades({ userId, editable = false }: Props) {
     }
 
     const row = data as unknown as GradeRow;
-    row.marks = (Array.isArray(row.marks) ? (row.marks as unknown[]) : []).map((m) => (m === "O" || m === "X" || m === "D" ? (m as Mark) : ""));
+    const rawData = data as Record<string, unknown>;
+    row.marks = (Array.isArray(rawData.marks) ? (rawData.marks as unknown[]) : []).map((m) =>
+      m === "O" || m === "X" || m === "T" ? (m as Mark) : ""
+    );
+    row.labels = (Array.isArray(rawData.labels) ? (rawData.labels as unknown[]) : [])
+      .map((x) => (typeof x === "string" ? x : ""))
+      .filter(Boolean);
+
     setRows((prev) => [...prev, row]);
 
-    // notes state init
     setNotesByGrade((p) => ({ ...p, [row.id]: [] }));
     setMode((p) => ({ ...p, [row.id]: "view" }));
     setSelected((p) => ({ ...p, [row.id]: new Set() }));
-    setLastIdx((p) => ({ ...p, [row.id]: null }));
-  }
-
-  function setMarkLocal(rowId: string, idx: number, next: Mark) {
-    setRows((prev) =>
-      prev.map((r) => (r.id === rowId ? { ...r, marks: r.marks.map((m, i) => (i === idx ? next : m)) } : r))
-    );
-  }
-
-  async function saveRow(row: GradeRow) {
-    if (!editable) return;
-    setSavingIds((s) => ({ ...s, [row.id]: true }));
-
-    const { error } = await supabase.from("student_grades").update({ marks: row.marks }).eq("id", row.id);
-
-    setSavingIds((s) => {
-      const rest = Object.fromEntries(Object.entries(s).filter(([key]) => key !== row.id));
-      return rest;
-    });
-
-    if (error) alert("保存失敗: " + error.message);
+    setRangeText((p) => ({ ...p, [row.id]: { start: "", end: "" } }));
   }
 
   async function deleteRow(row: GradeRow) {
@@ -208,8 +213,8 @@ export default function StudentGrades({ userId, editable = false }: Props) {
       alert("削除失敗: " + error.message);
       return;
     }
-    setRows((prev) => prev.filter((r) => r.id !== row.id));
 
+    setRows((prev) => prev.filter((r) => r.id !== row.id));
     setNotesByGrade((p) => {
       const next = { ...p };
       delete next[row.id];
@@ -217,107 +222,184 @@ export default function StudentGrades({ userId, editable = false }: Props) {
     });
   }
 
+  // ---------- marks local update ----------
   function cycleMark(cur: Mark): Mark {
     if (cur === "") return "O";
     if (cur === "O") return "X";
-    if (cur === "X") return "D";
+    if (cur === "X") return "T";
     return "";
   }
 
-  function summarize(marks: Mark[]) {
-    let o = 0,
-      x = 0,
-      d = 0,
-      blank = 0;
-    for (const m of marks) {
-      if (m === "O") o++;
-      else if (m === "X") x++;
-      else if (m === "D") d++;
-      else blank++;
-    }
-    return { o, x, d, blank };
+  function setMarkLocal(rowId: string, idx: number, next: Mark) {
+    setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, marks: r.marks.map((m, i) => (i === idx ? next : m)) } : r)));
+    scheduleAutoSaveRow(rowId);
   }
 
-  const empty = useMemo(() => rows.length === 0, [rows]);
-
-  // ---------- selection ----------
-  function clearSelection(rowId: string) {
-    setSelected((p) => ({ ...p, [rowId]: new Set() }));
-    setLastIdx((p) => ({ ...p, [rowId]: null }));
-  }
-
-  function selectedRange(rowId: string): { start: number; end: number } | null {
-    const s = selected[rowId];
-    if (!s || s.size === 0) return null;
-    const arr = Array.from(s.values()).sort((a, b) => a - b);
-    return { start: arr[0], end: arr[arr.length - 1] };
-  }
-
-  function onTileClick(e: React.MouseEvent, row: GradeRow, idx: number) {
+  // ---------- autosave row ----------
+  function scheduleAutoSaveRow(rowId: string) {
     if (!editable) return;
 
-    const isSelectMode = (mode[row.id] ?? "view") === "select";
-    if (!isSelectMode) {
-      setMarkLocal(row.id, idx, cycleMark(row.marks[idx]));
-      return;
-    }
+    // 既存タイマーをリセット
+    if (rowSaveTimers.current[rowId]) window.clearTimeout(rowSaveTimers.current[rowId]);
 
-    const isShift = e.shiftKey;
-    const isCtrl = e.ctrlKey || e.metaKey;
-    const last = lastIdx[row.id];
+    setAutoMsg((p) => ({ ...p, [rowId]: "自動保存待ち…" }));
 
-    setSelected((prev) => {
-      const next = { ...prev };
-      const set = new Set(next[row.id] ?? []);
+    rowSaveTimers.current[rowId] = window.setTimeout(async () => {
+      const row = rowsRef.current.find((r) => r.id === rowId);
+      if (!row) return;
 
-      if (isShift && last != null) {
-        const [lo, hi] = last < idx ? [last, idx] : [idx, last];
-        for (let i = lo; i <= hi; i++) set.add(i);
-      } else if (isCtrl) {
-        if (set.has(idx)) set.delete(idx);
-        else set.add(idx);
-      } else {
-        set.clear();
-        set.add(idx);
+      setSavingIds((s) => ({ ...s, [rowId]: true }));
+
+      const { error } = await supabase
+        .from("student_grades")
+        .update({
+          marks: row.marks,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", rowId);
+
+      setSavingIds((s) => {
+        const next = { ...s };
+        delete next[rowId];
+        return next;
+      });
+
+      if (error) {
+        setAutoMsg((p) => ({ ...p, [rowId]: "自動保存失敗（手動保存してください）" }));
+        return;
       }
+      setAutoMsg((p) => ({ ...p, [rowId]: "自動保存済み" }));
+    }, 700);
+  }
 
-      next[row.id] = set;
+  // rowsRef: debounce内で最新rows参照
+  const rowsRef = useRef<GradeRow[]>([]);
+  useEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
+
+  async function manualSaveRow(row: GradeRow) {
+    if (!editable) return;
+    setSavingIds((s) => ({ ...s, [row.id]: true }));
+
+    const { error } = await supabase
+      .from("student_grades")
+      .update({ marks: row.marks, updated_at: new Date().toISOString() })
+      .eq("id", row.id);
+
+    setSavingIds((s) => {
+      const next = { ...s };
+      delete next[row.id];
       return next;
     });
 
-    setLastIdx((prev) => ({ ...prev, [row.id]: idx }));
+    if (error) alert("保存失敗: " + error.message);
+    else setAutoMsg((p) => ({ ...p, [row.id]: "保存済み" }));
   }
 
-  function applyMark(rowId: string, mark: Mark) {
-    const sel = selected[rowId];
-    if (!sel || sel.size === 0) return;
-
-    setRows((prev) =>
-      prev.map((r) => {
-        if (r.id !== rowId) return r;
-        const nextMarks = r.marks.map((m, i) => (sel.has(i) ? mark : m));
-        return { ...r, marks: nextMarks };
-      })
-    );
+  // ---------- selection helpers ----------
+  function clearSelection(rowId: string) {
+    setSelected((p) => ({ ...p, [rowId]: new Set() }));
   }
 
-  // ---------- notes CRUD ----------
-  async function addNoteFromSelection(row: GradeRow) {
-    if (!editable) return;
+  function setSelectedRangeSet(rowId: string, startIdx: number, endIdx: number) {
+    const [lo, hi] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+    const next = new Set<number>();
+    for (let i = lo; i <= hi; i++) next.add(i);
+    setSelected((p) => ({ ...p, [rowId]: next }));
+  }
 
-    const range = selectedRange(row.id);
+  function resolveIndex(row: GradeRow, text: string): number | null {
+    const t = text.trim();
+    if (!t) return null;
+
+    // 1) 数字入力ならそのまま（1-based → 0-based）
+    if (/^\d+$/.test(t)) {
+      const n = Number(t);
+      if (!Number.isInteger(n)) return null;
+      const idx = n - 1;
+      if (idx < 0 || idx >= row.problem_count) return null;
+      return idx;
+    }
+
+    // 2) labels から一致検索
+    const labels = row.labels ?? [];
+    const idx = labels.findIndex((x) => x === t);
+    if (idx >= 0) return idx;
+
+    return null;
+  }
+
+  function getCurrentRange(row: GradeRow): { startIdx: number; endIdx: number } | null {
+    const rt = rangeText[row.id] ?? { start: "", end: "" };
+    const s = resolveIndex(row, rt.start);
+    const e = resolveIndex(row, rt.end);
+    if (s == null || e == null) return null;
+    return { startIdx: s, endIdx: e };
+  }
+
+  function applyMarkToRange(row: GradeRow, mark: Mark) {
+    const range = getCurrentRange(row);
     if (!range) {
-      alert("範囲を選択してから「備考追加」を押してください。");
+      alert("始点/終点が不正です（例: 12 / 1(2) など）。");
       return;
     }
 
-    const text = window.prompt(`備考を入力（#${range.start + 1}〜#${range.end + 1}）`);
+    const { startIdx, endIdx } = range;
+    const [lo, hi] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+
+    // UI上の選択状態も作る（備考追加で使える）
+    setSelectedRangeSet(row.id, lo, hi);
+
+    // marks更新
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== row.id) return r;
+        const nextMarks = r.marks.map((m, i) => (i >= lo && i <= hi ? mark : m));
+        return { ...r, marks: nextMarks };
+      })
+    );
+
+    scheduleAutoSaveRow(row.id);
+  }
+
+  // タイルクリック（viewモード: 循環 / selectモード: 何もしない）
+  function onTileClick(row: GradeRow, idx: number) {
+    if (!editable) return;
+
+    const isSelectMode = (mode[row.id] ?? "view") === "select";
+
+    // view: クリックで循環（←これが必須）
+    if (!isSelectMode) {
+      const cur = row.marks[idx] ?? "";
+      setMarkLocal(row.id, idx, cycleMark(cur));
+      return;
+    }
+
+    // select: タイルクリックでは変更しない（誤爆防止）
+    // 必要なら「クリックで始点/終点を自動入力」などにできるが、今は無効化
+  }
+
+  // ---------- notes ----------
+  async function addNoteFromSelection(row: GradeRow) {
+    if (!editable) return;
+
+    const range = getCurrentRange(row);
+    if (!range) {
+      alert("始点/終点を入力してから「備考追加」を押してください。");
+      return;
+    }
+
+    const { startIdx, endIdx } = range;
+    const [lo, hi] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+
+    const text = window.prompt(`備考を入力（${labelOf(row, lo)}〜${labelOf(row, hi)}）`);
     if (text == null) return;
 
     const payload = {
       grade_id: row.id,
-      start_idx: range.start,
-      end_idx: range.end,
+      start_idx: lo,
+      end_idx: hi,
       note: text,
     };
 
@@ -339,41 +421,52 @@ export default function StudentGrades({ userId, editable = false }: Props) {
     });
     setNoteDraft((p) => ({ ...p, [newRow.id]: newRow.note ?? "" }));
 
-    // 追加したら選択は解除（誤操作防止）
+    // 追加後は誤操作防止で解除
     clearSelection(row.id);
     setMode((p) => ({ ...p, [row.id]: "view" }));
   }
 
-  async function saveNote(note: NoteRow) {
+  function scheduleAutoSaveNote(noteId: string, gradeId: string) {
     if (!editable) return;
-    const draft = noteDraft[note.id] ?? "";
-    setNoteSaving((p) => ({ ...p, [note.id]: true }));
 
-    const { error } = await supabase
-      .from("student_grade_notes")
-      .update({ note: draft, updated_at: new Date().toISOString() })
-      .eq("id", note.id);
+    if (noteSaveTimers.current[noteId]) window.clearTimeout(noteSaveTimers.current[noteId]);
 
-    setNoteSaving((p) => {
-      const next = { ...p };
-      delete next[note.id];
-      return next;
-    });
+    noteSaveTimers.current[noteId] = window.setTimeout(async () => {
+      const draft = noteDraftRef.current[noteId] ?? "";
 
-    if (error) {
-      alert("備考保存失敗: " + error.message);
-      return;
-    }
+      setNoteSaving((p) => ({ ...p, [noteId]: true }));
+      const { error } = await supabase
+        .from("student_grade_notes")
+        .update({ note: draft, updated_at: new Date().toISOString() })
+        .eq("id", noteId);
 
-    setNotesByGrade((p) => {
-      const list = (p[note.grade_id] ?? []).map((n) => (n.id === note.id ? { ...n, note: draft } : n));
-      return { ...p, [note.grade_id]: list };
-    });
+      setNoteSaving((p) => {
+        const next = { ...p };
+        delete next[noteId];
+        return next;
+      });
+
+      if (error) {
+        alert("備考の自動保存に失敗しました: " + error.message);
+        return;
+      }
+
+      setNotesByGrade((p) => {
+        const list = (p[gradeId] ?? []).map((n) => (n.id === noteId ? { ...n, note: draft } : n));
+        return { ...p, [gradeId]: list };
+      });
+    }, 700);
   }
+
+  const noteDraftRef = useRef<Record<string, string>>({});
+  useEffect(() => {
+    noteDraftRef.current = noteDraft;
+  }, [noteDraft]);
 
   async function deleteNote(note: NoteRow) {
     if (!editable) return;
-    if (!confirm(`備考（#${note.start_idx + 1}〜#${note.end_idx + 1}）を削除します。よろしいですか？`)) return;
+
+    if (!confirm(`備考（${note.start_idx + 1}〜${note.end_idx + 1}）を削除します。よろしいですか？`)) return;
 
     const { error } = await supabase.from("student_grade_notes").delete().eq("id", note.id);
     if (error) {
@@ -390,6 +483,29 @@ export default function StudentGrades({ userId, editable = false }: Props) {
       delete next[note.id];
       return next;
     });
+  }
+
+  // ---------- summary ----------
+  function summarize(marks: Mark[]) {
+    let o = 0,
+      x = 0,
+      t = 0,
+      blank = 0;
+    for (const m of marks) {
+      if (m === "O") o++;
+      else if (m === "X") x++;
+      else if (m === "T") t++;
+      else blank++;
+    }
+    return { o, x, t, blank };
+  }
+
+  const empty = useMemo(() => rows.length === 0, [rows]);
+
+  function labelOf(row: GradeRow, idx: number) {
+    const labels = row.labels ?? [];
+    const s = labels[idx];
+    return s && s.trim() ? s : String(idx + 1);
   }
 
   return (
@@ -411,67 +527,60 @@ export default function StudentGrades({ userId, editable = false }: Props) {
             const s = summarize(row.marks);
             const saving = !!savingIds[row.id];
             const isSelectMode = (mode[row.id] ?? "view") === "select";
-            const selCount = selected[row.id]?.size ?? 0;
-            const range = selectedRange(row.id);
             const notes = notesByGrade[row.id] ?? [];
 
             return (
               <div key={row.id} style={panel()}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 900, color: "#0f172a", fontSize: 14 }}>{row.title}</div>
                     <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b", marginTop: 4 }}>
-                      {row.problem_count}問 / ○:{s.o} ×:{s.x} △:{s.d} 未:{s.blank}
+                      {row.problem_count}問 / ○:{s.o} ×:{s.x} △:{s.t} 未:{s.blank}
+                      {autoMsg[row.id] && <span style={{ marginLeft: 10, color: "#94a3b8" }}>{autoMsg[row.id]}</span>}
                     </div>
                   </div>
 
                   {editable && (
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
                       <button
                         onClick={() => {
                           setMode((p) => ({ ...p, [row.id]: isSelectMode ? "view" : "select" }));
-                          if (!isSelectMode) clearSelection(row.id);
+                          clearSelection(row.id);
                         }}
                         style={ghostBtn(isSelectMode)}
                       >
-                        {isSelectMode ? "選択中" : "選択"}
+                        {isSelectMode ? "範囲選択中" : "範囲選択"}
                       </button>
 
                       {isSelectMode && (
                         <>
-                          <span style={chip()}>
-                            {selCount === 0
-                              ? "範囲選択"
-                              : range
-                              ? `選択: #${range.start + 1}〜#${range.end + 1}（${selCount}）`
-                              : `選択: ${selCount}`}
-                          </span>
+                          <span style={chip()}>始点/終点を入力して範囲を確定</span>
 
-                          <button style={ghostBtn()} onClick={() => applyMark(row.id, "O")}>
-                            ○
-                          </button>
-                          <button style={ghostBtn()} onClick={() => applyMark(row.id, "X")}>
-                            ×
-                          </button>
-                          <button style={ghostBtn()} onClick={() => applyMark(row.id, "D")}>
-                            △
-                          </button>
-                          <button style={ghostBtn()} onClick={() => applyMark(row.id, "")}>
-                            未
-                          </button>
+                          <input
+                            value={rangeText[row.id]?.start ?? ""}
+                            onChange={(e) => setRangeText((p) => ({ ...p, [row.id]: { ...(p[row.id] ?? { start: "", end: "" }), start: e.target.value } }))}
+                            placeholder="始点（例: 12 / 1(2)）"
+                            style={rangeInput()}
+                          />
+                          <input
+                            value={rangeText[row.id]?.end ?? ""}
+                            onChange={(e) => setRangeText((p) => ({ ...p, [row.id]: { ...(p[row.id] ?? { start: "", end: "" }), end: e.target.value } }))}
+                            placeholder="終点（例: 25 / 1(8)）"
+                            style={rangeInput()}
+                          />
 
-                          <button style={ghostBtn()} onClick={() => clearSelection(row.id)}>
-                            解除
-                          </button>
+                          <button style={markBtn("O")} onClick={() => applyMarkToRange(row, "O")}>○</button>
+                          <button style={markBtn("X")} onClick={() => applyMarkToRange(row, "X")}>×</button>
+                          <button style={markBtn("T")} onClick={() => applyMarkToRange(row, "T")}>△</button>
+                          <button style={markBtn("")} onClick={() => applyMarkToRange(row, "")}>未</button>
 
-                          <button style={ghostBtn()} onClick={() => addNoteFromSelection(row)}>
-                            備考追加
-                          </button>
+                          <button style={ghostBtn()} onClick={() => clearSelection(row.id)}>解除</button>
+                          <button style={ghostBtn()} onClick={() => addNoteFromSelection(row)}>備考追加</button>
                         </>
                       )}
 
-                      <button onClick={() => saveRow(row)} disabled={saving} style={ghostBtn()}>
-                        {saving ? "保存中..." : "保存"}
+                      <button onClick={() => manualSaveRow(row)} disabled={saving} style={ghostBtn()}>
+                        {saving ? "保存中..." : "手動保存"}
                       </button>
                       <button onClick={() => deleteRow(row)} style={dangerBtn()}>
                         削除
@@ -485,7 +594,7 @@ export default function StudentGrades({ userId, editable = false }: Props) {
                   style={{
                     marginTop: 12,
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, 44px)",
+                    gridTemplateColumns: "repeat(auto-fill, 46px)",
                     gap: 8,
                     justifyContent: "start",
                   }}
@@ -499,11 +608,19 @@ export default function StudentGrades({ userId, editable = false }: Props) {
                         key={i}
                         type="button"
                         disabled={!editable}
-                        onClick={(e) => clickable && onTileClick(e, row, i)}
+                        onClick={() => clickable && onTileClick(row, i)}
                         style={markTile(m, clickable, isSelected)}
-                        title={`#${i + 1} ${m ? MARK_LABEL[m] : "未"}`}
+                        title={`${labelOf(row, i)} ${m ? MARK_LABEL[m] : "未"}`}
                       >
-                        {m ? MARK_LABEL[m] : `${i + 1}`}
+                        {/* 中央：記号（無ければ空） */}
+                        <div style={{ lineHeight: 1, fontSize: 16, fontWeight: 950 }}>
+                          {m ? MARK_LABEL[m] : ""}
+                        </div>
+
+                        {/* 右下：番号/ラベル（常に表示） */}
+                        <div style={tileLabel()}>
+                          {labelOf(row, i)}
+                        </div>
                       </button>
                     );
                   })}
@@ -523,18 +640,24 @@ export default function StudentGrades({ userId, editable = false }: Props) {
                     <div style={{ display: "grid", gap: 10 }}>
                       {notes.map((n) => {
                         const savingN = !!noteSaving[n.id];
+                        const start = labelOf(row, n.start_idx);
+                        const end = labelOf(row, n.end_idx);
+
                         return (
                           <div key={n.id} style={notePanel()}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                               <div style={{ fontWeight: 900, color: "#0f172a", fontSize: 12 }}>
-                                #{n.start_idx + 1}〜#{n.end_idx + 1}
+                                {start}〜{end}
                               </div>
 
                               {editable && (
+                                <div style={{ fontSize: 12, fontWeight: 900, color: savingN ? "#2563eb" : "#94a3b8" }}>
+                                  {savingN ? "自動保存中…" : " "}
+                                </div>
+                              )}
+
+                              {editable && (
                                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                  <button style={ghostBtn()} disabled={savingN} onClick={() => saveNote(n)}>
-                                    {savingN ? "保存中..." : "保存"}
-                                  </button>
                                   <button style={dangerBtn()} onClick={() => deleteNote(n)}>
                                     削除
                                   </button>
@@ -544,7 +667,11 @@ export default function StudentGrades({ userId, editable = false }: Props) {
 
                             <textarea
                               value={noteDraft[n.id] ?? n.note ?? ""}
-                              onChange={(e) => setNoteDraft((p) => ({ ...p, [n.id]: e.target.value }))}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setNoteDraft((p) => ({ ...p, [n.id]: v }));
+                                scheduleAutoSaveNote(n.id, n.grade_id);
+                              }}
                               readOnly={!editable}
                               style={noteArea(!editable)}
                               placeholder="備考を入力"
@@ -563,6 +690,8 @@ export default function StudentGrades({ userId, editable = false }: Props) {
     </div>
   );
 }
+
+/* ================= styles ================= */
 
 function muted(): React.CSSProperties {
   return { fontSize: 13, fontWeight: 800, color: "#64748b" };
@@ -598,7 +727,7 @@ function panel(): React.CSSProperties {
   return {
     borderRadius: 18,
     border: "1px solid rgba(148,163,184,0.18)",
-    background: "rgba(255,255,255,0.90)",
+    background: "rgba(255,255,255,0.92)",
     padding: 14,
   };
 }
@@ -607,7 +736,7 @@ function notePanel(): React.CSSProperties {
   return {
     borderRadius: 14,
     border: "1px dashed rgba(148,163,184,0.35)",
-    background: "rgba(248,250,252,0.8)",
+    background: "rgba(248,250,252,0.85)",
     padding: 10,
   };
 }
@@ -625,13 +754,14 @@ function noteArea(readonly: boolean): React.CSSProperties {
     fontWeight: 800,
     color: "#0f172a",
     outline: "none",
+    marginTop: 8,
   };
 }
 
 function ghostBtn(active?: boolean): React.CSSProperties {
   return {
     border: active ? "1px solid rgba(37,99,235,0.35)" : "1px solid rgba(148,163,184,0.22)",
-    background: active ? "rgba(219,234,254,0.80)" : "rgba(255,255,255,0.9)",
+    background: active ? "rgba(219,234,254,0.80)" : "rgba(255,255,255,0.92)",
     borderRadius: 9999,
     padding: "8px 12px",
     fontWeight: 900,
@@ -646,29 +776,75 @@ function dangerBtn(): React.CSSProperties {
     ...ghostBtn(false),
     color: "#dc2626",
     borderColor: "rgba(220,38,38,0.30)",
-    background: "rgba(254,242,242,0.90)",
+    background: "rgba(254,242,242,0.92)",
   };
+}
+
+function markBtn(mark: Mark): React.CSSProperties {
+  const base: React.CSSProperties = {
+    borderRadius: 9999,
+    padding: "8px 12px",
+    fontWeight: 950,
+    fontSize: 12,
+    cursor: "pointer",
+    border: "1px solid rgba(148,163,184,0.22)",
+  };
+
+  if (mark === "O") return { ...base, background: "rgba(34,197,94,0.18)", borderColor: "rgba(34,197,94,0.30)", color: "#166534" };
+  if (mark === "X") return { ...base, background: "rgba(239,68,68,0.14)", borderColor: "rgba(239,68,68,0.28)", color: "#991b1b" };
+  if (mark === "T") return { ...base, background: "rgba(245,158,11,0.16)", borderColor: "rgba(245,158,11,0.30)", color: "#92400e" };
+  return { ...base, background: "rgba(148,163,184,0.12)", borderColor: "rgba(148,163,184,0.22)", color: "#334155" };
 }
 
 function markTile(m: Mark, clickable: boolean, selected: boolean): React.CSSProperties {
   const base: React.CSSProperties = {
-    height: 40,
-    width: 44,
+    height: 44,
+    width: 46,
     borderRadius: 14,
-    border: selected ? "2px solid rgba(37,99,235,0.55)" : "1px solid rgba(148,163,184,0.22)",
-    background: "rgba(255,255,255,0.95)",
-    fontWeight: 900,
+    border: selected ? "2px solid rgba(37,99,235,0.60)" : "1px solid rgba(148,163,184,0.22)",
+    background: "rgba(255,255,255,0.96)",
     cursor: clickable ? "pointer" : "default",
     userSelect: "none",
     outline: "none",
+    position: "relative",
+    display: "grid",
+    placeItems: "center",
   };
 
-  if (m === "O")
-    return { ...base, background: "rgba(34,197,94,0.18)", color: "#166534", borderColor: selected ? "rgba(37,99,235,0.55)" : "rgba(34,197,94,0.28)" };
-  if (m === "X")
-    return { ...base, background: "rgba(239,68,68,0.14)", color: "#991b1b", borderColor: selected ? "rgba(37,99,235,0.55)" : "rgba(239,68,68,0.24)" };
-  if (m === "D")
-    return { ...base, background: "rgba(245,158,11,0.16)", color: "#92400e", borderColor: selected ? "rgba(37,99,235,0.55)" : "rgba(245,158,11,0.28)" };
+  if (m === "O") return { ...base, background: "rgba(34,197,94,0.18)", color: "#166534", borderColor: selected ? "rgba(37,99,235,0.60)" : "rgba(34,197,94,0.28)" };
+  if (m === "X") return { ...base, background: "rgba(239,68,68,0.14)", color: "#991b1b", borderColor: selected ? "rgba(37,99,235,0.60)" : "rgba(239,68,68,0.24)" };
+  if (m === "T") return { ...base, background: "rgba(245,158,11,0.16)", color: "#92400e", borderColor: selected ? "rgba(37,99,235,0.60)" : "rgba(245,158,11,0.28)" };
 
-  return { ...base, color: "#64748b" };
+  return { ...base, color: "#0f172a" };
+}
+
+function tileLabel(): React.CSSProperties {
+  return {
+    position: "absolute",
+    right: 6,
+    bottom: 5,
+    fontSize: 10,
+    fontWeight: 900,
+    color: "rgba(15,23,42,0.70)",
+    maxWidth: 40,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    pointerEvents: "none",
+  };
+}
+
+function rangeInput(): React.CSSProperties {
+  return {
+    height: 32,
+    borderRadius: 9999,
+    border: "1px solid rgba(148,163,184,0.22)",
+    padding: "0 12px",
+    fontSize: 12,
+    fontWeight: 900,
+    outline: "none",
+    background: "rgba(255,255,255,0.92)",
+    color: "#0f172a",
+    width: 170,
+  };
 }

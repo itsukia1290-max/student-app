@@ -199,7 +199,6 @@ export default function StudentDetail({ student, onBack }: Props) {
               viewSchool: true,
               editSchool: true,
             }}
-            canEditGoals={true}
           />
         )}
 
