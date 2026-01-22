@@ -1,8 +1,5 @@
 /*
  * src/pages/Signup.tsx
- * Responsibility: 新規登録画面
- * - Supabase auth の signUp を呼び出し、profile の初期更新（氏名）を行う
- * - 承認ワークフローのため登録後は一旦サインアウトする
  */
 
 import { useState } from "react";
@@ -22,9 +19,7 @@ export default function Signup({ onBack }: { onBack: () => void }) {
 
     const { data, error } = await supabase.auth.signUp({ email, password });
 
-    // ▼ ここが追加：既登録(422)は「ログインしてください」と案内
     if (error) {
-      // Supabase-js v2 は message に "User already registered" が入る
       if (error.message?.toLowerCase().includes("already")) {
         setMsg("このメールはすでに登録済みです。ログインして、教師の承認を待ってください。");
       } else {
@@ -36,15 +31,40 @@ export default function Signup({ onBack }: { onBack: () => void }) {
 
     try {
       const session = data.session ?? (await supabase.auth.getSession()).data.session;
+      const uid = session?.user?.id;
 
-      if (session && name.trim()) {
-        const { error: upErr } = await supabase
-          .from("profiles")
-          .update({ name: name.trim() })
-          .eq("id", session.user.id);
+      if (!uid) throw new Error("ユーザーIDが取得できませんでした（session null）");
+
+      // 1) profiles の氏名更新（任意）
+      if (name.trim()) {
+        const { error: upErr } = await supabase.from("profiles").update({ name: name.trim() }).eq("id", uid);
         if (upErr) throw upErr;
       }
-      // 承認制なのでいったんサインアウト
+
+      // 2) ★ approval_requests に申請行を作る（先生側がこれを見る前提）
+      //    既にあれば作らない（重複防止）
+      const { data: existing, error: exErr } = await supabase
+        .from("approval_requests")
+        .select("id")
+        .eq("user_id", uid)
+        .maybeSingle();
+
+      if (exErr) throw exErr;
+
+      if (!existing) {
+        const { error: insErr } = await supabase.from("approval_requests").insert({
+          user_id: uid,
+          email: email.trim(),
+          name: name.trim() || null,
+          phone: null,
+          approved: null,       // ★ 未処理 = NULL
+          resolved_at: null,
+          resolved_by: null,
+        });
+        if (insErr) throw insErr;
+      }
+
+      // 3) 承認制なのでサインアウト
       await supabase.auth.signOut();
       setMsg("登録完了。教師の承認後にログインできます（承認が必要です）。");
     } catch (e: unknown) {
@@ -61,20 +81,17 @@ export default function Signup({ onBack }: { onBack: () => void }) {
 
         <label className="block mb-3">
           <span className="text-sm">氏名（任意）</span>
-          <input className="mt-1 w-full border rounded px-3 py-2"
-            value={name} onChange={(e)=>setName(e.target.value)} />
+          <input className="mt-1 w-full border rounded px-3 py-2" value={name} onChange={(e)=>setName(e.target.value)} />
         </label>
 
         <label className="block mb-3">
           <span className="text-sm">Email</span>
-          <input className="mt-1 w-full border rounded px-3 py-2" type="email"
-            value={email} onChange={(e)=>setEmail(e.target.value)} required />
+          <input className="mt-1 w-full border rounded px-3 py-2" type="email" value={email} onChange={(e)=>setEmail(e.target.value)} required />
         </label>
 
         <label className="block mb-4">
           <span className="text-sm">Password</span>
-          <input className="mt-1 w-full border rounded px-3 py-2" type="password"
-            value={password} onChange={(e)=>setPassword(e.target.value)} required />
+          <input className="mt-1 w-full border rounded px-3 py-2" type="password" value={password} onChange={(e)=>setPassword(e.target.value)} required />
         </label>
 
         <button disabled={loading} className="w-full py-2 rounded bg-black text-white disabled:opacity-50">

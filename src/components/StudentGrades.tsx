@@ -47,12 +47,10 @@ export default function StudentGrades({ userId, editable = false }: Props) {
 
   // selection per grade
   const [mode, setMode] = useState<Record<string, Mode>>({});
-  const [selected, setSelected] = useState<Record<string, Set<number>>>({}); // ※備考用に残す（範囲の確定後にここへ入れる）
   const [rangeText, setRangeText] = useState<Record<string, { start: string; end: string }>>({});
 
   // notes per grade
   const [notesByGrade, setNotesByGrade] = useState<Record<string, NoteRow[]>>({});
-  const [noteSaving, setNoteSaving] = useState<Record<string, boolean>>({}); // note_id => saving
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({}); // note_id => draft text
 
   // debounce timers
@@ -108,11 +106,6 @@ export default function StudentGrades({ userId, editable = false }: Props) {
     setMode((prev) => {
       const next: Record<string, Mode> = {};
       for (const g of mapped) next[g.id] = prev[g.id] ?? "view";
-      return next;
-    });
-    setSelected((prev) => {
-      const next: Record<string, Set<number>> = {};
-      for (const g of mapped) next[g.id] = prev[g.id] ?? new Set();
       return next;
     });
     setRangeText((prev) => {
@@ -200,7 +193,6 @@ export default function StudentGrades({ userId, editable = false }: Props) {
 
     setNotesByGrade((p) => ({ ...p, [row.id]: [] }));
     setMode((p) => ({ ...p, [row.id]: "view" }));
-    setSelected((p) => ({ ...p, [row.id]: new Set() }));
     setRangeText((p) => ({ ...p, [row.id]: { start: "", end: "" } }));
   }
 
@@ -298,17 +290,6 @@ export default function StudentGrades({ userId, editable = false }: Props) {
   }
 
   // ---------- selection helpers ----------
-  function clearSelection(rowId: string) {
-    setSelected((p) => ({ ...p, [rowId]: new Set() }));
-  }
-
-  function setSelectedRangeSet(rowId: string, startIdx: number, endIdx: number) {
-    const [lo, hi] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
-    const next = new Set<number>();
-    for (let i = lo; i <= hi; i++) next.add(i);
-    setSelected((p) => ({ ...p, [rowId]: next }));
-  }
-
   function resolveIndex(row: GradeRow, text: string): number | null {
     const t = text.trim();
     if (!t) return null;
@@ -338,6 +319,98 @@ export default function StudentGrades({ userId, editable = false }: Props) {
     return { startIdx: s, endIdx: e };
   }
 
+  // ---------- 章作成/解除 ----------
+  async function createChapterFromRange(row: GradeRow) {
+    if (!editable) return;
+
+    const range = getCurrentRange(row);
+    if (!range) {
+      alert("始点/終点が不正です。");
+      return;
+    }
+    const { startIdx, endIdx } = range;
+    const [lo, hi] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+
+    const existing = (notesByGrade[row.id] ?? []);
+
+    // 重複禁止（章の整合性）
+    const hit = existing.find((n) => overlaps(lo, hi, n.start_idx, n.end_idx));
+    if (hit) {
+      alert(`既存の章（${labelOf(row, hit.start_idx)}〜${labelOf(row, hit.end_idx)}）と範囲が重なっています。解除してから作成してください。`);
+      return;
+    }
+
+    // 備考入力は「今のまま」でOK → prompt
+    const text = window.prompt(`章の備考を入力（${labelOf(row, lo)}〜${labelOf(row, hi)}）`, "");
+    if (text == null) return;
+
+    const payload = { grade_id: row.id, start_idx: lo, end_idx: hi, note: text };
+
+    const { data, error } = await supabase
+      .from("student_grade_notes")
+      .insert([payload])
+      .select("id,grade_id,start_idx,end_idx,note,created_at,updated_at")
+      .single();
+
+    if (error) {
+      alert("章の作成に失敗: " + error.message);
+      return;
+    }
+
+    const newRow = data as NoteRow;
+
+    setNotesByGrade((p) => {
+      const list = [...(p[row.id] ?? []), newRow].sort((a, b) => a.start_idx - b.start_idx || a.end_idx - b.end_idx);
+      return { ...p, [row.id]: list };
+    });
+    setNoteDraft((p) => ({ ...p, [newRow.id]: newRow.note ?? "" }));
+  }
+
+  async function removeChapterFromRange(row: GradeRow) {
+    if (!editable) return;
+
+    const range = getCurrentRange(row);
+    if (!range) {
+      alert("始点/終点が不正です。");
+      return;
+    }
+    const { startIdx, endIdx } = range;
+    const [lo, hi] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+
+    const existing = (notesByGrade[row.id] ?? []);
+
+    // まずは完全一致を優先
+    let target = existing.find((n) => n.start_idx === lo && n.end_idx === hi);
+
+    // 無ければ「範囲が含まれる章」を1つだけ許可（重複禁止前提）
+    if (!target) {
+      target = existing.find((n) => lo >= n.start_idx && hi <= n.end_idx);
+    }
+
+    if (!target) {
+      alert("この範囲に対応する章が見つかりません。");
+      return;
+    }
+
+    if (!confirm(`章（${labelOf(row, target.start_idx)}〜${labelOf(row, target.end_idx)}）を解除します。よろしいですか？`)) return;
+
+    const { error } = await supabase.from("student_grade_notes").delete().eq("id", target.id);
+    if (error) {
+      alert("章の解除に失敗: " + error.message);
+      return;
+    }
+
+    setNotesByGrade((p) => {
+      const list = (p[row.id] ?? []).filter((n) => n.id !== target!.id);
+      return { ...p, [row.id]: list };
+    });
+    setNoteDraft((p) => {
+      const next = { ...p };
+      delete next[target!.id];
+      return next;
+    });
+  }
+
   function applyMarkToRange(row: GradeRow, mark: Mark) {
     const range = getCurrentRange(row);
     if (!range) {
@@ -347,9 +420,6 @@ export default function StudentGrades({ userId, editable = false }: Props) {
 
     const { startIdx, endIdx } = range;
     const [lo, hi] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
-
-    // UI上の選択状態も作る（備考追加で使える）
-    setSelectedRangeSet(row.id, lo, hi);
 
     // marks更新
     setRows((prev) =>
@@ -381,51 +451,6 @@ export default function StudentGrades({ userId, editable = false }: Props) {
   }
 
   // ---------- notes ----------
-  async function addNoteFromSelection(row: GradeRow) {
-    if (!editable) return;
-
-    const range = getCurrentRange(row);
-    if (!range) {
-      alert("始点/終点を入力してから「備考追加」を押してください。");
-      return;
-    }
-
-    const { startIdx, endIdx } = range;
-    const [lo, hi] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
-
-    const text = window.prompt(`備考を入力（${labelOf(row, lo)}〜${labelOf(row, hi)}）`);
-    if (text == null) return;
-
-    const payload = {
-      grade_id: row.id,
-      start_idx: lo,
-      end_idx: hi,
-      note: text,
-    };
-
-    const { data, error } = await supabase
-      .from("student_grade_notes")
-      .insert([payload])
-      .select("id,grade_id,start_idx,end_idx,note,created_at,updated_at")
-      .single();
-
-    if (error) {
-      alert("備考追加失敗: " + error.message);
-      return;
-    }
-
-    const newRow = data as NoteRow;
-    setNotesByGrade((p) => {
-      const list = [...(p[row.id] ?? []), newRow].sort((a, b) => a.start_idx - b.start_idx || a.end_idx - b.end_idx);
-      return { ...p, [row.id]: list };
-    });
-    setNoteDraft((p) => ({ ...p, [newRow.id]: newRow.note ?? "" }));
-
-    // 追加後は誤操作防止で解除
-    clearSelection(row.id);
-    setMode((p) => ({ ...p, [row.id]: "view" }));
-  }
-
   function scheduleAutoSaveNote(noteId: string, gradeId: string) {
     if (!editable) return;
 
@@ -434,17 +459,10 @@ export default function StudentGrades({ userId, editable = false }: Props) {
     noteSaveTimers.current[noteId] = window.setTimeout(async () => {
       const draft = noteDraftRef.current[noteId] ?? "";
 
-      setNoteSaving((p) => ({ ...p, [noteId]: true }));
       const { error } = await supabase
         .from("student_grade_notes")
         .update({ note: draft, updated_at: new Date().toISOString() })
         .eq("id", noteId);
-
-      setNoteSaving((p) => {
-        const next = { ...p };
-        delete next[noteId];
-        return next;
-      });
 
       if (error) {
         alert("備考の自動保存に失敗しました: " + error.message);
@@ -462,28 +480,6 @@ export default function StudentGrades({ userId, editable = false }: Props) {
   useEffect(() => {
     noteDraftRef.current = noteDraft;
   }, [noteDraft]);
-
-  async function deleteNote(note: NoteRow) {
-    if (!editable) return;
-
-    if (!confirm(`備考（${note.start_idx + 1}〜${note.end_idx + 1}）を削除します。よろしいですか？`)) return;
-
-    const { error } = await supabase.from("student_grade_notes").delete().eq("id", note.id);
-    if (error) {
-      alert("備考削除失敗: " + error.message);
-      return;
-    }
-
-    setNotesByGrade((p) => {
-      const list = (p[note.grade_id] ?? []).filter((n) => n.id !== note.id);
-      return { ...p, [note.grade_id]: list };
-    });
-    setNoteDraft((p) => {
-      const next = { ...p };
-      delete next[note.id];
-      return next;
-    });
-  }
 
   // ---------- summary ----------
   function summarize(marks: Mark[]) {
@@ -506,6 +502,50 @@ export default function StudentGrades({ userId, editable = false }: Props) {
     const labels = row.labels ?? [];
     const s = labels[idx];
     return s && s.trim() ? s : String(idx + 1);
+  }
+
+  // ---------- 章ブロック生成 ----------
+  type Segment = {
+    kind: "chapter" | "free";
+    start: number; // inclusive
+    end: number;   // inclusive
+    note?: NoteRow; // kind=chapter のときだけ
+  };
+
+  function buildSegments(problemCount: number, notes: NoteRow[]): Segment[] {
+    const sorted = [...notes].sort((a, b) => a.start_idx - b.start_idx || a.end_idx - b.end_idx);
+
+    const segs: Segment[] = [];
+    let cur = 0;
+
+    for (const n of sorted) {
+      const s = Math.max(0, n.start_idx);
+      const e = Math.min(problemCount - 1, n.end_idx);
+      if (e < 0 || s > problemCount - 1) continue;
+
+      // free before chapter
+      if (cur <= s - 1) {
+        segs.push({ kind: "free", start: cur, end: s - 1 });
+      }
+
+      // chapter segment
+      segs.push({ kind: "chapter", start: s, end: e, note: n });
+
+      cur = e + 1;
+    }
+
+    // trailing free
+    if (cur <= problemCount - 1) {
+      segs.push({ kind: "free", start: cur, end: problemCount - 1 });
+    }
+
+    return segs;
+  }
+
+  function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number) {
+    const [a0, a1] = aStart <= aEnd ? [aStart, aEnd] : [aEnd, aStart];
+    const [b0, b1] = bStart <= bEnd ? [bStart, bEnd] : [bEnd, bStart];
+    return !(a1 < b0 || b1 < a0);
   }
 
   return (
@@ -545,7 +585,6 @@ export default function StudentGrades({ userId, editable = false }: Props) {
                       <button
                         onClick={() => {
                           setMode((p) => ({ ...p, [row.id]: isSelectMode ? "view" : "select" }));
-                          clearSelection(row.id);
                         }}
                         style={ghostBtn(isSelectMode)}
                       >
@@ -574,8 +613,8 @@ export default function StudentGrades({ userId, editable = false }: Props) {
                           <button style={markBtn("T")} onClick={() => applyMarkToRange(row, "T")}>△</button>
                           <button style={markBtn("")} onClick={() => applyMarkToRange(row, "")}>未</button>
 
-                          <button style={ghostBtn()} onClick={() => clearSelection(row.id)}>解除</button>
-                          <button style={ghostBtn()} onClick={() => addNoteFromSelection(row)}>備考追加</button>
+                          <button style={ghostBtn()} onClick={() => createChapterFromRange(row)}>章を作成</button>
+                          <button style={dangerBtn()} onClick={() => removeChapterFromRange(row)}>章を解除</button>
                         </>
                       )}
 
@@ -589,99 +628,78 @@ export default function StudentGrades({ userId, editable = false }: Props) {
                   )}
                 </div>
 
-                {/* marks grid */}
-                <div
-                  style={{
-                    marginTop: 12,
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, 46px)",
-                    gap: 8,
-                    justifyContent: "start",
-                  }}
-                >
-                  {row.marks.map((m, i) => {
-                    const clickable = editable;
-                    const isSelected = (selected[row.id]?.has(i) ?? false) && isSelectMode;
+                {/* blocks (chapters) */}
+                {(() => {
+                  const segs = buildSegments(row.problem_count, notes);
 
-                    return (
-                      <button
-                        key={i}
-                        type="button"
-                        disabled={!editable}
-                        onClick={() => clickable && onTileClick(row, i)}
-                        style={markTile(m, clickable, isSelected)}
-                        title={`${labelOf(row, i)} ${m ? MARK_LABEL[m] : "未"}`}
-                      >
-                        {/* 中央：記号（無ければ空） */}
-                        <div style={{ lineHeight: 1, fontSize: 16, fontWeight: 950 }}>
-                          {m ? MARK_LABEL[m] : ""}
-                        </div>
-
-                        {/* 右下：番号/ラベル（常に表示） */}
-                        <div style={tileLabel()}>
-                          {labelOf(row, i)}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* notes */}
-                <div style={{ marginTop: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                    <div style={{ fontWeight: 900, color: "#0f172a", fontSize: 13 }}>備考（区切りメモ）</div>
-                    <span style={mutedChip()}>範囲1つにつきメモ1つ</span>
-                    {!editable && <span style={mutedChip()}>閲覧のみ</span>}
-                  </div>
-
-                  {notes.length === 0 ? (
-                    <div style={muted()}>備考はありません。</div>
-                  ) : (
-                    <div style={{ display: "grid", gap: 10 }}>
-                      {notes.map((n) => {
-                        const savingN = !!noteSaving[n.id];
-                        const start = labelOf(row, n.start_idx);
-                        const end = labelOf(row, n.end_idx);
+                  return (
+                    <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
+                      {segs.map((seg, si) => {
+                        const isChapter = seg.kind === "chapter";
+                        const title = isChapter
+                          ? `章：${labelOf(row, seg.start)}〜${labelOf(row, seg.end)}`
+                          : `未分類：${labelOf(row, seg.start)}〜${labelOf(row, seg.end)}`;
 
                         return (
-                          <div key={n.id} style={notePanel()}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                              <div style={{ fontWeight: 900, color: "#0f172a", fontSize: 12 }}>
-                                {start}〜{end}
-                              </div>
-
-                              {editable && (
-                                <div style={{ fontSize: 12, fontWeight: 900, color: savingN ? "#2563eb" : "#94a3b8" }}>
-                                  {savingN ? "自動保存中…" : " "}
-                                </div>
-                              )}
-
-                              {editable && (
-                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                  <button style={dangerBtn()} onClick={() => deleteNote(n)}>
-                                    削除
-                                  </button>
-                                </div>
-                              )}
+                          <div key={si} style={isChapter ? chapterPanel() : freePanel()}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                              <div style={{ fontWeight: 950, fontSize: 12, color: "#0f172a" }}>{title}</div>
+                              {isChapter && <span style={mutedChip()}>この章の直下に備考</span>}
                             </div>
 
-                            <textarea
-                              value={noteDraft[n.id] ?? n.note ?? ""}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setNoteDraft((p) => ({ ...p, [n.id]: v }));
-                                scheduleAutoSaveNote(n.id, n.grade_id);
+                            <div
+                              style={{
+                                marginTop: 10,
+                                display: "grid",
+                                gridTemplateColumns: "repeat(auto-fill, 46px)",
+                                gap: 8,
+                                justifyContent: "start",
                               }}
-                              readOnly={!editable}
-                              style={noteArea(!editable)}
-                              placeholder="備考を入力"
-                            />
+                            >
+                              {Array.from({ length: seg.end - seg.start + 1 }, (_, k) => seg.start + k).map((i) => {
+                                const m = row.marks[i];
+                                const clickable = editable;
+
+                                return (
+                                  <button
+                                    key={i}
+                                    type="button"
+                                    disabled={!editable}
+                                    onClick={() => clickable && onTileClick(row, i)}
+                                    style={markTile(m, clickable, false)}
+                                    title={`${labelOf(row, i)} ${m ? MARK_LABEL[m] : "未"}`}
+                                  >
+                                    <div style={{ lineHeight: 1, fontSize: 16, fontWeight: 950 }}>
+                                      {m ? MARK_LABEL[m] : ""}
+                                    </div>
+                                    <div style={tileLabel()}>{labelOf(row, i)}</div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {/* chapter note inline */}
+                            {isChapter && seg.note && (
+                              <div style={{ marginTop: 10 }}>
+                                <textarea
+                                  value={noteDraft[seg.note.id] ?? seg.note.note ?? ""}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    setNoteDraft((p) => ({ ...p, [seg.note!.id]: v }));
+                                    scheduleAutoSaveNote(seg.note!.id, seg.note!.grade_id);
+                                  }}
+                                  readOnly={!editable}
+                                  style={noteArea(!editable)}
+                                  placeholder="この章の備考"
+                                />
+                              </div>
+                            )}
                           </div>
                         );
                       })}
                     </div>
-                  )}
-                </div>
+                  );
+                })()}
               </div>
             );
           })}
@@ -729,15 +747,6 @@ function panel(): React.CSSProperties {
     border: "1px solid rgba(148,163,184,0.18)",
     background: "rgba(255,255,255,0.92)",
     padding: 14,
-  };
-}
-
-function notePanel(): React.CSSProperties {
-  return {
-    borderRadius: 14,
-    border: "1px dashed rgba(148,163,184,0.35)",
-    background: "rgba(248,250,252,0.85)",
-    padding: 10,
   };
 }
 
@@ -846,5 +855,23 @@ function rangeInput(): React.CSSProperties {
     background: "rgba(255,255,255,0.92)",
     color: "#0f172a",
     width: 170,
+  };
+}
+
+function chapterPanel(): React.CSSProperties {
+  return {
+    borderRadius: 16,
+    border: "1px solid rgba(59,130,246,0.22)",
+    background: "rgba(239,246,255,0.85)",
+    padding: 12,
+  };
+}
+
+function freePanel(): React.CSSProperties {
+  return {
+    borderRadius: 16,
+    border: "1px dashed rgba(148,163,184,0.30)",
+    background: "rgba(255,255,255,0.75)",
+    padding: 12,
   };
 }
