@@ -1,3 +1,4 @@
+// src/pages/Students.tsx
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useIsStaff } from "../hooks/useIsStaff";
@@ -8,15 +9,8 @@ type Student = {
   name: string | null;
   phone: string | null;
   memo: string | null;
-};
-
-type PendingReq = {
-  id: string;
-  user_id: string;
-  email: string | null;
-  name: string | null;
-  phone: string | null;
-  created_at: string;
+  is_approved: boolean;
+  status: string | null;
 };
 
 const colors = {
@@ -27,6 +21,8 @@ const colors = {
   textSub: "#475569",
   sky: "#0ea5e9",
   skySoft: "#e0f2fe",
+  red: "#ef4444",
+  redSoft: "#fee2e2",
 };
 
 const styles = {
@@ -118,6 +114,31 @@ const styles = {
     fontWeight: 600,
     cursor: "pointer",
   },
+  btnDanger: {
+    background: colors.red,
+    color: "#fff",
+    border: "none",
+    borderRadius: "12px",
+    padding: "8px 14px",
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+  hint: {
+    fontSize: "12px",
+    color: colors.textSub,
+    marginTop: "8px",
+  },
+  error: {
+    marginTop: "10px",
+    fontSize: "13px",
+    fontWeight: 800,
+    color: colors.red,
+    background: colors.redSoft,
+    border: `1px solid rgba(239, 68, 68, 0.25)`,
+    borderRadius: 12,
+    padding: "10px 12px",
+    whiteSpace: "pre-wrap" as const,
+  },
 };
 
 function initial(name?: string | null) {
@@ -126,47 +147,86 @@ function initial(name?: string | null) {
 
 export default function Students() {
   const { isStaff } = useIsStaff();
+
   const [students, setStudents] = useState<Student[]>([]);
-  const [pending, setPending] = useState<PendingReq[]>([]);
+  const [pending, setPending] = useState<Student[]>([]);
   const [selected, setSelected] = useState<Student | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   const studentCount = useMemo(() => students.length, [students]);
   const pendingCount = useMemo(() => pending.length, [pending]);
 
-  useEffect(() => {
+  async function loadAll() {
     if (!isStaff) return;
+    setLoading(true);
+    setErr(null);
 
-    (async () => {
-      const { data: ok } = await supabase
-        .from("profiles")
-        .select("id, name, phone, memo")
-        .eq("role", "student")
-        .eq("is_approved", true)
-        .eq("status", "active");
+    // 承認待ち & 承認済みを profiles から取得（単一の真実）
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, name, phone, memo, is_approved, status, role")
+      .eq("role", "student")
+      .eq("status", "active");
 
-      setStudents((ok ?? []) as Student[]);
+    if (error) {
+      setErr("読み込み失敗: " + error.message);
+      setLoading(false);
+      return;
+    }
 
-      const { data: wait } = await supabase
-        .from("approval_requests")
-        .select("id, user_id, email, name, phone, created_at")
-        .is("resolved_at", null);
+    const rows = ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+      id: r.id as string,
+      name: (r.name ?? null) as string | null,
+      phone: (r.phone ?? null) as string | null,
+      memo: (r.memo ?? null) as string | null,
+      is_approved: !!r.is_approved,
+      status: (r.status ?? null) as string | null,
+    })) as Student[];
 
-      setPending((wait ?? []) as PendingReq[]);
-    })();
-  }, [isStaff]);
-
-  async function approve(req: PendingReq) {
-    await supabase.rpc("approve_student", { p_user_id: req.user_id });
-    setPending((p) => p.filter((x) => x.id !== req.id));
+    setPending(rows.filter((x) => !x.is_approved));
+    setStudents(rows.filter((x) => x.is_approved));
+    setLoading(false);
   }
 
-  async function reject(req: PendingReq) {
-    await supabase
-      .from("approval_requests")
-      .update({ approved: false, resolved_at: new Date().toISOString() })
-      .eq("id", req.id);
+  useEffect(() => {
+    loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isStaff]);
 
-    setPending((p) => p.filter((x) => x.id !== req.id));
+  async function approve(p: Student) {
+    setErr(null);
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({ is_approved: true })
+      .eq("id", p.id);
+
+    if (error) {
+      setErr("承認に失敗: " + error.message);
+      return;
+    }
+
+    // UI即時反映
+    setPending((arr) => arr.filter((x) => x.id !== p.id));
+    setStudents((arr) => [{ ...p, is_approved: true }, ...arr]);
+  }
+
+  async function reject(p: Student) {
+    setErr(null);
+
+    // 却下の扱いは「無効化」推奨（消さない）
+    const { error } = await supabase
+      .from("profiles")
+      .update({ status: "inactive", is_approved: false })
+      .eq("id", p.id);
+
+    if (error) {
+      setErr("却下に失敗: " + error.message);
+      return;
+    }
+
+    setPending((arr) => arr.filter((x) => x.id !== p.id));
   }
 
   if (selected) {
@@ -176,14 +236,17 @@ export default function Students() {
   return (
     <div style={styles.page}>
       <div style={styles.container}>
-        {/* ヘッダー */}
         <div style={styles.header}>
           <div>
             <div style={styles.title}>生徒</div>
-            <div style={styles.subtitle}>
-              承認待ちの管理と在籍生徒の確認
-            </div>
+            <div style={styles.subtitle}>承認待ちの管理と在籍生徒の確認（profiles を単一の真実として使用）</div>
+            {loading && <div style={styles.hint}>読み込み中...</div>}
+            {err && <div style={styles.error}>{err}</div>}
           </div>
+
+          <button style={styles.btnGhost} onClick={loadAll} disabled={loading}>
+            再読み込み
+          </button>
         </div>
 
         {/* 承認待ち */}
@@ -194,9 +257,7 @@ export default function Students() {
           </div>
           <div style={styles.cardBody}>
             {pending.length === 0 ? (
-              <div style={{ color: colors.textSub, fontSize: "14px" }}>
-                承認待ちはありません。
-              </div>
+              <div style={{ color: colors.textSub, fontSize: "14px" }}>承認待ちはありません。</div>
             ) : (
               pending.map((p) => (
                 <div key={p.id} style={styles.listItem}>
@@ -204,22 +265,23 @@ export default function Students() {
                     <div style={styles.avatar}>{initial(p.name)}</div>
                     <div>
                       <div style={{ fontWeight: 600 }}>{p.name ?? "未設定"}</div>
-                      <div style={{ fontSize: "12px", color: colors.textSub }}>
-                        {p.email ?? "-"}
-                      </div>
+                      <div style={{ fontSize: "12px", color: colors.textSub }}>{p.phone ?? "-"}</div>
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: "8px" }}>
                     <button style={styles.btnPrimary} onClick={() => approve(p)}>
                       承認
                     </button>
-                    <button style={styles.btnGhost} onClick={() => reject(p)}>
+                    <button style={styles.btnDanger} onClick={() => reject(p)}>
                       却下
                     </button>
                   </div>
                 </div>
               ))
             )}
+            <div style={styles.hint}>
+              ※ 承認待ちは <code>profiles.role='student' AND is_approved=false AND status='active'</code> を表示します。
+            </div>
           </div>
         </div>
 
@@ -230,28 +292,26 @@ export default function Students() {
             <span style={styles.badge}>{studentCount} 人</span>
           </div>
           <div style={styles.cardBody}>
-            {students.map((s) => (
-              <div
-                key={s.id}
-                style={{ ...styles.listItem, cursor: "pointer" }}
-                onClick={() => setSelected(s)}
-              >
-                <div style={{ display: "flex", gap: "12px" }}>
-                  <div style={styles.avatar}>{initial(s.name)}</div>
-                  <div>
-                    <div style={{ fontWeight: 600 }}>
-                      {s.name ?? "未設定"}
-                    </div>
-                    <div style={{ fontSize: "12px", color: colors.textSub }}>
-                      {s.phone ?? "-"}
+            {students.length === 0 ? (
+              <div style={{ color: colors.textSub, fontSize: "14px" }}>生徒がいません。</div>
+            ) : (
+              students.map((s) => (
+                <div
+                  key={s.id}
+                  style={{ ...styles.listItem, cursor: "pointer" }}
+                  onClick={() => setSelected(s)}
+                >
+                  <div style={{ display: "flex", gap: "12px" }}>
+                    <div style={styles.avatar}>{initial(s.name)}</div>
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{s.name ?? "未設定"}</div>
+                      <div style={{ fontSize: "12px", color: colors.textSub }}>{s.phone ?? "-"}</div>
                     </div>
                   </div>
+                  <div style={{ fontSize: "12px", color: colors.textSub }}>{s.memo ?? "-"}</div>
                 </div>
-                <div style={{ fontSize: "12px", color: colors.textSub }}>
-                  {s.memo ?? "-"}
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>

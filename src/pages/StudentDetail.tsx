@@ -41,6 +41,8 @@ export default function StudentDetail({ student, onBack }: Props) {
   const [formMemo, setFormMemo] = useState(student.memo ?? "");
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
+  const [deleteMsg, setDeleteMsg] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     setFormName(student.name ?? "");
@@ -67,6 +69,39 @@ export default function StudentDetail({ student, onBack }: Props) {
     if (error) setProfileMsg("プロフィール保存に失敗しました: " + error.message);
     else setProfileMsg("プロフィールを保存しました。");
     setSavingProfile(false);
+  }
+
+  async function softDeleteStudent() {
+    if (!isStaff) return;
+
+    const ok = window.confirm(
+      `生徒「${student.name ?? "（未設定）"}」を削除（無効化）します。\n` +
+        "この操作で生徒は一覧から消え、ログイン/利用を停止させられます。\n" +
+        "よろしいですか？"
+    );
+    if (!ok) return;
+
+    setDeleting(true);
+    setDeleteMsg(null);
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        status: "inactive",
+        is_approved: false,
+        withdrawn_at: new Date().toISOString(),
+      })
+      .eq("id", student.id);
+
+    if (error) {
+      setDeleteMsg("削除に失敗しました: " + error.message);
+      setDeleting(false);
+      return;
+    }
+
+    setDeleteMsg("削除（無効化）しました。一覧に戻ります。");
+    setDeleting(false);
+    onBack();
   }
 
   // ===== groups (1 query) =====
@@ -260,7 +295,25 @@ export default function StudentDetail({ student, onBack }: Props) {
                   />
                 </Field>
 
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px" }}>
+                  <button
+                    type="button"
+                    onClick={softDeleteStudent}
+                    disabled={deleting}
+                    style={{
+                      border: "none",
+                      backgroundColor: "#ef4444",
+                      color: "#ffffff",
+                      borderRadius: "9999px",
+                      padding: "10px 16px",
+                      fontWeight: 900,
+                      cursor: "pointer",
+                      opacity: deleting ? 0.6 : 1,
+                    }}
+                  >
+                    {deleting ? "削除中..." : "この生徒を削除"}
+                  </button>
+
                   <button
                     type="submit"
                     disabled={savingProfile}
@@ -278,6 +331,12 @@ export default function StudentDetail({ student, onBack }: Props) {
                     {savingProfile ? "保存中..." : "保存"}
                   </button>
                 </div>
+
+                {deleteMsg && (
+                  <div style={{ marginTop: 10, fontSize: "13px", color: "#b91c1c", fontWeight: 900 }}>
+                    {deleteMsg}
+                  </div>
+                )}
 
                 {profileMsg && (
                   <div style={{ fontSize: "13px", color: "#334155", fontWeight: 800 }}>
