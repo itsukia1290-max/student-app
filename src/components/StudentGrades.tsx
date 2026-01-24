@@ -340,9 +340,17 @@ export default function StudentGrades({ userId, editable = false }: Props) {
       return;
     }
 
-    // 備考入力は「今のまま」でOK → prompt
-    const text = window.prompt(`章の備考を入力（${labelOf(row, lo)}〜${labelOf(row, hi)}）`, "");
-    if (text == null) return;
+    const chapterTitle = window.prompt(
+      `章名を入力（${labelOf(row, lo)}〜${labelOf(row, hi)}）`,
+      `第${(notesByGrade[row.id]?.length ?? 0) + 1}章`
+    );
+    if (chapterTitle == null) return;
+
+    // ✅ 「本文」ではなく「備考」
+    const remark = window.prompt("備考（空でもOK）", "") ?? "";
+
+    // 1行目=章名、2行目以降=備考
+    const text = `${chapterTitle}\n${remark}`;
 
     const payload = { grade_id: row.id, start_idx: lo, end_idx: hi, note: text };
 
@@ -504,6 +512,16 @@ export default function StudentGrades({ userId, editable = false }: Props) {
     return s && s.trim() ? s : String(idx + 1);
   }
 
+  /** 章ノートを「章名」と「本文」に分離 */
+  function splitChapterNote(text: string | null | undefined): { title: string; body: string; raw: string } {
+    const raw = text ?? "";
+    if (!raw.trim()) return { title: "", body: "", raw };
+    const lines = raw.split("\n");
+    const title = lines[0] ?? "";
+    const body = lines.slice(1).join("\n");
+    return { title, body, raw };
+  }
+
   // ---------- 章ブロック生成 ----------
   type Segment = {
     kind: "chapter" | "free";
@@ -636,8 +654,9 @@ export default function StudentGrades({ userId, editable = false }: Props) {
                     <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
                       {segs.map((seg, si) => {
                         const isChapter = seg.kind === "chapter";
+                        const parsed = isChapter && seg.note ? splitChapterNote(seg.note.note) : { title: "", body: "", raw: "" };
                         const title = isChapter
-                          ? `章：${labelOf(row, seg.start)}〜${labelOf(row, seg.end)}`
+                          ? `${parsed.title || "章"}：${labelOf(row, seg.start)}〜${labelOf(row, seg.end)}`
                           : `未分類：${labelOf(row, seg.start)}〜${labelOf(row, seg.end)}`;
 
                         return (
@@ -679,21 +698,39 @@ export default function StudentGrades({ userId, editable = false }: Props) {
                             </div>
 
                             {/* chapter note inline */}
-                            {isChapter && seg.note && (
-                              <div style={{ marginTop: 10 }}>
-                                <textarea
-                                  value={noteDraft[seg.note.id] ?? seg.note.note ?? ""}
-                                  onChange={(e) => {
-                                    const v = e.target.value;
-                                    setNoteDraft((p) => ({ ...p, [seg.note!.id]: v }));
-                                    scheduleAutoSaveNote(seg.note!.id, seg.note!.grade_id);
-                                  }}
-                                  readOnly={!editable}
-                                  style={noteArea(!editable)}
-                                  placeholder="この章の備考"
-                                />
-                              </div>
-                            )}
+                            {isChapter && seg.note && (() => {
+                              const parsed = splitChapterNote(noteDraft[seg.note.id] ?? seg.note.note ?? "");
+                              const titleValue = parsed.title === "（章名未設定）" ? "" : parsed.title;
+                              const remarkValue = parsed.body ?? "";
+
+                              return (
+                                <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                                  <input
+                                    value={titleValue}
+                                    onChange={(e) => {
+                                      const nextRaw = `${e.target.value}\n${remarkValue}`;
+                                      setNoteDraft((p) => ({ ...p, [seg.note!.id]: nextRaw }));
+                                      scheduleAutoSaveNote(seg.note!.id, seg.note!.grade_id);
+                                    }}
+                                    readOnly={!editable}
+                                    placeholder="章名（例：第1章 二次関数）"
+                                    style={chapterTitleInput(!editable)}
+                                  />
+
+                                  <textarea
+                                    value={remarkValue}
+                                    onChange={(e) => {
+                                      const nextRaw = `${parsed.title}\n${e.target.value}`;
+                                      setNoteDraft((p) => ({ ...p, [seg.note!.id]: nextRaw }));
+                                      scheduleAutoSaveNote(seg.note!.id, seg.note!.grade_id);
+                                    }}
+                                    readOnly={!editable}
+                                    style={noteArea(!editable)}
+                                    placeholder="この章の備考"
+                                  />
+                                </div>
+                              );
+                            })()}
                           </div>
                         );
                       })}
@@ -747,6 +784,21 @@ function panel(): React.CSSProperties {
     border: "1px solid rgba(148,163,184,0.18)",
     background: "rgba(255,255,255,0.92)",
     padding: 14,
+  };
+}
+
+function chapterTitleInput(readonly: boolean): React.CSSProperties {
+  return {
+    width: "100%",
+    height: 36,
+    borderRadius: 12,
+    border: "1px solid rgba(59,130,246,0.25)",
+    background: readonly ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.95)",
+    padding: "0 12px",
+    fontSize: 13,
+    fontWeight: 950,
+    color: "#0f172a",
+    outline: "none",
   };
 }
 
