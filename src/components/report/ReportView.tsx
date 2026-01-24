@@ -5,7 +5,7 @@ import { supabase } from "../../lib/supabase";
 
 import CalendarBoard from "../CalendarBoard";
 import type { CalendarPermissions } from "../CalendarBoard";
-import StudentGrades from "../StudentGrades";
+import RecentChapter from "./RecentChapter";
 
 import StudentDashboardSummary from "../StudentDashboardSummary";
 import { useNav } from "../../hooks/useNav";
@@ -414,7 +414,7 @@ export default function ReportView({
                 「確認する」で問題集の進捗を確認できます。
               </div>
               <div style={{ borderTop: "1px dashed rgba(148,163,184,0.35)", paddingTop: "12px" }}>
-                <StudentGrades userId={ownerUserId} editable={mode !== "student"} />
+                <RecentChapter ownerUserId={ownerUserId} />
               </div>
             </SoftCard>
           )}
