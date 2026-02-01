@@ -6,6 +6,7 @@ import { supabase } from "../../lib/supabase";
 import CalendarBoard from "../CalendarBoard";
 import type { CalendarPermissions } from "../CalendarBoard";
 import RecentChapter from "./RecentChapter";
+import TeacherReportView from "./TeacherReportView";
 
 import StudentDashboardSummary from "../StudentDashboardSummary";
 import { useNav } from "../../hooks/useNav";
@@ -130,7 +131,17 @@ function SoftCard({ title, right, children }: { title: string; right?: ReactNode
   );
 }
 
-export default function ReportView({
+export default function ReportView(props: Props) {
+  // ★ 教師は完全に別画面
+  if (props.mode === "teacher") {
+    return <TeacherReportView ownerUserId={props.ownerUserId} />;
+  }
+
+  // ---- ここから下は既存の生徒用 ----
+  return <StudentReportView {...props} />;
+}
+
+function StudentReportView({
   ownerUserId,
   mode,
   showTimeline = true,
