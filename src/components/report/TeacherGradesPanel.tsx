@@ -237,45 +237,32 @@ export default function TeacherGradesPanel({ ownerUserId }: Props) {
 
   // ---------- grade ops ----------
   async function addWorkbook() {
-    const title = window.prompt("問題集の名前は？（例：数学基礎問題精講）");
+    const title = window.prompt("問題集名を入力してください（例：数学基礎問題精講）");
     if (!title) return;
-
-    const numStr = window.prompt("問題数は？（1〜2000）");
-    if (!numStr) return;
-    const n = Number(numStr);
-    if (!Number.isInteger(n) || n <= 0 || n > 2000) {
-      alert("1〜2000の整数で指定してください。");
-      return;
-    }
-
-    const marks: Mark[] = Array(n).fill("");
-    const labels = Array.from({ length: n }, (_, i) => String(i + 1));
 
     const { data, error } = await supabase
       .from("student_grades")
-      .insert([{ user_id: ownerUserId, title, problem_count: n, marks, labels }])
-      .select("id,user_id,title,problem_count,marks,labels,created_at,updated_at")
+      .insert([
+        {
+          user_id: ownerUserId,
+          title,
+          problem_count: 1,   // ★ CHECK 制約を満たす
+          marks: [""],
+          labels: ["1"],
+        },
+      ])
+      .select()
       .single();
 
     if (error) {
-      alert("追加失敗: " + error.message);
+      alert("問題集の追加に失敗しました: " + error.message);
       return;
     }
 
-    const r = data as Record<string, unknown>;
-    const row: GradeRow = {
-      id: r.id as string,
-      user_id: r.user_id as string,
-      title: r.title as string,
-      problem_count: r.problem_count as number,
-      marks: (Array.isArray(r.marks) ? r.marks : []).map((m: unknown) => (m === "O" || m === "X" || m === "T" ? (m as Mark) : "")),
-      labels: (Array.isArray(r.labels) ? r.labels : []).map((x: unknown) => (typeof x === "string" ? x : "")).filter(Boolean),
-      created_at: r.created_at as string,
-      updated_at: r.updated_at as string,
-    };
-
-    setGrades((prev) => [...prev, row]);
-    setActiveGradeId(row.id);
+    setGrades((prev) => [...prev, data]);
+    setActiveGradeId(data.id);
+    setChapters([]);
+    setActiveChapterId(null);
   }
 
   async function deleteWorkbook(g: GradeRow) {
@@ -292,6 +279,43 @@ export default function TeacherGradesPanel({ ownerUserId }: Props) {
     });
     setChapters([]);
     setActiveChapterId(null);
+  }
+
+  async function expandWorkbookIfNeeded(grade: GradeRow, requiredTotal: number) {
+    if (requiredTotal <= grade.problem_count) return { ok: true as const };
+
+    const addN = requiredTotal - grade.problem_count;
+    const nextMarks: Mark[] = [...grade.marks, ...Array(addN).fill("")];
+    const nextLabels: string[] = [
+      ...(grade.labels ?? Array.from({ length: grade.problem_count }, (_, i) => String(i + 1))),
+      ...Array.from({ length: addN }, (_, i) => String(grade.problem_count + i + 1)),
+    ];
+
+    const { error } = await supabase
+      .from("student_grades")
+      .update({
+        problem_count: requiredTotal,
+        marks: nextMarks,
+        labels: nextLabels,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", grade.id);
+
+    if (error) {
+      setErr("問題集の拡張に失敗: " + error.message);
+      return { ok: false as const };
+    }
+
+    // UI反映
+    setGrades((prev) =>
+      prev.map((g) =>
+        g.id === grade.id
+          ? { ...g, problem_count: requiredTotal, marks: nextMarks, labels: nextLabels, updated_at: new Date().toISOString() }
+          : g
+      )
+    );
+
+    return { ok: true as const };
   }
 
   function scheduleSaveMarks(gradeId: string) {
@@ -338,47 +362,47 @@ export default function TeacherGradesPanel({ ownerUserId }: Props) {
   async function createChapter() {
     if (!activeGrade) return;
 
-    const startStr = window.prompt("章の開始番号（1〜）を入力");
-    if (!startStr) return;
-    const endStr = window.prompt("章の終了番号（1〜）を入力");
-    if (!endStr) return;
+    const title = window.prompt("章名（空でもOK）", "") ?? "";
+    const titleNorm = title.trim() ? title.trim() : null;
 
-    const start1 = Number(startStr);
-    const end1 = Number(endStr);
-    if (!Number.isInteger(start1) || !Number.isInteger(end1)) {
-      alert("開始・終了は整数で入力してください。");
+    const countStr = window.prompt("この章の問題数を入力（1〜）");
+    if (!countStr) return;
+
+    const chapterCount = Number(countStr);
+    if (!Number.isInteger(chapterCount) || chapterCount <= 0) {
+      alert("章の問題数は 1 以上の整数で入力してください。");
       return;
     }
 
-    const startIdx = clamp(start1 - 1, 0, activeGrade.problem_count - 1);
-    const endIdx = clamp(end1 - 1, 0, activeGrade.problem_count - 1);
-    const lo = Math.min(startIdx, endIdx);
-    const hi = Math.max(startIdx, endIdx);
+    // ★章は「末尾に追加」：開始は現在の問題数
+    const startIdx = activeGrade.problem_count; // 0-based
+    const endIdx = startIdx + (chapterCount - 1);
+    const requiredTotal = endIdx + 1;
 
-    const title = window.prompt("章名（空でもOK）", "") ?? "";
+    // ★必要なら問題集を拡張（problem_count/marks/labels を伸ばす）
+    const res = await expandWorkbookIfNeeded(activeGrade, requiredTotal);
+    if (!res.ok) return;
+
+    // 章のメモ類（今まで通り）
     const note = window.prompt("章の備考（生徒向け）", "") ?? "";
     const teacherMemo = window.prompt("先生メモ（先生のみ）", "") ?? "";
     const homework = window.prompt("次回宿題（先生のみ）", "") ?? "";
 
     const payload: Record<string, unknown> = {
       grade_id: activeGrade.id,
-      start_idx: lo,
-      end_idx: hi,
-      chapter_title: title.trim() ? title.trim() : null,
+      start_idx: startIdx,
+      end_idx: endIdx,
+      chapter_title: titleNorm,
       chapter_note: note,
       teacher_memo: teacherMemo,
       next_homework: homework,
-
-      // 互換用：古いUI/コードが note を読むケース対策
-      note: note,
+      note: note, // 互換用
     };
 
     const { data, error } = await supabase
       .from("student_grade_notes")
       .insert([payload])
-      .select(
-        "id,grade_id,start_idx,end_idx,chapter_title,chapter_note,teacher_memo,next_homework,note,created_at,updated_at"
-      )
+      .select("id,grade_id,start_idx,end_idx,chapter_title,chapter_note,teacher_memo,next_homework,note,created_at,updated_at")
       .single();
 
     if (error) {
@@ -387,6 +411,7 @@ export default function TeacherGradesPanel({ ownerUserId }: Props) {
     }
 
     const c = data as ChapterRow;
+
     setChapters((prev) => {
       const next = [...prev, c].sort((a, b) => a.start_idx - b.start_idx || a.end_idx - b.end_idx);
       return next;
