@@ -154,6 +154,12 @@ export default function Students() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // === workbooks distribute ===
+  const [wbTitle, setWbTitle] = useState("");
+  const [wbTotal, setWbTotal] = useState<number>(100);
+  const [wbBusy, setWbBusy] = useState(false);
+  const [wbMsg, setWbMsg] = useState<string | null>(null);
+
   const studentCount = useMemo(() => students.length, [students]);
   const pendingCount = useMemo(() => pending.length, [pending]);
 
@@ -229,6 +235,96 @@ export default function Students() {
     setPending((arr) => arr.filter((x) => x.id !== p.id));
   }
 
+  async function createAndDistributeWorkbook() {
+    if (!isStaff) return;
+
+    const title = wbTitle.trim();
+    const total = Number(wbTotal);
+
+    if (!title) {
+      setWbMsg("問題集名を入力してください。");
+      return;
+    }
+    if (!Number.isInteger(total) || total <= 0 || total > 1000) {
+      setWbMsg("問題数は 1〜1000 の整数で入力してください。");
+      return;
+    }
+
+    setWbBusy(true);
+    setWbMsg(null);
+
+    // 1) workbooks 作成（塾全体テンプレ）
+    // ※ user_id カラムがあるなら監査用に auth.uid() を入れてもOK（nullでも可）
+    const { data: wb, error: wbErr } = await supabase
+      .from("workbooks")
+      .insert([{ title, total_problems: total }])
+      .select("id,title,total_problems")
+      .single();
+
+    if (wbErr) {
+      // ここで title 一意制約に当たる可能性がある
+      setWbMsg("workbooks 作成に失敗: " + wbErr.message);
+      setWbBusy(false);
+      return;
+    }
+
+    // 2) 既存在籍生徒を取得（承認済みだけ配布）
+    const { data: ps, error: psErr } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("role", "student")
+      .eq("status", "active")
+      .eq("is_approved", true);
+
+    if (psErr) {
+      setWbMsg("生徒一覧の取得に失敗: " + psErr.message);
+      setWbBusy(false);
+      return;
+    }
+
+    const studentIds = (ps ?? []).map((r) => r.id as string);
+    if (studentIds.length === 0) {
+      setWbMsg("在籍生徒がいないため、テンプレだけ作成しました。");
+      setWbBusy(false);
+      return;
+    }
+
+    const marks = Array(total).fill("");
+    const labels = Array.from({ length: total }, (_, i) => String(i + 1));
+
+    // 3) student_grades を一括作成（workbook_id を入れる）
+    // ※ user_id + workbook_id unique を入れておけば重複配布は安全に弾ける
+    const payload = studentIds.map((uid) => ({
+      user_id: uid,
+      workbook_id: wb.id,
+      title: wb.title,
+      problem_count: wb.total_problems,
+      marks,
+      labels,
+    }));
+
+    const { error: insErr } = await supabase.from("student_grades").insert(payload);
+
+    if (insErr) {
+      setWbMsg(
+        "配布に失敗: " +
+          insErr.message +
+          "\n（workbooks は作成済み。student_grades の unique 制約や RLS を確認してください）"
+      );
+      setWbBusy(false);
+      return;
+    }
+
+    setWbMsg(`「${wb.title}」を作成し、在籍生徒 ${studentIds.length}人に配布しました。`);
+    setWbTitle("");
+    setWbTotal(100);
+
+    // 生徒一覧の再読み込み（任意）
+    await loadAll();
+
+    setWbBusy(false);
+  }
+
   if (selected) {
     return <StudentDetail student={selected} onBack={() => setSelected(null)} />;
   }
@@ -247,6 +343,68 @@ export default function Students() {
           <button style={styles.btnGhost} onClick={loadAll} disabled={loading}>
             再読み込み
           </button>
+        </div>
+
+        {/* 共通問題集（塾全体テンプレ） */}
+        <div style={styles.card}>
+          <div style={styles.cardHeader}>
+            <strong>共通問題集（全員に配布）</strong>
+            <span style={styles.badge}>塾全体で1セット</span>
+          </div>
+
+          <div style={styles.cardBody}>
+            <div style={{ display: "grid", gap: 10, maxWidth: 520 }}>
+              <label style={{ display: "grid", gap: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: colors.textSub }}>問題集名</div>
+                <input
+                  value={wbTitle}
+                  onChange={(e) => setWbTitle(e.target.value)}
+                  placeholder="例）数学 基礎問題"
+                  style={{
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: 12,
+                    padding: "10px 12px",
+                    fontWeight: 700,
+                    outline: "none",
+                  }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: colors.textSub }}>問題数（1〜1000）</div>
+                <input
+                  type="number"
+                  value={wbTotal}
+                  onChange={(e) => setWbTotal(Number(e.target.value))}
+                  min={1}
+                  max={1000}
+                  style={{
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: 12,
+                    padding: "10px 12px",
+                    fontWeight: 700,
+                    outline: "none",
+                  }}
+                />
+              </label>
+
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <button
+                  style={{ ...styles.btnPrimary, opacity: wbBusy ? 0.6 : 1 }}
+                  disabled={wbBusy}
+                  onClick={createAndDistributeWorkbook}
+                >
+                  {wbBusy ? "配布中..." : "作成して全員に配布"}
+                </button>
+
+                <div style={{ fontSize: 12, color: colors.textSub, fontWeight: 700 }}>
+                  ※ 新規生徒への自動付与は次の Step3 で対応
+                </div>
+              </div>
+
+              {wbMsg && <div style={styles.error}>{wbMsg}</div>}
+            </div>
+          </div>
         </div>
 
         {/* 承認待ち */}

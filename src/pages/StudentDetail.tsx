@@ -12,6 +12,7 @@ import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
 import ReportView from "../components/report/ReportView";
 import CalendarBoard from "../components/CalendarBoard";
+import TeacherGradesPanel from "../components/report/TeacherGradesPanel";
 
 type Props = {
   student: {
@@ -240,10 +241,22 @@ export default function StudentDetail({ student, onBack }: Props) {
         {tab === "grades" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             <Card>
-              <div style={{ fontSize: "16px", fontWeight: 900, color: "#0f172a", marginBottom: "10px" }}>
-                問題集の成績
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ fontSize: "16px", fontWeight: 900, color: "#0f172a" }}>
+                  問題集の成績
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b" }}>
+                  {isStaff ? "先生：編集モード" : "生徒：閲覧/自己編集（許可時）"}
+                </div>
               </div>
-              <StudentGrades userId={student.id} editable={true} />
+
+              <div style={{ marginTop: 12 }}>
+                {isStaff ? (
+                  <TeacherGradesPanel ownerUserId={student.id} />
+                ) : (
+                  <StudentGrades userId={student.id} editable={true /* 生徒側編集可ならtrue */} />
+                )}
+              </div>
             </Card>
           </div>
         )}

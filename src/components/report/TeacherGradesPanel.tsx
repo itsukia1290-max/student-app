@@ -200,7 +200,7 @@ export default function TeacherGradesPanel({ ownerUserId }: Props) {
 
   useEffect(() => {
     loadGrades();
-  }, [ownerUserId, loadGrades]);
+  }, [loadGrades]);
 
   useEffect(() => {
     if (!activeGradeId) return;
@@ -523,7 +523,7 @@ export default function TeacherGradesPanel({ ownerUserId }: Props) {
             再読み込み
           </button>
           <button style={ghostBtn()} onClick={addWorkbook}>
-            ＋ 問題集追加
+            ＋ 共通問題集を作成
           </button>
         </div>
       </div>
