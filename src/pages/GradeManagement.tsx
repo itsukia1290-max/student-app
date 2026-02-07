@@ -1,7 +1,8 @@
 // src/pages/GradeManagement.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useIsStaff } from "../hooks/useIsStaff";
+import TeacherGradesPanel from "../components/report/TeacherGradesPanel";
 
 const colors = {
   bg: "#f0f9ff",
@@ -103,6 +104,8 @@ const styles = {
   },
 };
 
+type StudentMini = { id: string; name: string | null; phone: string | null; memo: string | null };
+
 export default function GradeManagement() {
   const { isStaff } = useIsStaff();
 
@@ -113,6 +116,12 @@ export default function GradeManagement() {
   const [wbMsg, setWbMsg] = useState<string | null>(null);
 
   const [approvedCount, setApprovedCount] = useState<number>(0);
+
+  // === student selection ===
+  const [students, setStudents] = useState<StudentMini[]>([]);
+  const [studentLoading, setStudentLoading] = useState(false);
+  const [q, setQ] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const canUse = isStaff;
 
@@ -129,10 +138,43 @@ export default function GradeManagement() {
     if (!error) setApprovedCount(count ?? 0);
   }
 
+  async function loadStudents() {
+    setStudentLoading(true);
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id,name,phone,memo")
+      .eq("role", "student")
+      .eq("status", "active")
+      .eq("is_approved", true)
+      .order("name", { ascending: true });
+
+    if (error) {
+      setStudentLoading(false);
+      return;
+    }
+
+    setStudents((data ?? []) as StudentMini[]);
+    setStudentLoading(false);
+  }
+
   useEffect(() => {
+    if (!canUse) return;
     refreshCounts();
+    loadStudents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canUse]);
+
+  const filtered = useMemo(() => {
+    const key = q.trim().toLowerCase();
+    if (!key) return students;
+    return students.filter((s) => (s.name ?? "").toLowerCase().includes(key));
+  }, [students, q]);
+
+  const selectedStudent = useMemo(
+    () => students.find((s) => s.id === selectedId) ?? null,
+    [students, selectedId]
+  );
 
   async function createAndDistributeWorkbook() {
     if (!canUse) return;
@@ -302,6 +344,107 @@ export default function GradeManagement() {
               </div>
 
               {wbMsg && <div style={styles.error}>{wbMsg}</div>}
+            </div>
+          </div>
+        </div>
+
+        {/* 生徒選択→即編集 */}
+        <div style={styles.card}>
+          <div style={styles.cardHeader}>
+            <strong>生徒を選択して成績編集</strong>
+            <span style={styles.badge}>選択→即編集</span>
+          </div>
+
+          <div style={styles.cardBody}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1.4fr",
+                gap: 16,
+                alignItems: "start",
+              }}
+            >
+              {/* 左：生徒一覧 */}
+              <div>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}>
+                  <input
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="生徒検索（名前）"
+                    style={{
+                      width: "100%",
+                      border: `1px solid ${colors.border}`,
+                      borderRadius: 12,
+                      padding: "10px 12px",
+                      fontWeight: 700,
+                      outline: "none",
+                    }}
+                  />
+                  <button style={styles.btnGhost} onClick={loadStudents} disabled={studentLoading}>
+                    更新
+                  </button>
+                </div>
+
+                {studentLoading ? (
+                  <div style={{ fontSize: 13, color: colors.textSub, fontWeight: 800 }}>読み込み中...</div>
+                ) : filtered.length === 0 ? (
+                  <div style={{ fontSize: 13, color: colors.textSub, fontWeight: 800 }}>該当生徒がいません。</div>
+                ) : (
+                  <div style={{ display: "grid", gap: 8, maxHeight: 520, overflow: "auto" }}>
+                    {filtered.map((s) => {
+                      const active = s.id === selectedId;
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => setSelectedId(s.id)}
+                          style={{
+                            textAlign: "left",
+                            border: `1px solid ${active ? "rgba(14,165,233,0.55)" : colors.border}`,
+                            background: active ? "rgba(14,165,233,0.10)" : "#fff",
+                            borderRadius: 14,
+                            padding: "12px 12px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div style={{ fontWeight: 900, color: colors.textMain }}>{s.name ?? "未設定"}</div>
+                          <div style={{ fontSize: 12, color: colors.textSub, fontWeight: 700 }}>
+                            {s.phone ?? "-"} / {s.memo ?? "-"}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* 右：成績編集パネル */}
+              <div>
+                {!selectedStudent ? (
+                  <div style={{ fontSize: 13, color: colors.textSub, fontWeight: 800 }}>
+                    左から生徒を選択すると、ここに成績編集が表示されます。
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gap: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+                      <div style={{ fontSize: 16, fontWeight: 900, color: colors.textMain }}>
+                        {selectedStudent.name ?? "未設定"} の成績
+                      </div>
+                      <div style={{ fontSize: 12, color: colors.textSub, fontWeight: 800 }}>先生：編集</div>
+                    </div>
+
+                    <div
+                      style={{
+                        border: `1px solid ${colors.border}`,
+                        borderRadius: 16,
+                        padding: 12,
+                        background: "#fff",
+                      }}
+                    >
+                      <TeacherGradesPanel ownerUserId={selectedStudent.id} />
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
