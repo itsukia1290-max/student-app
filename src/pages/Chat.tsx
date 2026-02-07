@@ -325,7 +325,7 @@ export default function Chat() {
 
             if (active?.id === gid) {
               const wasNear = isNearBottom();
-              setMessages((prev) => [...prev, row]);
+              setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]));
 
               if (wasNear) {
                 scrollToBottom(true);
@@ -384,19 +384,36 @@ export default function Chat() {
         if (upErr) throw upErr;
       }
 
-      const { error: msgErr } = await supabase.from("messages").insert({
-        group_id: active.id,
-        sender_id: myId,
-        body: text || "",
-        image_url: imagePath,
-      });
+      // ★ ここが重要：insert後に作成された行を受け取る
+      const { data: saved, error: msgErr } = await supabase
+        .from("messages")
+        .insert({
+          group_id: active.id,
+          sender_id: myId,
+          body: text || "",
+          image_url: imagePath,
+        })
+        .select("id,group_id,sender_id,body,image_url,created_at")
+        .single();
 
       if (msgErr) throw msgErr;
 
+      // ★ 即時反映（Realtimeが死んでても見える）
+      setMessages((prev) => [...prev, saved as Message]);
+
+      setLastByGroup((prev) => ({
+        ...prev,
+        [active.id]: {
+          body: saved.body ?? "",
+          image_url: saved.image_url ?? null,
+          created_at: saved.created_at,
+        },
+      }));
+
       setInput("");
       clearImageSelection();
-      await markRead(active.id);
 
+      await markRead(active.id);
       scrollToBottom(true);
       setShowJump(false);
     } catch (e) {

@@ -433,7 +433,7 @@ export default function DM() {
             },
           }));
 
-          setMessages((prev) => [...prev, row]);
+          setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]));
 
           // 下にいる時だけ自動スクロール
           const el = scrollRef.current;
@@ -496,14 +496,29 @@ export default function DM() {
         if (upErr) throw upErr;
       }
 
-      const { error: msgErr } = await supabase.from("messages").insert({
-        group_id: activeId,
-        sender_id: myId,
-        body: text || "",
-        image_url: imagePath,
-      });
+      const { data: saved, error: msgErr } = await supabase
+        .from("messages")
+        .insert({
+          group_id: activeId,
+          sender_id: myId,
+          body: text || "",
+          image_url: imagePath,
+        })
+        .select("id,group_id,sender_id,body,image_url,created_at")
+        .single();
 
       if (msgErr) throw msgErr;
+
+      // 即時反映
+      setMessages((prev) => [...prev, saved as Message]);
+      setLastByGroup((prev) => ({
+        ...prev,
+        [activeId]: {
+          body: saved.body ?? "",
+          image_url: saved.image_url ?? null,
+          created_at: saved.created_at,
+        },
+      }));
 
       setInput("");
       clearImageSelection();
