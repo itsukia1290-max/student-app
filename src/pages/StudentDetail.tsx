@@ -10,7 +10,7 @@ import { useIsStaff } from "../hooks/useIsStaff";
 import { supabase } from "../lib/supabase";
 import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
-import ReportView from "../components/report/ReportView";
+import Report from "./Report";
 import CalendarBoard from "../components/CalendarBoard";
 import TeacherGradesPanel from "../components/report/TeacherGradesPanel";
 
@@ -223,19 +223,7 @@ export default function StudentDetail({ student, onBack }: Props) {
       {/* ===== Body ===== */}
       <div style={{ marginTop: "16px" }}>
         {tab === "report" && (
-          <ReportView
-            ownerUserId={student.id}
-            mode="teacher"
-            showTimeline={false}
-            showGrades={true}
-            showCalendar={true}
-            calendarPermissions={{
-              viewPersonal: true,
-              editPersonal: false,
-              viewSchool: true,
-              editSchool: true,
-            }}
-          />
+          <Report ownerUserId={student.id} mode="student" />
         )}
 
         {tab === "grades" && (

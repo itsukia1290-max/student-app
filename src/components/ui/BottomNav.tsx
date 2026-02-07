@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
 import ReactDOM from "react-dom";
 import type { ReactElement } from "react";
+import type { View } from "../../hooks/useNav";
 
-type View = "home" | "mypage" | "chat" | "dm" | "students" | "schoolCalendar";
 type Tab = { key: View; label: string };
 
 const icons: Record<View, ReactElement> = {
@@ -39,6 +39,14 @@ const icons: Record<View, ReactElement> = {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <rect x="3" y="4" width="18" height="17" rx="2" stroke="currentColor" strokeWidth="1.6" />
       <path d="M3 9h18" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  ),
+  gradeManagement: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path d="M9 6h12M9 12h12M9 18h12" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M4 6l1.2 1.2L7.6 4.8" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M4 12l1.2 1.2L7.6 10.8" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M4 18l1.2 1.2L7.6 16.8" stroke="currentColor" strokeWidth="1.6" />
     </svg>
   ),
 };

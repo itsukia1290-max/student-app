@@ -90,6 +90,12 @@ export default function TeacherGradesPanel({ ownerUserId }: Props) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // === workbooks distribute ===
+  const [wbTitle, setWbTitle] = useState("");
+  const [wbTotal, setWbTotal] = useState<number>(100);
+  const [wbBusy, setWbBusy] = useState(false);
+  const [wbMsg, setWbMsg] = useState<string | null>(null);
+
   // autosave (marks)
   const gradeSaveTimers = useRef<Record<string, number>>({});
   const gradesRef = useRef<GradeRow[]>([]);
@@ -236,7 +242,7 @@ export default function TeacherGradesPanel({ ownerUserId }: Props) {
   }
 
   // ---------- grade ops ----------
-  async function addWorkbook() {
+  async function addStudentWorkbook() {
     const title = window.prompt("問題集名を入力してください（例：数学基礎問題精講）");
     if (!title) return;
 
@@ -263,6 +269,90 @@ export default function TeacherGradesPanel({ ownerUserId }: Props) {
     setActiveGradeId(data.id);
     setChapters([]);
     setActiveChapterId(null);
+  }
+
+  async function createAndDistributeWorkbook() {
+    const title = wbTitle.trim();
+    const total = Number(wbTotal);
+
+    if (!title) {
+      setWbMsg("問題集名を入力してください。");
+      return;
+    }
+    if (!Number.isInteger(total) || total <= 0 || total > 1000) {
+      setWbMsg("問題数は 1〜1000 の整数で入力してください。");
+      return;
+    }
+
+    setWbBusy(true);
+    setWbMsg(null);
+
+    // 1) workbooks 作成（塾全体テンプレ）
+    const { data: wb, error: wbErr } = await supabase
+      .from("workbooks")
+      .insert([{ title, total_problems: total }])
+      .select("id,title,total_problems")
+      .single();
+
+    if (wbErr) {
+      setWbMsg("workbooks 作成に失敗: " + wbErr.message);
+      setWbBusy(false);
+      return;
+    }
+
+    // 2) 既存在籍生徒を取得（承認済みだけ配布）
+    const { data: ps, error: psErr } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("role", "student")
+      .eq("status", "active")
+      .eq("is_approved", true);
+
+    if (psErr) {
+      setWbMsg("生徒一覧の取得に失敗: " + psErr.message);
+      setWbBusy(false);
+      return;
+    }
+
+    const studentIds = (ps ?? []).map((r) => r.id as string);
+    if (studentIds.length === 0) {
+      setWbMsg("在籍生徒がいないため、テンプレだけ作成しました。");
+      setWbBusy(false);
+      return;
+    }
+
+    const marks = Array(total).fill("");
+    const labels = Array.from({ length: total }, (_, i) => String(i + 1));
+
+    // 3) student_grades を一括作成（workbook_id を入れる）
+    const payload = studentIds.map((uid) => ({
+      user_id: uid,
+      workbook_id: wb.id,
+      title: wb.title,
+      problem_count: wb.total_problems,
+      marks,
+      labels,
+    }));
+
+    const { error: insErr } = await supabase.from("student_grades").insert(payload);
+
+    if (insErr) {
+      setWbMsg(
+        "配布に失敗: " +
+          insErr.message +
+          "\n（workbooks は作成済み。student_grades の unique 制約や RLS を確認してください）"
+      );
+      setWbBusy(false);
+      return;
+    }
+
+    setWbMsg(`「${wb.title}」を作成し、在籍生徒 ${studentIds.length}人に配布しました。`);
+    setWbTitle("");
+    setWbTotal(100);
+    setWbBusy(false);
+
+    // 生徒の問題集一覧を再読み込み
+    await loadGrades();
   }
 
   async function deleteWorkbook(g: GradeRow) {
@@ -522,14 +612,76 @@ export default function TeacherGradesPanel({ ownerUserId }: Props) {
           <button style={ghostBtn()} onClick={loadGrades} disabled={loading}>
             再読み込み
           </button>
-          <button style={ghostBtn()} onClick={addWorkbook}>
-            ＋ 共通問題集を作成
+          <button style={ghostBtn()} onClick={addStudentWorkbook}>
+            ＋ 生徒の問題集を追加
           </button>
         </div>
       </div>
 
       {err && <div style={errorBox()}>{err}</div>}
       {loading && <div style={muted()}>読み込み中...</div>}
+
+      {/* 共通問題集（全員に配布） */}
+      <div style={panel()}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 950, color: "#0f172a" }}>共通問題集（全員に配布）</div>
+          <div style={{ fontSize: 11, fontWeight: 900, color: "#64748b" }}>塾全体で1セット</div>
+        </div>
+
+        <div style={{ display: "grid", gap: 10, maxWidth: 520 }}>
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#64748b" }}>問題集名</div>
+            <input
+              value={wbTitle}
+              onChange={(e) => setWbTitle(e.target.value)}
+              placeholder="例）数学 基礎問題"
+              style={{
+                border: "1px solid rgba(148,163,184,0.35)",
+                borderRadius: 12,
+                padding: "10px 12px",
+                fontWeight: 700,
+                outline: "none",
+                fontSize: 13,
+              }}
+            />
+          </label>
+
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#64748b" }}>問題数（1〜1000）</div>
+            <input
+              type="number"
+              value={wbTotal}
+              onChange={(e) => setWbTotal(Number(e.target.value))}
+              min={1}
+              max={1000}
+              style={{
+                border: "1px solid rgba(148,163,184,0.35)",
+                borderRadius: 12,
+                padding: "10px 12px",
+                fontWeight: 700,
+                outline: "none",
+                fontSize: 13,
+              }}
+            />
+          </label>
+
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <button
+              style={{ ...ghostBtn(), opacity: wbBusy ? 0.6 : 1, background: "rgba(59,130,246,0.10)", borderColor: "rgba(59,130,246,0.30)", color: "#1d4ed8" }}
+              disabled={wbBusy}
+              onClick={createAndDistributeWorkbook}
+            >
+              {wbBusy ? "配布中..." : "＋ 作成して全員に配布"}
+            </button>
+
+            <div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>
+              ※ 承認済み生徒全員に配布されます
+            </div>
+          </div>
+
+          {wbMsg && <div style={{ ...errorBox(), background: wbMsg.includes("失敗") ? "rgba(254,242,242,0.92)" : "rgba(240,253,244,0.92)", color: wbMsg.includes("失敗") ? "#b91c1c" : "#166534", borderColor: wbMsg.includes("失敗") ? "rgba(220,38,38,0.25)" : "rgba(34,197,94,0.25)" }}>{wbMsg}</div>}
+        </div>
+      </div>
 
       {/* main layout */}
       <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 12, alignItems: "start" }}>

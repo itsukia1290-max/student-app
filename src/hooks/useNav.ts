@@ -1,7 +1,7 @@
 // src/hooks/useNav.ts
 import { createContext, useContext } from "react";
 
-export type View = "home" | "mypage" | "chat" | "dm" | "students" | "schoolCalendar";
+export type View = "home" | "mypage" | "chat" | "dm" | "students" | "schoolCalendar" | "gradeManagement";
 export type MyPageTab = "profile" | "goals" | "grades" | "records";
 export type GoalPeriod = "week" | "month";
 

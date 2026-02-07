@@ -5,29 +5,25 @@ import ReportView from "../components/report/ReportView";
 import type { CalendarPermissions } from "../components/CalendarBoard";
 import { useIsStaff } from "../hooks/useIsStaff";
 
-export default function Report() {
+type Props = {
+  ownerUserId?: string; // ★追加：指定があればそのユーザーのレポートを表示
+  mode?: "student" | "teacher"; // ★任意：明示したい時用（基本は isStaff で決める）
+};
+
+export default function Report({ ownerUserId: ownerUserIdProp, mode }: Props) {
   const { user } = useAuth();
   const { isStaff } = useIsStaff();
-  const role = isStaff ? "teacher" : "student";
 
-  // 表示対象：
-  // - 生徒: 自分
-  // - 先生: 「生徒ページで選択した生徒」などになるはず
-  // いまは仮で「生徒 = 自分」「先生 = 自分」になってるので、
-  // 先生が生徒詳細で見る場合は ownerUserId を props で受け取るように変更してね。
-  const ownerUserId = user?.id ?? "";
+  const ownerUserId = ownerUserIdProp ?? user?.id ?? "";
+  const effectiveMode = mode ?? (isStaff ? "teacher" : "student");
 
   const calendarPermissions: CalendarPermissions = useMemo(() => {
     const isSelf = ownerUserId === user?.id;
-
-    // 要件：
-    // - 個人端末に表示されるカレンダー = 塾予定 + 自分の個人予定
-    // - 先生は「生徒ページから個人カレンダーを閲覧」できる（閲覧のみ、編集は本人だけ）
     return {
-      viewPersonal: isSelf || isStaff, // 生徒本人 or 先生は閲覧OK
-      editPersonal: isSelf,           // 個人予定の編集は本人だけ
-      viewSchool: true,              // 全員が塾予定を見れる
-      editSchool: isStaff,           // 塾予定編集は先生/管理者
+      viewPersonal: isSelf || isStaff,
+      editPersonal: isSelf,
+      viewSchool: true,
+      editSchool: isStaff,
     };
   }, [isStaff, ownerUserId, user?.id]);
 
@@ -35,10 +31,8 @@ export default function Report() {
     <div style={{ padding: "12px" }}>
       <ReportView
         ownerUserId={ownerUserId}
-        // 学習推移は "自分" を出したいので、ReportView側で auth.uid を使う（後述）
         calendarPermissions={calendarPermissions}
-        
-        mode={role === "student" ? "student" : "teacher"}
+        mode={effectiveMode}
         showTimeline={true}
         showGrades={true}
         showCalendar={true}

@@ -9,6 +9,7 @@ import Chat from "./pages/Chat";
 import Students from "./pages/Students";
 import SchoolCalendar from "./pages/SchoolCalendar";
 import DM from "./pages/DM";
+import GradeManagement from "./pages/GradeManagement";
 import { supabase } from "./lib/supabase";
 import { useMyApproval } from "./hooks/useMyApproval";
 import { useIsStaff } from "./hooks/useIsStaff";
@@ -52,17 +53,16 @@ function Shell() {
     if (!isStaff) return studentTabs;
 
     return [
-      { key: "home", label: "レポート" },
+      { key: "home", label: "生徒" },
+      { key: "gradeManagement", label: "成績編集" },
       { key: "chat", label: "グループ" },
       { key: "dm", label: "DM" },
-      { key: "students", label: "生徒" },
       { key: "schoolCalendar", label: "塾カレンダー" },
       { key: "mypage", label: "マイページ" },
     ];
   }, [isStaff]);
 
-  const effectiveView: View =
-    !isStaff && (view === "students" || view === "schoolCalendar") ? "home" : view;
+  const effectiveView: View = !isStaff && (view === "schoolCalendar" || view === "gradeManagement") ? "home" : view;
 
   return (
     <NavProvider
@@ -76,13 +76,13 @@ function Shell() {
     >
       <div className="min-h-screen bg-gray-50">
         <main className="max-w-5xl mx-auto px-4 py-6">
-          {effectiveView === "home" && <Report />}
+          {effectiveView === "home" && (isStaff ? <Students /> : <Report />)}
+          {effectiveView === "gradeManagement" && isStaff && <GradeManagement />}
           {effectiveView === "mypage" && (
             <MyPage initialTab={myPageInitialTab} initialGoalPeriod={myPageInitialGoalPeriod} />
           )}
           {effectiveView === "chat" && <Chat />}
           {effectiveView === "dm" && <DM />}
-          {effectiveView === "students" && isStaff && <Students />}
           {effectiveView === "schoolCalendar" && isStaff && <SchoolCalendar />}
         </main>
 
