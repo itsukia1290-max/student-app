@@ -4,6 +4,7 @@
 // - editable=false : 先生用（閲覧のみ・日別合計＋内訳）
 
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { useStudySubjects } from "../hooks/useStudySubjects";
 import { supabase } from "../lib/supabase";
 
 type Props = {
@@ -14,6 +15,7 @@ type Props = {
 type StudyLog = {
   id: string;
   subject: string;
+  subject_id: string | null;
   minutes: number;
   studied_at: string; // YYYY-MM-DD
   memo: string | null;
@@ -33,12 +35,21 @@ export default function StudentStudyLogs({ userId, editable = true }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   // 入力フォーム
-  const [subject, setSubject] = useState("");
+  const { subjects: masterSubjects } = useStudySubjects("junior");
+  const [subjectId, setSubjectId] = useState<string>("");
   const [hours, setHours] = useState<string>("1");
   const [studiedAt, setStudiedAt] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [memo, setMemo] = useState("");
 
   const [openDates, setOpenDates] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (!subjectId && masterSubjects.length > 0) {
+      const other = masterSubjects.find((s) => s.name === "その他");
+      setSubjectId(other?.id ?? masterSubjects[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [masterSubjects]);
 
   useEffect(() => {
     if (!userId) return;
@@ -50,7 +61,7 @@ export default function StudentStudyLogs({ userId, editable = true }: Props) {
 
       const { data, error } = await supabase
         .from("study_logs")
-        .select("id, subject, minutes, studied_at, memo, created_at")
+        .select("id, subject, subject_id, minutes, studied_at, memo, created_at")
         .eq("user_id", userId)
         .order("studied_at", { ascending: false })
         .order("created_at", { ascending: false });
@@ -89,6 +100,12 @@ export default function StudentStudyLogs({ userId, editable = true }: Props) {
     return groups;
   }, [logs]);
 
+  const subjectNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const s of masterSubjects) map[s.id] = s.name;
+    return map;
+  }, [masterSubjects]);
+
   function toggleDate(date: string) {
     setOpenDates((prev) => ({ ...prev, [date]: !prev[date] }));
   }
@@ -99,11 +116,12 @@ export default function StudentStudyLogs({ userId, editable = true }: Props) {
 
     setError(null);
 
-    const trimmedSubject = subject.trim();
-    if (!trimmedSubject) {
-      setError("科目を入力してください。");
+    if (!subjectId) {
+      setError("科目を選択してください。");
       return;
     }
+
+    const subjectName = subjectNameMap[subjectId] ?? "その他";
 
     const h = Number(hours);
     if (!Number.isFinite(h) || h <= 0) {
@@ -123,12 +141,13 @@ export default function StudentStudyLogs({ userId, editable = true }: Props) {
       .from("study_logs")
       .insert({
         user_id: userId,
-        subject: trimmedSubject,
+        subject_id: subjectId,
+        subject: subjectName,
         minutes,
         studied_at: studiedAt,
         memo: memo.trim() || null,
       })
-      .select("id, subject, minutes, studied_at, memo, created_at")
+      .select("id, subject, subject_id, minutes, studied_at, memo, created_at")
       .single();
 
     if (error) {
@@ -140,7 +159,6 @@ export default function StudentStudyLogs({ userId, editable = true }: Props) {
 
     if (data) {
       setLogs((prev) => [data as StudyLog, ...prev]);
-      setSubject("");
       setHours("1");
       setMemo("");
       setOpenDates((prev) => ({ ...prev, [(data as StudyLog).studied_at]: true }));
@@ -163,12 +181,16 @@ export default function StudentStudyLogs({ userId, editable = true }: Props) {
             <div style={grid3()}>
               <div style={{ minWidth: 0 }}>
                 <div style={label()}>科目</div>
-                <input
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  placeholder="例: 数学、英語、物理 など"
-                  style={input()}
-                />
+                <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} style={input()}>
+                  {masterSubjects.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                <div style={{ marginTop: 6, fontSize: 11, fontWeight: 800, color: "#64748b" }}>
+                  ※今は中学主要教科＋その他（固定）
+                </div>
               </div>
 
               <div style={{ minWidth: 0 }}>
@@ -252,7 +274,11 @@ export default function StudentStudyLogs({ userId, editable = true }: Props) {
                         {group.logs.map((log) => (
                           <div key={log.id} style={logItem()}>
                             <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                              <div style={{ fontWeight: 900, color: "#0f172a" }}>{log.subject}</div>
+                              <div style={{ fontWeight: 900, color: "#0f172a" }}>
+                                {log.subject_id
+                                  ? subjectNameMap[log.subject_id] ?? log.subject ?? "（不明）"
+                                  : log.subject ?? "（不明）"}
+                              </div>
                               <div style={{ fontWeight: 900, color: "#1d4ed8" }}>
                                 {(log.minutes / 60).toFixed(2)} h
                               </div>
