@@ -14,7 +14,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import Button from "./ui/Button";
 import Input, { Textarea } from "./ui/Input";
-import StudySummaryForDate from "./StudySummaryForDate";
+import StudyBreakdownForDate from "./StudyBreakdownForDate";
 
 type Scope = "personal" | "school";
 
@@ -553,7 +553,7 @@ export default function CalendarBoard({
             </div>
           }
         >
-          <StudySummaryForDate userId={ownerUserId} dateISO={selectedDate} />
+          <StudyBreakdownForDate userId={ownerUserId} dateISO={selectedDate} />
         </SafeBoundary>
 
         {selectedEvents.length === 0 ? (
