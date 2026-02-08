@@ -279,9 +279,7 @@ export default function Students() {
                 </div>
               ))
             )}
-            <div style={styles.hint}>
-              ※ 承認待ちは <code>profiles.role='student' AND is_approved=false AND status='active'</code> を表示します。
-            </div>
+            <div style={styles.hint} />
           </div>
         </div>
 

@@ -156,13 +156,17 @@ function StudentReportView({
   }, [goals, monthKey]);
 
   // ---- styles ----
-  const pageStyle: React.CSSProperties = {
+  const outerStyle: React.CSSProperties = {
+    background: "#f8fafc",
+    padding: "8px",
+  };
+
+  const innerStyle: React.CSSProperties = {
+    maxWidth: 980,
+    margin: "0 auto",
     display: "flex",
     flexDirection: "column",
     gap: "14px",
-    padding: "8px",
-    borderRadius: "24px",
-    background: "#f8fafc",
   };
 
   const headerWrapStyle: React.CSSProperties = {
@@ -273,85 +277,87 @@ function StudentReportView({
   }
 
   return (
-    <div style={pageStyle}>
-      {/* Header & Tabs */}
-      <div style={headerWrapStyle}>
-        <div style={headerTitleStyle}>レポート</div>
+    <div style={outerStyle}>
+      <div style={innerStyle}>
+        {/* Header & Tabs */}
+        <div style={headerWrapStyle}>
+          <div style={headerTitleStyle}>レポート</div>
 
-        <div style={tabHeaderRowStyle}>
-          <TopTab active={tab === "record"} label="記録" onClick={() => setTab("record")} />
-          {showTimeline && <TopTab active={tab === "timeline"} label="タイムライン" onClick={() => setTab("timeline")} />}
+          <div style={tabHeaderRowStyle}>
+            <TopTab active={tab === "record"} label="記録" onClick={() => setTab("record")} />
+            {showTimeline && <TopTab active={tab === "timeline"} label="タイムライン" onClick={() => setTab("timeline")} />}
+          </div>
         </div>
+
+        {tab === "timeline" ? (
+          <SoftCard title="タイムライン" right={<span style={subtleRightStyle}>後で拡張</span>}>
+            <div style={{ color: "#64748b", fontSize: "14px", fontWeight: 800 }}>
+              ここは後で「先生コメント」「要約」「提出履歴」などを流せます。
+            </div>
+          </SoftCard>
+        ) : (
+          <>
+            {/* 学習サマリ（枠の二重は回避して直置き） */}
+            <div style={{ marginTop: "2px" }}>
+              {/* ✅ 先生閲覧時はボタン非表示にできるように */}
+              <StudentDashboardSummary userId={ownerUserId} canEdit={canEdit} />
+            </div>
+
+            {/* 週間目標（文字目標） */}
+            <SoftCard
+              title="週間目標"
+              right={
+                canEdit ? (
+                  <button style={primarySmallBtn} onClick={() => nav.openMyGoals("week")}>
+                    目標を追加
+                  </button>
+                ) : (
+                  <span style={subtleRightStyle}>生徒の目標</span>
+                )
+              }
+            >
+              {/* ✅ 今週の学習実績 行は削除 */}
+              <GoalBlock g={currentWeeklyGoal} />
+            </SoftCard>
+
+            {/* 月間目標（文字目標） */}
+            <SoftCard
+              title="月間目標"
+              right={
+                canEdit ? (
+                  <button style={primarySmallBtn} onClick={() => nav.openMyGoals("month")}>
+                    目標を追加
+                  </button>
+                ) : (
+                  <span style={subtleRightStyle}>生徒の目標</span>
+                )
+              }
+            >
+              {/* ✅ 今月の学習実績 行は削除 */}
+              <GoalBlock g={currentMonthlyGoal} />
+            </SoftCard>
+
+            {/* 成績 */}
+            {showGrades && (
+              <SoftCard title="成績（小テスト/問題集）" right={<span style={subtleRightStyle}>既存機能</span>}>
+                <div style={{ color: "#64748b", fontSize: "13px", fontWeight: 900, marginBottom: "12px" }}>
+                  「確認する」で問題集の進捗を確認できます。
+                </div>
+                <div style={{ borderTop: "1px dashed rgba(148,163,184,0.35)", paddingTop: "12px" }}>
+                  <RecentChapter ownerUserId={ownerUserId} />
+                </div>
+              </SoftCard>
+            )}
+
+            {/* カレンダー */}
+            {showCalendar && (
+              <SoftCard title="カレンダー" right={<span style={subtleRightStyle}>calendar_events</span>}>
+                <CalendarBoard ownerUserId={ownerUserId} permissions={calendarPermissions} />
+              </SoftCard>
+            )}
+          </>
+        )}
       </div>
-
-      {tab === "timeline" ? (
-        <SoftCard title="タイムライン" right={<span style={subtleRightStyle}>後で拡張</span>}>
-          <div style={{ color: "#64748b", fontSize: "14px", fontWeight: 800 }}>
-            ここは後で「先生コメント」「要約」「提出履歴」などを流せます。
-          </div>
-        </SoftCard>
-      ) : (
-        <>
-          {/* 学習サマリ（枠の二重は回避して直置き） */}
-          <div style={{ marginTop: "2px" }}>
-            {/* ✅ 先生閲覧時はボタン非表示にできるように */}
-            <StudentDashboardSummary userId={ownerUserId} canEdit={canEdit} />
-          </div>
-
-          {/* 週間目標（文字目標） */}
-          <SoftCard
-            title="週間目標"
-            right={
-              canEdit ? (
-                <button style={primarySmallBtn} onClick={() => nav.openMyGoals("week")}>
-                  目標を追加
-                </button>
-              ) : (
-                <span style={subtleRightStyle}>生徒の目標</span>
-              )
-            }
-          >
-            {/* ✅ 今週の学習実績 行は削除 */}
-            <GoalBlock g={currentWeeklyGoal} />
-          </SoftCard>
-
-          {/* 月間目標（文字目標） */}
-          <SoftCard
-            title="月間目標"
-            right={
-              canEdit ? (
-                <button style={primarySmallBtn} onClick={() => nav.openMyGoals("month")}>
-                  目標を追加
-                </button>
-              ) : (
-                <span style={subtleRightStyle}>生徒の目標</span>
-              )
-            }
-          >
-            {/* ✅ 今月の学習実績 行は削除 */}
-            <GoalBlock g={currentMonthlyGoal} />
-          </SoftCard>
-
-          {/* 成績 */}
-          {showGrades && (
-            <SoftCard title="成績（小テスト/問題集）" right={<span style={subtleRightStyle}>既存機能</span>}>
-              <div style={{ color: "#64748b", fontSize: "13px", fontWeight: 900, marginBottom: "12px" }}>
-                「確認する」で問題集の進捗を確認できます。
-              </div>
-              <div style={{ borderTop: "1px dashed rgba(148,163,184,0.35)", paddingTop: "12px" }}>
-                <RecentChapter ownerUserId={ownerUserId} />
-              </div>
-            </SoftCard>
-          )}
-
-          {/* カレンダー */}
-          {showCalendar && (
-            <SoftCard title="カレンダー" right={<span style={subtleRightStyle}>calendar_events</span>}>
-              <CalendarBoard ownerUserId={ownerUserId} permissions={calendarPermissions} />
-            </SoftCard>
-          )}
-        </>
-      )}
     </div>
   );
 }
