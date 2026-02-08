@@ -239,7 +239,7 @@ export default function Students() {
         <div style={styles.header}>
           <div>
             <div style={styles.title}>生徒</div>
-            <div style={styles.subtitle}>承認待ちの管理と在籍生徒の確認（profiles を単一の真実として使用）</div>
+            <div style={styles.subtitle}>承認待ちの管理と在籍生徒の確認</div>
             {loading && <div style={styles.hint}>読み込み中...</div>}
             {err && <div style={styles.error}>{err}</div>}
           </div>
