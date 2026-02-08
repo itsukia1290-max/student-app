@@ -106,8 +106,7 @@ export default function MyPage({ initialTab = "profile", initialGoalPeriod = "we
   // ================== styles ==================
   const pageBg: React.CSSProperties = {
     minHeight: "70vh",
-    background:
-      "linear-gradient(180deg, rgba(219,242,255,0.85) 0%, rgba(245,252,255,0.9) 35%, #ffffff 100%)",
+    background: "#ffffff",
   };
 
   const container: React.CSSProperties = {
@@ -343,12 +342,11 @@ function Card({ title, right, children }: { title: string; right?: React.ReactNo
   return (
     <section
       style={{
-        borderRadius: 20,
-        backgroundColor: "rgba(255,255,255,0.86)",
+        borderRadius: 16,
+        backgroundColor: "#ffffff",
         padding: 16,
-        boxShadow: "0 12px 34px rgba(15, 23, 42, 0.08)",
-        border: "1px solid rgba(148, 163, 184, 0.18)",
-        backdropFilter: "blur(8px)",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
+        border: "1px solid #e5e7eb",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
@@ -368,7 +366,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return (
     <label style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 12, alignItems: "start" }}>
       <div style={{ fontSize: 13, fontWeight: 900, color: "#0f172a", paddingTop: 10 }}>{label}</div>
-      <div>{children}</div>
+      <div style={{ minWidth: 0 }}>{children}</div>
     </label>
   );
 }
@@ -376,6 +374,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function inputStyle(): React.CSSProperties {
   return {
     width: "100%",
+    boxSizing: "border-box",
     border: "1px solid rgba(148,163,184,0.35)",
     borderRadius: 14,
     padding: "12px 14px",

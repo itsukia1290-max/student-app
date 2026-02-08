@@ -147,7 +147,7 @@ export default function StudentDetail({ student, onBack }: Props) {
   }, [student.id]);
 
   return (
-    <div style={{ padding: "16px", paddingBottom: "80px" }}>
+    <div style={{ padding: "16px", paddingBottom: "calc(96px + env(safe-area-inset-bottom))", boxSizing: "border-box" }}>
       {/* ===== Top bar ===== */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
         <button
@@ -222,9 +222,7 @@ export default function StudentDetail({ student, onBack }: Props) {
 
       {/* ===== Body ===== */}
       <div style={{ marginTop: "16px" }}>
-        {tab === "report" && (
-          <Report ownerUserId={student.id} mode="student" />
-        )}
+        {tab === "report" && <Report ownerUserId={student.id} mode="student" viewerRole="staff" />}
 
         {tab === "grades" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>

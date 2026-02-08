@@ -18,6 +18,7 @@ type Mode = "student" | "teacher";
 type Props = {
   ownerUserId: string;
   mode: Mode;
+  viewerRole?: "student" | "staff";
 
   showTimeline?: boolean;
   showGrades?: boolean;
@@ -94,13 +95,14 @@ export default function ReportView(props: Props) {
 
 function StudentReportView({
   ownerUserId,
-  mode,
+  viewerRole = "student",
   showTimeline = true,
   showGrades = true,
   showCalendar = true,
   calendarPermissions,
 }: Props) {
   const nav = useNav();
+  const canEdit = viewerRole === "student";
 
   const weekKey = useMemo(() => currentWeekKey(new Date()), []);
   const monthKey = useMemo(() => currentMonthKey(new Date()), []);
@@ -293,14 +295,14 @@ function StudentReportView({
           {/* 学習サマリ（枠の二重は回避して直置き） */}
           <div style={{ marginTop: "2px" }}>
             {/* ✅ 先生閲覧時はボタン非表示にできるように */}
-            <StudentDashboardSummary userId={ownerUserId} canEdit={mode === "student"} />
+            <StudentDashboardSummary userId={ownerUserId} canEdit={canEdit} />
           </div>
 
           {/* 週間目標（文字目標） */}
           <SoftCard
             title="週間目標"
             right={
-              mode === "student" ? (
+              canEdit ? (
                 <button style={primarySmallBtn} onClick={() => nav.openMyGoals("week")}>
                   目標を追加
                 </button>
@@ -317,7 +319,7 @@ function StudentReportView({
           <SoftCard
             title="月間目標"
             right={
-              mode === "student" ? (
+              canEdit ? (
                 <button style={primarySmallBtn} onClick={() => nav.openMyGoals("month")}>
                   目標を追加
                 </button>
