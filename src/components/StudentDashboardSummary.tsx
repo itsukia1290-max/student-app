@@ -253,9 +253,7 @@ function MiniDonut({
   size?: number;
   stroke?: number;
 }) {
-  if (!breakdown.length || total <= 0) {
-    return <div style={{ fontSize: 11, fontWeight: 800, color: "#94a3b8" }}>内訳なし</div>;
-  }
+  const isEmpty = total <= 0 || breakdown.length === 0;
 
   const colorOf = (label: string) => {
     const map: Record<string, string> = {
@@ -272,7 +270,7 @@ function MiniDonut({
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
 
-  const sorted = [...breakdown].sort((a, b) => b.minutes - a.minutes);
+  const sorted = isEmpty ? [] : [...breakdown].sort((a, b) => b.minutes - a.minutes);
   const top = sorted.slice(0, 5);
   const restMin = sorted.slice(5).reduce((s, x) => s + x.minutes, 0);
   const items = restMin > 0 ? [...top, { key: "__rest__", label: "その他", minutes: restMin }] : top;
@@ -289,66 +287,70 @@ function MiniDonut({
           cy={size / 2}
           r={r}
           fill="none"
-          stroke="rgba(148,163,184,0.25)"
+          stroke={isEmpty ? "#e5e7eb" : "rgba(148,163,184,0.25)"}
           strokeWidth={stroke}
         />
 
-        {items.map((b) => {
-          const frac = b.minutes / total;
-          const len = c * frac;
+        {!isEmpty &&
+          breakdown.map((b) => {
+            const frac = b.minutes / total;
+            const len = c * frac;
 
-          const offset = c * (1 - acc) + c * 0.25;
-          acc += frac;
+            const offset = c * (1 - acc) + c * 0.25;
+            acc += frac;
 
-          return (
-            <circle
-              key={b.key}
-              cx={size / 2}
-              cy={size / 2}
-              r={r}
-              fill="none"
-              stroke={colorOf(b.label)}
-              strokeWidth={stroke}
-              strokeDasharray={`${len} ${c - len}`}
-              strokeDashoffset={offset}
-              strokeLinecap="butt"
-            >
-              <title>{`${b.label}: ${(b.minutes / 60).toFixed(2)}h`}</title>
-            </circle>
-          );
-        })}
+            return (
+              <circle
+                key={b.key}
+                cx={size / 2}
+                cy={size / 2}
+                r={r}
+                fill="none"
+                stroke={colorOf(b.label)}
+                strokeWidth={stroke}
+                strokeDasharray={`${len} ${c - len}`}
+                strokeDashoffset={offset}
+              />
+            );
+          })}
 
         <text
           x="50%"
           y="50%"
           dominantBaseline="central"
           textAnchor="middle"
-          style={{ fontSize: 12, fontWeight: 900, fill: "#0f172a" }}
+          style={{
+            fontSize: 12,
+            fontWeight: 900,
+            fill: isEmpty ? "#94a3b8" : "#0f172a",
+          }}
         >
-          {(total / 60).toFixed(1)}h
+          {isEmpty ? "0h" : `${(total / 60).toFixed(1)}h`}
         </text>
       </svg>
 
-      <div style={{ display: "grid", gap: 6 }}>
-        {items.slice(0, 3).map((b) => (
-          <div
-            key={b.key}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: 11,
-              fontWeight: 900,
-              color: "#64748b",
-              whiteSpace: "nowrap",
-            }}
-            title={title}
-          >
-            <span style={{ width: 10, height: 10, borderRadius: 3, background: colorOf(b.label) }} />
-            <span>{b.label}</span>
-          </div>
-        ))}
-      </div>
+      {!isEmpty && (
+        <div style={{ display: "grid", gap: 6 }}>
+          {items.slice(0, 3).map((b) => (
+            <div
+              key={b.key}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 11,
+                fontWeight: 900,
+                color: "#64748b",
+                whiteSpace: "nowrap",
+              }}
+              title={title}
+            >
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: colorOf(b.label) }} />
+              <span>{b.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
