@@ -195,9 +195,9 @@ export default function StudentDashboardSummary({ userId }: Props) {
             gap: 10,
           }}
         >
-          <SummaryTile label="今日" value={hoursText(todayMin)} hint="今日の合計" breakdown={todayBreakdown} />
-          <SummaryTile label="今週" value={hoursText(weekMin)} hint="月曜はじまり" breakdown={weekBreakdown} />
-          <SummaryTile label="今月" value={hoursText(monthMin)} hint="月初から" breakdown={monthBreakdown} />
+          <SummaryTile label="今日" value={hoursText(todayMin)} hint="今日の合計" breakdown={todayBreakdown} chart="donut" />
+          <SummaryTile label="今週" value={hoursText(weekMin)} hint="月曜はじまり" breakdown={weekBreakdown} chart="donut" />
+          <SummaryTile label="今月" value={hoursText(monthMin)} hint="月初から" breakdown={monthBreakdown} chart="donut" />
         </div>
       )}
     </div>
@@ -209,11 +209,13 @@ function SummaryTile({
   value,
   hint,
   breakdown,
+  chart = "donut",
 }: {
   label: string;
   value: string;
   hint: string;
   breakdown?: BreakdownItem[];
+  chart?: "bar" | "donut";
 }) {
   const total = (breakdown ?? []).reduce((s, b) => s + b.minutes, 0);
 
@@ -231,7 +233,122 @@ function SummaryTile({
         <div style={{ fontSize: 11, fontWeight: 900, color: "#64748b" }}>{hint}</div>
       </div>
       <div style={{ marginTop: 8, fontSize: 24, fontWeight: 900, color: "#0f172a" }}>{value}</div>
-      <MiniStackedBar breakdown={breakdown ?? []} total={total} />
+      {chart === "donut" ? (
+        <MiniDonut breakdown={breakdown ?? []} total={total} />
+      ) : (
+        <MiniStackedBar breakdown={breakdown ?? []} total={total} />
+      )}
+    </div>
+  );
+}
+
+function MiniDonut({
+  breakdown,
+  total,
+  size = 64,
+  stroke = 10,
+}: {
+  breakdown: BreakdownItem[];
+  total: number;
+  size?: number;
+  stroke?: number;
+}) {
+  if (!breakdown.length || total <= 0) {
+    return <div style={{ fontSize: 11, fontWeight: 800, color: "#94a3b8" }}>内訳なし</div>;
+  }
+
+  const colorOf = (label: string) => {
+    const map: Record<string, string> = {
+      "国語": "#f97316",
+      "数学": "#3b82f6",
+      "英語": "#22c55e",
+      "理科": "#a855f7",
+      "社会": "#ef4444",
+      "その他": "#64748b",
+    };
+    return map[label] ?? "#94a3b8";
+  };
+
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+
+  const sorted = [...breakdown].sort((a, b) => b.minutes - a.minutes);
+  const top = sorted.slice(0, 5);
+  const restMin = sorted.slice(5).reduce((s, x) => s + x.minutes, 0);
+  const items = restMin > 0 ? [...top, { key: "__rest__", label: "その他", minutes: restMin }] : top;
+
+  let acc = 0;
+
+  const title = items.map((b) => `${b.label}: ${(b.minutes / 60).toFixed(2)}h`).join(" / ");
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="study breakdown donut">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke="rgba(148,163,184,0.25)"
+          strokeWidth={stroke}
+        />
+
+        {items.map((b) => {
+          const frac = b.minutes / total;
+          const len = c * frac;
+
+          const offset = c * (1 - acc) + c * 0.25;
+          acc += frac;
+
+          return (
+            <circle
+              key={b.key}
+              cx={size / 2}
+              cy={size / 2}
+              r={r}
+              fill="none"
+              stroke={colorOf(b.label)}
+              strokeWidth={stroke}
+              strokeDasharray={`${len} ${c - len}`}
+              strokeDashoffset={offset}
+              strokeLinecap="butt"
+            >
+              <title>{`${b.label}: ${(b.minutes / 60).toFixed(2)}h`}</title>
+            </circle>
+          );
+        })}
+
+        <text
+          x="50%"
+          y="50%"
+          dominantBaseline="central"
+          textAnchor="middle"
+          style={{ fontSize: 12, fontWeight: 900, fill: "#0f172a" }}
+        >
+          {(total / 60).toFixed(1)}h
+        </text>
+      </svg>
+
+      <div style={{ display: "grid", gap: 6 }}>
+        {items.slice(0, 3).map((b) => (
+          <div
+            key={b.key}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 11,
+              fontWeight: 900,
+              color: "#64748b",
+              whiteSpace: "nowrap",
+            }}
+            title={title}
+          >
+            <span style={{ width: 10, height: 10, borderRadius: 3, background: colorOf(b.label) }} />
+            <span>{b.label}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
