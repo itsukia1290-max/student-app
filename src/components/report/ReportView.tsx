@@ -12,7 +12,6 @@ import StudentDashboardSummary from "../StudentDashboardSummary";
 import { useNav } from "../../hooks/useNav";
 
 const GOALS_TABLE = "student_goals";
-const STUDY_LOGS_TABLE = "study_logs";
 
 type Mode = "student" | "teacher";
 
@@ -27,15 +26,6 @@ type Props = {
   calendarPermissions: CalendarPermissions;
 };
 
-type StudyLogRow = {
-  id: string;
-  user_id: string;
-  subject: string;
-  minutes: number;
-  studied_at: string;
-  memo: string | null;
-  created_at: string;
-};
 
 type Kind = "weekly" | "monthly";
 
@@ -71,44 +61,6 @@ function currentMonthKey(now = new Date()): string {
   return `${year}-${String(month).padStart(2, "0")}`;
 }
 
-function minutesLabel(totalMinutes: number) {
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
-  if (h === 0) return `${m}分`;
-  if (m === 0) return `${h}時間`;
-  return `${h}時間${m}分`;
-}
-
-function toISODate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${dd}`;
-}
-
-// 月曜始まり集計（学習実績の表示用）
-function startOfWeekISO(dateISO: string) {
-  const d = new Date(`${dateISO}T00:00:00`);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return toISODate(d);
-}
-function endOfWeekISO(dateISO: string) {
-  const s = new Date(`${startOfWeekISO(dateISO)}T00:00:00`);
-  s.setDate(s.getDate() + 6);
-  return toISODate(s);
-}
-function startOfMonthISO(dateISO: string) {
-  const d = new Date(`${dateISO}T00:00:00`);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-}
-function endOfMonthISO(dateISO: string) {
-  const d = new Date(`${startOfMonthISO(dateISO)}T00:00:00`);
-  d.setMonth(d.getMonth() + 1);
-  d.setDate(d.getDate() - 1);
-  return toISODate(d);
-}
 
 function SoftCard({ title, right, children }: { title: string; right?: ReactNode; children: ReactNode }) {
   return (
@@ -116,10 +68,9 @@ function SoftCard({ title, right, children }: { title: string; right?: ReactNode
       style={{
         borderRadius: "22px",
         padding: "16px",
-        background: "linear-gradient(180deg, rgba(239,246,255,0.92), rgba(255,255,255,0.92))",
-        border: "1px solid rgba(59,130,246,0.14)",
-        boxShadow: "0 18px 40px rgba(15, 23, 42, 0.06)",
-        backdropFilter: "blur(6px)",
+        background: "#ffffff", // ✅ グラデ撤去
+        border: "1px solid rgba(148,163,184,0.18)",
+        boxShadow: "0 14px 34px rgba(15, 23, 42, 0.06)",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", marginBottom: "12px" }}>
@@ -151,37 +102,14 @@ function StudentReportView({
 }: Props) {
   const nav = useNav();
 
-  const todayISO = toISODate(new Date());
   const weekKey = useMemo(() => currentWeekKey(new Date()), []);
   const monthKey = useMemo(() => currentMonthKey(new Date()), []);
 
   const [tab, setTab] = useState<"record" | "timeline">("record");
 
-  // study_logs
-  const [logs, setLogs] = useState<StudyLogRow[]>([]);
-
   // student_goals
   const [goals, setGoals] = useState<GoalRow[]>([]);
   const [goalsLoading, setGoalsLoading] = useState(false);
-
-  async function loadLogs() {
-    if (!ownerUserId) return;
-
-    const { data, error } = await supabase
-      .from(STUDY_LOGS_TABLE)
-      .select("id,user_id,subject,minutes,studied_at,memo,created_at")
-      .eq("user_id", ownerUserId)
-      .order("studied_at", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(300);
-
-    if (error) {
-      console.error("❌ load study_logs:", error.message);
-      setLogs([]);
-    } else {
-      setLogs((data ?? []) as StudyLogRow[]);
-    }
-  }
 
   async function loadGoals() {
     if (!ownerUserId) return;
@@ -205,23 +133,9 @@ function StudentReportView({
   }
 
   useEffect(() => {
-    loadLogs();
     loadGoals();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerUserId]);
-
-  // 学習実績（表示用）
-  const weekMinutes = useMemo(() => {
-    const s = startOfWeekISO(todayISO);
-    const e = endOfWeekISO(todayISO);
-    return logs.filter((l) => l.studied_at >= s && l.studied_at <= e).reduce((sum, l) => sum + (l.minutes ?? 0), 0);
-  }, [logs, todayISO]);
-
-  const monthMinutes = useMemo(() => {
-    const s = startOfMonthISO(todayISO);
-    const e = endOfMonthISO(todayISO);
-    return logs.filter((l) => l.studied_at >= s && l.studied_at <= e).reduce((sum, l) => sum + (l.minutes ?? 0), 0);
-  }, [logs, todayISO]);
 
   const currentWeeklyGoal = useMemo(() => {
     return (
@@ -311,7 +225,7 @@ function StudentReportView({
     color: "#64748b",
     fontWeight: 900,
     fontSize: "12px",
-    backgroundColor: "rgba(255,255,255,0.75)",
+    backgroundColor: "#ffffff",
     border: "1px solid rgba(148,163,184,0.20)",
     borderRadius: "999px",
     padding: "8px 10px",
@@ -319,15 +233,16 @@ function StudentReportView({
     whiteSpace: "nowrap",
   };
 
+  // ✅ 薄い色のボタン（グラデ撤去）
   const primarySmallBtn: React.CSSProperties = {
-    border: "1px solid rgba(59,130,246,0.22)",
-    background: "linear-gradient(180deg, rgba(96,165,250,0.90), rgba(59,130,246,0.90))",
-    color: "#ffffff",
+    border: "1px solid rgba(59,130,246,0.28)",
+    background: "rgba(219,234,254,0.9)",
+    color: "#1d4ed8",
     borderRadius: "999px",
     padding: "10px 14px",
     fontWeight: 900,
     cursor: "pointer",
-    boxShadow: "0 14px 28px rgba(59,130,246,0.18)",
+    boxShadow: "0 10px 22px rgba(15, 23, 42, 0.06)",
   };
 
   function GoalBlock({ g }: { g: GoalRow | null }) {
@@ -377,7 +292,8 @@ function StudentReportView({
         <>
           {/* 学習サマリ（枠の二重は回避して直置き） */}
           <div style={{ marginTop: "2px" }}>
-            <StudentDashboardSummary userId={ownerUserId} />
+            {/* ✅ 先生閲覧時はボタン非表示にできるように */}
+            <StudentDashboardSummary userId={ownerUserId} canEdit={mode === "student"} />
           </div>
 
           {/* 週間目標（文字目標） */}
@@ -393,9 +309,7 @@ function StudentReportView({
               )
             }
           >
-            <div style={{ marginBottom: 10, color: "#0f172a", fontWeight: 900 }}>
-              今週の学習実績: <span style={{ color: "#1d4ed8" }}>{minutesLabel(weekMinutes)}</span>
-            </div>
+            {/* ✅ 今週の学習実績 行は削除 */}
             <GoalBlock g={currentWeeklyGoal} />
           </SoftCard>
 
@@ -412,9 +326,7 @@ function StudentReportView({
               )
             }
           >
-            <div style={{ marginBottom: 10, color: "#0f172a", fontWeight: 900 }}>
-              今月の学習実績: <span style={{ color: "#1d4ed8" }}>{minutesLabel(monthMinutes)}</span>
-            </div>
+            {/* ✅ 今月の学習実績 行は削除 */}
             <GoalBlock g={currentMonthlyGoal} />
           </SoftCard>
 
