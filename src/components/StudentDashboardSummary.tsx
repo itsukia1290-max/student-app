@@ -150,33 +150,48 @@ export default function StudentDashboardSummary({ userId, canEdit = true }: Prop
     };
   }, [userId, today, weekStart, monthStart, subjects]);
 
-  // ✅ 薄い色（グラデ撤去）
+  // ✅ 濃いめ・締まった版
   const actionBtnStyle: React.CSSProperties = {
-    border: "1px solid rgba(59,130,246,0.28)",
-    background: "rgba(219,234,254,0.9)",
+    border: "1.5px solid rgba(29,78,216,0.55)",
+    background: "#ffffff",
     color: "#1d4ed8",
     borderRadius: 9999,
-    padding: "10px 12px",
+    padding: "9px 12px",
     fontWeight: 900,
     fontSize: 12,
     cursor: "pointer",
-    boxShadow: "0 10px 22px rgba(15, 23, 42, 0.06)",
+    boxShadow: "0 6px 16px rgba(15, 23, 42, 0.08)",
     whiteSpace: "nowrap",
   };
 
   return (
     <div
       style={{
-        borderRadius: 20,
-        background: "#ffffff", // ✅ グラデ撤去
-        border: "1px solid rgba(148, 163, 184, 0.18)",
-        boxShadow: "0 12px 34px rgba(15, 23, 42, 0.08)",
-        padding: 16,
+        borderRadius: 18,
+        background: "#ffffff",
+        border: "1.5px solid rgba(15,23,42,0.12)",
+        boxShadow: "0 8px 20px rgba(15,23,42,0.08)",
+        overflow: "hidden",
+        position: "relative",
       }}
     >
-      {/* ✅ モバイルは縦積みにして、右側の“縦文字化”を防止 */}
+      {/* 左アクセントバー（濃い青） */}
       <div
         style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          bottom: 0,
+          width: 6,
+          background: "#1d4ed8",
+        }}
+      />
+
+      {/* ヘッダー（白で締める） */}
+      <div
+        style={{
+          padding: "14px 18px",
+          borderBottom: "2px solid rgba(15,23,42,0.06)",
           display: "flex",
           flexDirection: isMobile ? "column" : "row",
           justifyContent: "space-between",
@@ -184,7 +199,7 @@ export default function StudentDashboardSummary({ userId, canEdit = true }: Prop
           alignItems: isMobile ? "stretch" : "center",
         }}
       >
-        <div style={{ fontSize: 15, fontWeight: 900, color: "#0f172a", whiteSpace: "nowrap" }}>
+        <div style={{ fontSize: 15, fontWeight: 900, color: "#1d4ed8", whiteSpace: "nowrap" }}>
           学習サマリー
         </div>
 
@@ -197,7 +212,6 @@ export default function StudentDashboardSummary({ userId, canEdit = true }: Prop
             justifyContent: isMobile ? "flex-start" : "flex-end",
           }}
         >
-          {/* ✅ 先生閲覧時は表示しない */}
           {canEdit && (
             <button type="button" style={actionBtnStyle} onClick={() => nav.openMyRecords()}>
               学習記録を追加
@@ -208,10 +222,10 @@ export default function StudentDashboardSummary({ userId, canEdit = true }: Prop
             style={{
               fontSize: 12,
               fontWeight: 900,
-              color: "#64748b",
-              whiteSpace: "nowrap",          // ✅ 変な改行を防ぐ
+              color: "#475569",
+              whiteSpace: "nowrap",
               overflow: "hidden",
-              textOverflow: "ellipsis",      // ✅ どうしても狭い時は「…」にする
+              textOverflow: "ellipsis",
               maxWidth: isMobile ? "100%" : 520,
             }}
             title={`今日: ${today} / 週: ${weekStart}〜 / 月: ${monthStart}〜`}
@@ -221,26 +235,30 @@ export default function StudentDashboardSummary({ userId, canEdit = true }: Prop
         </div>
       </div>
 
-      {loading ? (
-        <div style={{ marginTop: 10, fontSize: 13, fontWeight: 800, color: "#64748b" }}>読み込み中...</div>
-      ) : err ? (
-        <div style={{ marginTop: 10, fontSize: 13, fontWeight: 900, color: "#dc2626", whiteSpace: "pre-wrap" }}>
-          {err}
-        </div>
-      ) : (
-        <div
-          style={{
-            marginTop: 12,
-            display: "grid",
-            gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))", // ✅ モバイル1列
-            gap: 10,
-          }}
-        >
-          <SummaryTile label="今日" value={hoursText(todayMin)} hint="今日の合計" breakdown={todayBreakdown} chart="donut" />
-          <SummaryTile label="今週" value={hoursText(weekMin)} hint="月曜はじまり" breakdown={weekBreakdown} chart="donut" />
-          <SummaryTile label="今月" value={hoursText(monthMin)} hint="月初から" breakdown={monthBreakdown} chart="donut" />
-        </div>
-      )}
+      {/* 本文 */}
+      <div style={{ padding: 16 }}>
+        {loading ? (
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#64748b" }}>読み込み中...</div>
+        ) : err ? (
+          <div style={{ fontSize: 13, fontWeight: 900, color: "#dc2626", whiteSpace: "pre-wrap" }}>{err}</div>
+        ) : (
+          // ✅ 3つは常に横並び（狭い端末は横スクロールで潰れ防止）
+          <div style={{ overflowX: "auto", paddingBottom: 2 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(3, minmax(160px, 1fr))",
+                gap: 10,
+                minWidth: 520,
+              }}
+            >
+              <SummaryTile label="今日" value={hoursText(todayMin)} breakdown={todayBreakdown} chart="donut" />
+              <SummaryTile label="今週" value={hoursText(weekMin)} breakdown={weekBreakdown} chart="donut" />
+              <SummaryTile label="今月" value={hoursText(monthMin)} breakdown={monthBreakdown} chart="donut" />
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -248,13 +266,11 @@ export default function StudentDashboardSummary({ userId, canEdit = true }: Prop
 function SummaryTile({
   label,
   value,
-  hint,
   breakdown,
   chart = "donut",
 }: {
   label: string;
   value: string;
-  hint: string;
   breakdown?: BreakdownItem[];
   chart?: "bar" | "donut";
 }) {
@@ -263,18 +279,26 @@ function SummaryTile({
   return (
     <div
       style={{
-        borderRadius: 18,
-        border: "1px solid rgba(148,163,184,0.18)",
+        borderRadius: 16,
+        border: "1.5px solid rgba(15,23,42,0.10)",
         background: "#ffffff",
-        padding: 14,
+        boxShadow: "0 6px 14px rgba(15,23,42,0.06)",
+        padding: 12,
       }}
     >
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
         <div style={{ fontSize: 13, fontWeight: 900, color: "#1d4ed8", whiteSpace: "nowrap" }}>{label}</div>
-        <div style={{ fontSize: 11, fontWeight: 900, color: "#64748b", whiteSpace: "nowrap" }}>{hint}</div>
       </div>
-      <div style={{ marginTop: 8, fontSize: 24, fontWeight: 900, color: "#0f172a" }}>{value}</div>
-      {chart === "donut" ? <MiniDonut breakdown={breakdown ?? []} total={total} /> : <MiniStackedBar breakdown={breakdown ?? []} total={total} />}
+
+      <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900, color: "#0f172a", whiteSpace: "nowrap" }}>
+        {value}
+      </div>
+
+      {chart === "donut" ? (
+        <MiniDonut breakdown={breakdown ?? []} total={total} />
+      ) : (
+        <MiniStackedBar breakdown={breakdown ?? []} total={total} />
+      )}
     </div>
   );
 }

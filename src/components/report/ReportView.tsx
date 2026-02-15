@@ -20,13 +20,14 @@ type Props = {
   mode: Mode;
   viewerRole?: "student" | "staff";
 
+  // 互換性のため残す（タブは廃止するので使わない）
   showTimeline?: boolean;
+
   showGrades?: boolean;
   showCalendar?: boolean;
 
   calendarPermissions: CalendarPermissions;
 };
-
 
 type Kind = "weekly" | "monthly";
 
@@ -62,23 +63,77 @@ function currentMonthKey(now = new Date()): string {
   return `${year}-${String(month).padStart(2, "0")}`;
 }
 
+type Tone = "blue" | "green" | "purple" | "amber" | "slate";
 
-function SoftCard({ title, right, children }: { title: string; right?: ReactNode; children: ReactNode }) {
+function SoftCard({
+  title,
+  right,
+  children,
+  tone = "slate",
+}: {
+  title: string;
+  right?: ReactNode;
+  children: ReactNode;
+  tone?: Tone;
+}) {
+  const toneMap: Record<Tone, { accent: string }> = {
+    blue: { accent: "#1d4ed8" },     // 濃い青
+    green: { accent: "#15803d" },    // 濃い緑
+    purple: { accent: "#6d28d9" },   // 濃い紫
+    amber: { accent: "#b45309" },    // 濃い橙
+    slate: { accent: "#334155" },    // 濃いグレー
+  };
+
+  const t = toneMap[tone];
+
   return (
     <section
       style={{
-        borderRadius: "22px",
-        padding: "16px",
-        background: "#ffffff", // ✅ グラデ撤去
-        border: "1px solid rgba(148,163,184,0.18)",
-        boxShadow: "0 14px 34px rgba(15, 23, 42, 0.06)",
+        borderRadius: "18px",
+        background: "#ffffff",
+        border: "1.5px solid rgba(15,23,42,0.12)",
+        boxShadow: "0 8px 20px rgba(15,23,42,0.08)",
+        overflow: "hidden",
+        position: "relative",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", marginBottom: "12px" }}>
-        <div style={{ fontWeight: 900, color: "#0f172a", fontSize: "16px" }}>{title}</div>
+      {/* 左アクセントバー（濃い） */}
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          bottom: 0,
+          width: "6px",
+          background: t.accent,
+        }}
+      />
+
+      {/* ヘッダー（白のまま締める） */}
+      <div
+        style={{
+          padding: "14px 18px",
+          borderBottom: "2px solid rgba(15,23,42,0.06)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div
+          style={{
+            fontWeight: 900,
+            color: t.accent,  // タイトルを濃色に
+            fontSize: "16px",
+            letterSpacing: "0.5px",
+          }}
+        >
+          {title}
+        </div>
         {right}
       </div>
-      {children}
+
+      {/* 本文 */}
+      <div style={{ padding: "16px 18px" }}>{children}</div>
     </section>
   );
 }
@@ -96,7 +151,6 @@ export default function ReportView(props: Props) {
 function StudentReportView({
   ownerUserId,
   viewerRole = "student",
-  showTimeline = true,
   showGrades = true,
   showCalendar = true,
   calendarPermissions,
@@ -106,8 +160,6 @@ function StudentReportView({
 
   const weekKey = useMemo(() => currentWeekKey(new Date()), []);
   const monthKey = useMemo(() => currentMonthKey(new Date()), []);
-
-  const [tab, setTab] = useState<"record" | "timeline">("record");
 
   // student_goals
   const [goals, setGoals] = useState<GoalRow[]>([]);
@@ -140,25 +192,17 @@ function StudentReportView({
   }, [ownerUserId]);
 
   const currentWeeklyGoal = useMemo(() => {
-    return (
-      goals.find((g) => g.kind === "weekly" && g.period_key === weekKey) ??
-      goals.find((g) => g.kind === "weekly") ??
-      null
-    );
+    return goals.find((g) => g.kind === "weekly" && g.period_key === weekKey) ?? goals.find((g) => g.kind === "weekly") ?? null;
   }, [goals, weekKey]);
 
   const currentMonthlyGoal = useMemo(() => {
-    return (
-      goals.find((g) => g.kind === "monthly" && g.period_key === monthKey) ??
-      goals.find((g) => g.kind === "monthly") ??
-      null
-    );
+    return goals.find((g) => g.kind === "monthly" && g.period_key === monthKey) ?? goals.find((g) => g.kind === "monthly") ?? null;
   }, [goals, monthKey]);
 
   // ---- styles ----
   const outerStyle: React.CSSProperties = {
-    background: "#f8fafc",
-    padding: "8px",
+    background: "#f1f5f9",
+    padding: "12px",
   };
 
   const innerStyle: React.CSSProperties = {
@@ -166,66 +210,57 @@ function StudentReportView({
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
-    gap: "14px",
+    gap: "18px",
   };
 
+  // タブ廃止に合わせてヘッダーを“締まった”見た目に
   const headerWrapStyle: React.CSSProperties = {
     backgroundColor: "#ffffff",
     borderRadius: "18px",
     boxShadow: "0 10px 28px rgba(15,23,42,0.08)",
     border: "1px solid rgba(148,163,184,0.16)",
-    padding: "18px 20px 0px",
+    padding: "16px 20px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+  };
+
+  const headerLeftColStyle: React.CSSProperties = {
     display: "flex",
     flexDirection: "column",
-    gap: "10px",
+    gap: "6px",
+    minWidth: 0,
   };
 
   const headerTitleStyle: React.CSSProperties = {
     fontSize: "22px",
     fontWeight: 900,
     color: "#0f172a",
-    paddingBottom: "6px",
+    lineHeight: 1.2,
   };
 
-  const tabHeaderRowStyle: React.CSSProperties = {
+  const headerSubStyle: React.CSSProperties = {
+    color: "#64748b",
+    fontWeight: 900,
+    fontSize: "12px",
     display: "flex",
-    gap: "0px",
-    position: "relative",
-    width: "100%",
+    alignItems: "center",
+    gap: "8px",
+    flexWrap: "wrap",
   };
 
-  const TopTab = ({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) => (
-    <button
-      onClick={onClick}
-      style={{
-        all: "unset",
-        cursor: "pointer",
-        textAlign: "center",
-        fontWeight: 900,
-        fontSize: "14px",
-        color: active ? "#2563eb" : "#64748b",
-        padding: "0px 16px 12px",
-        borderBottom: `1px solid ${active ? "transparent" : "rgba(148,163,184,0.35)"}`,
-        position: "relative",
-        flex: 1,
-      }}
-    >
-      {label}
-      {active && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: "-1px",
-            left: "0",
-            right: "0",
-            height: "3px",
-            background: "#2563eb",
-            borderRadius: "99px 99px 0 0",
-          }}
-        />
-      )}
-    </button>
-  );
+  const pillStyle: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    padding: "6px 10px",
+    borderRadius: "999px",
+    border: "1px solid rgba(148,163,184,0.20)",
+    background: "#ffffff",
+    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
+    whiteSpace: "nowrap",
+  };
 
   const subtleRightStyle: React.CSSProperties = {
     color: "#64748b",
@@ -279,83 +314,78 @@ function StudentReportView({
   return (
     <div style={outerStyle}>
       <div style={innerStyle}>
-        {/* Header & Tabs */}
+        {/* Header（タブ廃止） */}
         <div style={headerWrapStyle}>
-          <div style={headerTitleStyle}>レポート</div>
-
-          <div style={tabHeaderRowStyle}>
-            <TopTab active={tab === "record"} label="記録" onClick={() => setTab("record")} />
-            {showTimeline && <TopTab active={tab === "timeline"} label="タイムライン" onClick={() => setTab("timeline")} />}
+          <div style={headerLeftColStyle}>
+            <div style={headerTitleStyle}>レポート</div>
+            <div style={headerSubStyle}>
+              <span style={pillStyle}>記録</span>
+              <span style={{ whiteSpace: "nowrap" }}>学習のまとめ / 目標 / 成績 / カレンダー</span>
+            </div>
           </div>
+
+          {/* 右側に軽いヒント（必要なら削除OK） */}
+          <span style={subtleRightStyle}>{canEdit ? "生徒画面" : "閲覧モード"}</span>
         </div>
 
-        {tab === "timeline" ? (
-          <SoftCard title="タイムライン" right={<span style={subtleRightStyle}>後で拡張</span>}>
-            <div style={{ color: "#64748b", fontSize: "14px", fontWeight: 800 }}>
-              ここは後で「先生コメント」「要約」「提出履歴」などを流せます。
+        {/* ===== ここから “記録” の中身（従来 tab===record 側）を直置き ===== */}
+
+        {/* 学習サマリ（枠の二重は回避して直置き） */}
+        <div style={{ marginTop: "2px", background: "rgba(37,99,235,0.04)", borderRadius: "20px", padding: "4px 0" }}>
+          <StudentDashboardSummary userId={ownerUserId} canEdit={canEdit} />
+        </div>
+
+        {/* 週間目標（文字目標） */}
+        <SoftCard
+          title="週間目標"
+          tone="green"
+          right={
+            canEdit ? (
+              <button style={primarySmallBtn} onClick={() => nav.openMyGoals("week")}>
+                目標を追加
+              </button>
+            ) : (
+              <span style={subtleRightStyle}>生徒の目標</span>
+            )
+          }
+        >
+          <GoalBlock g={currentWeeklyGoal} />
+        </SoftCard>
+
+        {/* 月間目標（文字目標） */}
+        <SoftCard
+          title="月間目標"
+          tone="green"
+          right={
+            canEdit ? (
+              <button style={primarySmallBtn} onClick={() => nav.openMyGoals("month")}>
+                目標を追加
+              </button>
+            ) : (
+              <span style={subtleRightStyle}>生徒の目標</span>
+            )
+          }
+        >
+          <GoalBlock g={currentMonthlyGoal} />
+        </SoftCard>
+
+        {/* 成績 */}
+        {showGrades && (
+          <SoftCard title="成績（小テスト/問題集）" tone="purple" right={<span style={subtleRightStyle}>既存機能</span>}>
+            <div style={{ color: "#64748b", fontSize: "13px", fontWeight: 900, marginBottom: "12px" }}>
+              「確認する」で問題集の進捗を確認できます。
+            </div>
+            <div style={{ borderTop: "1px dashed rgba(148,163,184,0.35)", paddingTop: "12px" }}>
+              <RecentChapter ownerUserId={ownerUserId} />
             </div>
           </SoftCard>
-        ) : (
-          <>
-            {/* 学習サマリ（枠の二重は回避して直置き） */}
-            <div style={{ marginTop: "2px" }}>
-              {/* ✅ 先生閲覧時はボタン非表示にできるように */}
-              <StudentDashboardSummary userId={ownerUserId} canEdit={canEdit} />
-            </div>
+        )}
 
-            {/* 週間目標（文字目標） */}
-            <SoftCard
-              title="週間目標"
-              right={
-                canEdit ? (
-                  <button style={primarySmallBtn} onClick={() => nav.openMyGoals("week")}>
-                    目標を追加
-                  </button>
-                ) : (
-                  <span style={subtleRightStyle}>生徒の目標</span>
-                )
-              }
-            >
-              {/* ✅ 今週の学習実績 行は削除 */}
-              <GoalBlock g={currentWeeklyGoal} />
-            </SoftCard>
-
-            {/* 月間目標（文字目標） */}
-            <SoftCard
-              title="月間目標"
-              right={
-                canEdit ? (
-                  <button style={primarySmallBtn} onClick={() => nav.openMyGoals("month")}>
-                    目標を追加
-                  </button>
-                ) : (
-                  <span style={subtleRightStyle}>生徒の目標</span>
-                )
-              }
-            >
-              {/* ✅ 今月の学習実績 行は削除 */}
-              <GoalBlock g={currentMonthlyGoal} />
-            </SoftCard>
-
-            {/* 成績 */}
-            {showGrades && (
-              <SoftCard title="成績（小テスト/問題集）" right={<span style={subtleRightStyle}>既存機能</span>}>
-                <div style={{ color: "#64748b", fontSize: "13px", fontWeight: 900, marginBottom: "12px" }}>
-                  「確認する」で問題集の進捗を確認できます。
-                </div>
-                <div style={{ borderTop: "1px dashed rgba(148,163,184,0.35)", paddingTop: "12px" }}>
-                  <RecentChapter ownerUserId={ownerUserId} />
-                </div>
-              </SoftCard>
-            )}
-
-            {/* カレンダー */}
-            {showCalendar && (
-              <SoftCard title="カレンダー" right={<span style={subtleRightStyle}>calendar_events</span>}>
-                <CalendarBoard ownerUserId={ownerUserId} permissions={calendarPermissions} />
-              </SoftCard>
-            )}
-          </>
+        {/* カレンダー */}
+        {showCalendar && (
+          <SoftCard title="カレンダー" tone="amber" right={<span style={subtleRightStyle}>calendar_events</span>}>
+            <CalendarBoard ownerUserId={ownerUserId} permissions={calendarPermissions} />
+          </SoftCard>
         )}
       </div>
     </div>
