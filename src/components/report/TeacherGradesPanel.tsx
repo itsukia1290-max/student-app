@@ -75,6 +75,7 @@ function clamp(n: number, lo: number, hi: number) {
 }
 
 export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Props) {
+  const isTemplate = mode === "template";
   // grades
   const [grades, setGrades] = useState<GradeRow[]>([]);
   const [activeGradeId, setActiveGradeId] = useState<string | null>(null);
@@ -338,6 +339,7 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
   }
 
   function updateMarkLocal(gradeId: string, idx: number, next: Mark) {
+    if (isTemplate) return;
     setGrades((prev) =>
       prev.map((g) => (g.id === gradeId ? { ...g, marks: g.marks.map((m, i) => (i === idx ? next : m)) } : g))
     );
@@ -345,6 +347,7 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
   }
 
   async function bulkSetMarksInChapter(mark: Mark) {
+    if (isTemplate) return;
     if (!activeGrade || !activeChapter) return;
     const { lo, hi } = chapterRangeIndices(activeChapter, activeGrade);
 
@@ -679,20 +682,59 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
                   <div style={muted()}>左の「章一覧」から章を選択してください（無ければ「章作成」）。</div>
                 ) : (
                   <>
+                    {isTemplate && (
+                      <div
+                        style={{
+                          margin: "10px 0 12px",
+                          padding: "10px 12px",
+                          borderRadius: 12,
+                          background: "rgba(245,158,11,0.12)",
+                          border: "1px solid rgba(245,158,11,0.22)",
+                          color: "#0f172a",
+                          fontWeight: 900,
+                          fontSize: 12,
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        この画面は<strong>共通テンプレ</strong>です。〇×△（達成状況）は編集できません。
+                        <br />
+                        達成状況は「生徒を選択して成績編集」側で変更してください。
+                      </div>
+                    )}
                     {/* bulk ops */}
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                       <div style={{ fontWeight: 950, fontSize: 13, color: "#0f172a" }}>選択中：{chapterLabel(activeChapter)}</div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <button style={markBtn("O")} onClick={() => bulkSetMarksInChapter("O")}>
+                        <button
+                          style={markBtn("O", isTemplate)}
+                          onClick={() => bulkSetMarksInChapter("O")}
+                          disabled={isTemplate}
+                          title={isTemplate ? "共通テンプレでは変更できません" : ""}
+                        >
                           この章を ○
                         </button>
-                        <button style={markBtn("X")} onClick={() => bulkSetMarksInChapter("X")}>
+                        <button
+                          style={markBtn("X", isTemplate)}
+                          onClick={() => bulkSetMarksInChapter("X")}
+                          disabled={isTemplate}
+                          title={isTemplate ? "共通テンプレでは変更できません" : ""}
+                        >
                           この章を ×
                         </button>
-                        <button style={markBtn("T")} onClick={() => bulkSetMarksInChapter("T")}>
+                        <button
+                          style={markBtn("T", isTemplate)}
+                          onClick={() => bulkSetMarksInChapter("T")}
+                          disabled={isTemplate}
+                          title={isTemplate ? "共通テンプレでは変更できません" : ""}
+                        >
                           この章を △
                         </button>
-                        <button style={markBtn("")} onClick={() => bulkSetMarksInChapter("")}>
+                        <button
+                          style={markBtn("", isTemplate)}
+                          onClick={() => bulkSetMarksInChapter("")}
+                          disabled={isTemplate}
+                          title={isTemplate ? "共通テンプレでは変更できません" : ""}
+                        >
                           この章を 未
                         </button>
                       </div>
@@ -713,8 +755,13 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
                           key={it.idx}
                           type="button"
                           onClick={() => updateMarkLocal(activeGrade.id, it.idx, cycleMark(it.mark))}
-                          style={markTile(it.mark, true, false)}
-                          title={`${it.label} ${it.mark ? MARK_LABEL[it.mark] : "未"}`}
+                          style={markTile(it.mark, !isTemplate, false)}
+                          title={
+                            isTemplate
+                              ? "共通テンプレでは変更できません"
+                              : `${it.label} ${it.mark ? MARK_LABEL[it.mark] : "未"}`
+                          }
+                          disabled={isTemplate}
                         >
                           <div style={{ lineHeight: 1, fontSize: 16, fontWeight: 950 }}>{it.mark ? MARK_LABEL[it.mark] : ""}</div>
                           <div style={tileLabel()}>{it.label}</div>
@@ -930,14 +977,15 @@ function chapterPickBtn(active: boolean): React.CSSProperties {
   } as React.CSSProperties;
 }
 
-function markBtn(mark: Mark): React.CSSProperties {
+function markBtn(mark: Mark, disabled?: boolean): React.CSSProperties {
   const base: React.CSSProperties = {
     borderRadius: 9999,
     padding: "8px 12px",
     fontWeight: 950,
     fontSize: 12,
-    cursor: "pointer",
+    cursor: disabled ? "not-allowed" : "pointer",
     border: "1px solid rgba(148,163,184,0.22)",
+    opacity: disabled ? 0.6 : 1,
   };
 
   if (mark === "O") return { ...base, background: "rgba(34,197,94,0.18)", borderColor: "rgba(34,197,94,0.30)", color: "#166534" };

@@ -14,6 +14,10 @@ const colors = {
   skySoft: "#e0f2fe",
   red: "#ef4444",
   redSoft: "#fee2e2",
+  green: "#16a34a",
+  greenSoft: "#dcfce7",
+  amber: "#f59e0b",
+  amberSoft: "#fef3c7",
 };
 
 const styles = {
@@ -23,7 +27,7 @@ const styles = {
     padding: "24px",
   },
   container: {
-    maxWidth: "1280px", // ✅ 広げる
+    maxWidth: "1280px",
     margin: "0 auto",
     display: "flex",
     flexDirection: "column" as const,
@@ -36,17 +40,8 @@ const styles = {
     gap: 12,
     flexWrap: "wrap" as const,
   },
-  title: {
-    fontSize: "22px",
-    fontWeight: 700,
-    color: colors.textMain,
-  },
-  subtitle: {
-    fontSize: "13px",
-    color: colors.textSub,
-    marginTop: "4px",
-    fontWeight: 700,
-  },
+  title: { fontSize: "22px", fontWeight: 700, color: colors.textMain },
+  subtitle: { fontSize: "13px", color: colors.textSub, marginTop: "4px", fontWeight: 700 },
   card: {
     background: colors.card,
     borderRadius: "18px",
@@ -62,9 +57,7 @@ const styles = {
     gap: 10,
     flexWrap: "wrap" as const,
   },
-  cardBody: {
-    padding: "16px 20px",
-  },
+  cardBody: { padding: "16px 20px" },
   badge: {
     fontSize: "12px",
     padding: "4px 10px",
@@ -102,11 +95,72 @@ const styles = {
     padding: "10px 12px",
     whiteSpace: "pre-wrap" as const,
   },
+  info: {
+    marginTop: "10px",
+    fontSize: "13px",
+    fontWeight: 900,
+    color: "#0f172a",
+    background: "rgba(14,165,233,0.10)",
+    border: "1px solid rgba(14,165,233,0.25)",
+    borderRadius: 12,
+    padding: "10px 12px",
+    whiteSpace: "pre-wrap" as const,
+  },
 };
 
 type StudentMini = { id: string; name: string | null; phone: string | null; memo: string | null };
-
 type TemplateMini = { id: string; title: string; total_problems: number };
+
+type DistStatus = {
+  alreadyIds: Set<string>;
+};
+
+function overlayStyles(open: boolean): React.CSSProperties {
+  return {
+    display: open ? "grid" : "none",
+    position: "fixed",
+    inset: 0,
+    background: "rgba(15,23,42,0.45)",
+    placeItems: "center",
+    padding: 16,
+    zIndex: 50,
+  };
+}
+
+function modalStyles(): React.CSSProperties {
+  return {
+    width: "min(980px, 100%)",
+    background: "#fff",
+    borderRadius: 18,
+    border: "1px solid rgba(148,163,184,0.20)",
+    boxShadow: "0 30px 90px rgba(15,23,42,0.30)",
+    overflow: "hidden",
+  };
+}
+
+function pill(color: "green" | "amber" | "sky", text: string) {
+  const map = {
+    green: { bg: colors.greenSoft, fg: colors.green, bd: "rgba(22,163,74,0.25)" },
+    amber: { bg: colors.amberSoft, fg: colors.amber, bd: "rgba(245,158,11,0.25)" },
+    sky: { bg: colors.skySoft, fg: colors.sky, bd: "rgba(14,165,233,0.25)" },
+  }[color];
+  return (
+    <span
+      style={{
+        fontSize: 12,
+        fontWeight: 900,
+        padding: "4px 10px",
+        borderRadius: 999,
+        background: map.bg,
+        color: map.fg,
+        border: `1px solid ${map.bd}`,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {text}
+    </span>
+  );
+}
 
 export default function GradeManagement() {
   const { isStaff } = useIsStaff();
@@ -121,18 +175,28 @@ export default function GradeManagement() {
   const [tplMsg, setTplMsg] = useState<string | null>(null);
 
   // === common workbook card accordion ===
-  const [commonOpen, setCommonOpen] = useState(false); // デフォルト：折りたたみ
+  const [commonOpen, setCommonOpen] = useState(false);
 
   // --- counts ---
   const [approvedCount, setApprovedCount] = useState<number>(0);
 
-  // --- student selection ---
+  // --- student selection (right panel for single-student edit) ---
   const [students, setStudents] = useState<StudentMini[]>([]);
   const [studentLoading, setStudentLoading] = useState(false);
   const [q, setQ] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const selectedStudent = useMemo(() => students.find((s) => s.id === selectedId) ?? null, [students, selectedId]);
+
+  // --- distribute dialog ---
+  const [distOpen, setDistOpen] = useState(false);
+  const [distBusy, setDistBusy] = useState(false);
+  const [distMsg, setDistMsg] = useState<string | null>(null);
+  const [distTab, setDistTab] = useState<"notYet" | "already">("notYet");
+  const [distQuery, setDistQuery] = useState("");
+  const [distStatus, setDistStatus] = useState<DistStatus>({ alreadyIds: new Set() });
+  const [distSelected, setDistSelected] = useState<Set<string>>(new Set());
+  const [distOverwrite, setDistOverwrite] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -206,7 +270,6 @@ export default function GradeManagement() {
     setTplBusy(true);
     setTplMsg(null);
 
-    // 1) workbooks 作成（最初0問）
     const { data: wb, error: wbErr } = await supabase
       .from("workbooks")
       .insert([{ title: title.trim(), total_problems: 0 }])
@@ -219,7 +282,6 @@ export default function GradeManagement() {
       return;
     }
 
-    // 2) 先生用編集データ（student_grades）を作る
     const { error: gErr } = await supabase.from("student_grades").insert([
       {
         user_id: teacherId,
@@ -239,22 +301,106 @@ export default function GradeManagement() {
 
     await loadTemplates();
     setActiveTemplateId(wb.id);
-    setTplMsg(`テンプレ「${wb.title}」を作成しました。下で章を作ってから「全員に配布」してください。`);
+    setTplMsg(`テンプレ「${wb.title}」を作成しました。下で章を作ってから「配布先を選ぶ」で追加してください。`);
     setTplBusy(false);
   }
 
-  async function distributeTemplateToAll() {
-    if (!teacherId) return;
+  async function loadDistributionStatus(templateId: string) {
+    const ids = students.map((s) => s.id);
+    if (ids.length === 0) return { alreadyIds: new Set<string>() };
+
+    const { data, error } = await supabase
+      .from("student_grades")
+      .select("user_id")
+      .eq("workbook_id", templateId)
+      .in("user_id", ids);
+
+    if (error) return { alreadyIds: new Set<string>() };
+
+    const set = new Set<string>((data ?? []).map((r) => String((r as { user_id: string }).user_id)));
+    return { alreadyIds: set };
+  }
+
+  function openDistributeDialog() {
     if (!activeTemplateId) {
       setTplMsg("テンプレを選択してください。");
       return;
     }
-    if (!confirm("選択中テンプレを承認済み生徒に配布します。章も同期して上書きします。よろしいですか？")) return;
+    setDistMsg(null);
+    setDistSelected(new Set());
+    setDistTab("notYet");
+    setDistQuery("");
+    setDistOverwrite(false);
+    setDistOpen(true);
 
-    setTplBusy(true);
-    setTplMsg(null);
+    (async () => {
+      setDistBusy(true);
+      const st = await loadDistributionStatus(activeTemplateId);
+      setDistStatus(st);
+      setDistBusy(false);
+    })();
+  }
 
-    // 先生のテンプレ grade を取得（teacherId + workbook_id）
+  function closeDistributeDialog() {
+    if (distBusy) return;
+    setDistOpen(false);
+  }
+
+  const distList = useMemo(() => {
+    const key = distQuery.trim().toLowerCase();
+    const base = students.slice();
+
+    const notYet = base.filter((s) => !distStatus.alreadyIds.has(s.id));
+    const already = base.filter((s) => distStatus.alreadyIds.has(s.id));
+
+    const pick = distTab === "notYet" ? notYet : already;
+    if (!key) return pick;
+
+    return pick.filter((s) => (s.name ?? "").toLowerCase().includes(key));
+  }, [students, distStatus, distTab, distQuery]);
+
+  function toggleDistSelected(id: string) {
+    setDistSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function setSelectAllVisible(on: boolean) {
+    setDistSelected((prev) => {
+      const next = new Set(prev);
+      if (on) {
+        for (const s of distList) next.add(s.id);
+      } else {
+        for (const s of distList) next.delete(s.id);
+      }
+      return next;
+    });
+  }
+
+  const selectAllState = useMemo(() => {
+    if (distList.length === 0) return { checked: false, indeterminate: false };
+    const sel = distList.filter((s) => distSelected.has(s.id)).length;
+    if (sel === 0) return { checked: false, indeterminate: false };
+    if (sel === distList.length) return { checked: true, indeterminate: false };
+    return { checked: false, indeterminate: true };
+  }, [distList, distSelected]);
+
+  async function distributeToSelected() {
+    if (!teacherId) return;
+    if (!activeTemplateId) return;
+
+    const chosen = Array.from(distSelected);
+    if (chosen.length === 0) {
+      setDistMsg("配布先の生徒を選択してください。");
+      return;
+    }
+
+    setDistBusy(true);
+    setDistMsg(null);
+
     const { data: tGrade, error: tgErr } = await supabase
       .from("student_grades")
       .select("id,workbook_id,title,problem_count,marks,labels")
@@ -263,12 +409,11 @@ export default function GradeManagement() {
       .single();
 
     if (tgErr || !tGrade) {
-      setTplMsg("テンプレ編集データが見つかりません: " + (tgErr?.message ?? "unknown"));
-      setTplBusy(false);
+      setDistMsg("テンプレ編集データが見つかりません: " + (tgErr?.message ?? "unknown"));
+      setDistBusy(false);
       return;
     }
 
-    // テンプレ章取得
     const { data: templateChapters, error: chErr } = await supabase
       .from("student_grade_notes")
       .select("start_idx,end_idx,chapter_title,chapter_note,teacher_memo,next_homework,note")
@@ -276,33 +421,20 @@ export default function GradeManagement() {
       .order("start_idx", { ascending: true });
 
     if (chErr) {
-      setTplMsg("テンプレ章取得失敗: " + chErr.message);
-      setTplBusy(false);
+      setDistMsg("テンプレ章取得失敗: " + chErr.message);
+      setDistBusy(false);
       return;
     }
 
-    // 生徒一覧
-    const { data: ps, error: psErr } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("role", "student")
-      .eq("status", "active")
-      .eq("is_approved", true);
+    const targets = distOverwrite ? chosen : chosen.filter((id) => !distStatus.alreadyIds.has(id));
 
-    if (psErr) {
-      setTplMsg("生徒取得失敗: " + psErr.message);
-      setTplBusy(false);
+    if (targets.length === 0) {
+      setDistMsg("選択した生徒は全員すでに追加済みです。上書きする場合は「追加済にも上書き同期」をONにしてください。");
+      setDistBusy(false);
       return;
     }
 
-    const studentIds = (ps ?? []).map((r) => r.id as string);
-    if (studentIds.length === 0) {
-      setTplMsg("配布対象の生徒がいません。");
-      setTplBusy(false);
-      return;
-    }
-
-    const payload = studentIds.map((uid) => ({
+    const payload = targets.map((uid) => ({
       user_id: uid,
       workbook_id: tGrade.workbook_id,
       title: tGrade.title,
@@ -311,28 +443,25 @@ export default function GradeManagement() {
       labels: tGrade.labels ?? Array.from({ length: tGrade.problem_count }, (_, i) => String(i + 1)),
     }));
 
-    // ✅ upsert（student_grades に unique(user_id, workbook_id) 必須）
     const { error: upErr } = await supabase.from("student_grades").upsert(payload, { onConflict: "user_id,workbook_id" });
     if (upErr) {
-      setTplMsg("配布失敗(student_grades): " + upErr.message);
-      setTplBusy(false);
+      setDistMsg("配布失敗(student_grades): " + upErr.message);
+      setDistBusy(false);
       return;
     }
 
-    // 生徒側 grade_id 取得
     const { data: createdGrades, error: cgErr } = await supabase
       .from("student_grades")
       .select("id,user_id")
       .eq("workbook_id", tGrade.workbook_id)
-      .in("user_id", studentIds);
+      .in("user_id", targets);
 
     if (cgErr) {
-      setTplMsg("配布後grade取得失敗: " + cgErr.message);
-      setTplBusy(false);
+      setDistMsg("配布後grade取得失敗: " + cgErr.message);
+      setDistBusy(false);
       return;
     }
 
-    // 章を複製（上書き運用）
     for (const g of createdGrades ?? []) {
       await supabase.from("student_grade_notes").delete().eq("grade_id", g.id);
 
@@ -350,16 +479,19 @@ export default function GradeManagement() {
       if (chPayload.length > 0) {
         const { error: chInsErr } = await supabase.from("student_grade_notes").insert(chPayload);
         if (chInsErr) {
-          setTplMsg(`章の配布失敗: user=${g.user_id}: ` + chInsErr.message);
-          setTplBusy(false);
+          setDistMsg(`章の配布失敗: user=${g.user_id}: ` + chInsErr.message);
+          setDistBusy(false);
           return;
         }
       }
     }
 
-    setTplMsg(`配布完了：${studentIds.length}人（章も同期）`);
+    const newStatus = await loadDistributionStatus(activeTemplateId);
+    setDistStatus(newStatus);
+
+    setDistMsg(`配布完了：${targets.length}人（章も同期）`);
     await refreshCounts();
-    setTplBusy(false);
+    setDistBusy(false);
   }
 
   if (!canUse) {
@@ -374,24 +506,35 @@ export default function GradeManagement() {
     );
   }
 
+  const activeTpl = templates.find((t) => t.id === activeTemplateId) ?? null;
+
   return (
     <div style={styles.page}>
       <div style={styles.container}>
         <div style={styles.header}>
           <div>
             <div style={styles.title}>成績編集（塾全体）</div>
-            <div style={styles.subtitle}>共通テンプレを作成→章を編集→承認済み生徒へ配布（章も同期）</div>
-            <div style={{ marginTop: 6, fontSize: 12, fontWeight: 800, color: colors.textSub }}>承認済み生徒: {approvedCount} 人</div>
+            <div style={styles.subtitle}>共通テンプレを作成→章を編集→配布先を選んで追加（章も同期）</div>
+            <div style={{ marginTop: 6, fontSize: 12, fontWeight: 800, color: colors.textSub }}>
+              承認済み生徒: {approvedCount} 人
+            </div>
           </div>
 
-          <button style={styles.btnGhost} onClick={() => { refreshCounts(); loadStudents(); loadTemplates(); }} disabled={tplBusy}>
+          <button
+            style={styles.btnGhost}
+            onClick={() => {
+              refreshCounts();
+              loadStudents();
+              loadTemplates();
+            }}
+            disabled={tplBusy}
+          >
             再読み込み
           </button>
         </div>
 
-        {/* ✅ ここだけがテンプレ作成・配布の入口 */}
+        {/* 共通テンプレ（作成・編集・配布入口） */}
         <div style={styles.card}>
-          {/* ヘッダー（カード自体の開閉ボタン） */}
           <div style={styles.cardHeader}>
             <button
               type="button"
@@ -408,7 +551,7 @@ export default function GradeManagement() {
               aria-expanded={commonOpen}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <strong>共通問題集テンプレ（作成・編集・全員配布）</strong>
+                <strong>共通問題集テンプレ（作成・章編集・生徒へ追加）</strong>
                 <span style={styles.badge}>塾全体で1セット</span>
               </div>
 
@@ -418,7 +561,6 @@ export default function GradeManagement() {
             </button>
           </div>
 
-          {/* 中身（開いているときだけ） */}
           {commonOpen && (
             <div style={styles.cardBody}>
               {!teacherId ? (
@@ -433,14 +575,14 @@ export default function GradeManagement() {
                     <button
                       style={{ ...styles.btnPrimary, opacity: tplBusy || !activeTemplateId ? 0.6 : 1 }}
                       disabled={tplBusy || !activeTemplateId}
-                      onClick={distributeTemplateToAll}
+                      onClick={openDistributeDialog}
                       title={!activeTemplateId ? "テンプレを選択してください" : ""}
                     >
-                      {tplBusy ? "処理中..." : "📦 全員に配布（章も同期）"}
+                      {tplBusy ? "処理中..." : "🎯 配布先を選ぶ"}
                     </button>
 
                     <div style={{ fontSize: 12, color: colors.textSub, fontWeight: 800 }}>
-                      ①テンプレ作成 → ②下で章を編集 → ③全員に配布
+                      ①テンプレ作成 → ②下で章を編集 → ③配布先を選んで追加
                     </div>
                   </div>
 
@@ -470,10 +612,12 @@ export default function GradeManagement() {
                     </select>
                   </label>
 
-                  {/* テンプレ編集（章/成績） */}
+                  <div style={{ fontSize: 12, fontWeight: 900, color: colors.textSub }}>
+                    ※ 共通テンプレでは〇×△は編集できません（配布元のため）
+                  </div>
+
                   {activeTemplateId ? (
                     <div style={{ border: `1px solid ${colors.border}`, borderRadius: 16, padding: 12, background: "#fff" }}>
-                      {/* TeacherGradesPanel側は templateモード。テンプレUIは出さず編集だけ */}
                       <TeacherGradesPanel ownerUserId={teacherId} mode="template" />
                     </div>
                   ) : (
@@ -487,7 +631,6 @@ export default function GradeManagement() {
           )}
         </div>
 
-        {/* 生徒選択→即編集（テンプレは一切出ない） */}
         <div style={styles.card}>
           <div style={styles.cardHeader}>
             <strong>生徒を選択して成績編集</strong>
@@ -498,12 +641,11 @@ export default function GradeManagement() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "360px minmax(0, 1fr)", // ✅ 右を広く
+                gridTemplateColumns: "360px minmax(0, 1fr)",
                 gap: 16,
                 alignItems: "start",
               }}
             >
-              {/* 左：生徒一覧 */}
               <div>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}>
                   <input
@@ -556,7 +698,6 @@ export default function GradeManagement() {
                 )}
               </div>
 
-              {/* 右：成績編集パネル */}
               <div>
                 {!selectedStudent ? (
                   <div style={{ fontSize: 13, color: colors.textSub, fontWeight: 800 }}>
@@ -572,7 +713,6 @@ export default function GradeManagement() {
                     </div>
 
                     <div style={{ border: `1px solid ${colors.border}`, borderRadius: 16, padding: 12, background: "#fff" }}>
-                      {/* ✅ ここは studentモード固定：テンプレ関連は絶対出ない */}
                       <TeacherGradesPanel ownerUserId={selectedStudent.id} mode="student" />
                     </div>
                   </div>
@@ -582,6 +722,180 @@ export default function GradeManagement() {
           </div>
         </div>
 
+        <div style={overlayStyles(distOpen)} role="dialog" aria-modal="true" aria-label="配布先を選択">
+          <div style={modalStyles()}>
+            <div
+              style={{
+                padding: "14px 16px",
+                borderBottom: `1px solid ${colors.border}`,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
+              <div style={{ display: "grid", gap: 4 }}>
+                <div style={{ fontWeight: 900, fontSize: 16, color: colors.textMain }}>配布先を選択</div>
+                <div style={{ fontSize: 12, fontWeight: 800, color: colors.textSub }}>
+                  テンプレ：{activeTpl?.title ?? "-"}（{activeTpl?.total_problems ?? 0}問） / 選択数：{distSelected.size}
+                </div>
+              </div>
+              <button style={styles.btnGhost} onClick={closeDistributeDialog} disabled={distBusy}>
+                閉じる
+              </button>
+            </div>
+
+            <div style={{ padding: 16, display: "grid", gap: 12 }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <button
+                  style={{
+                    ...styles.btnGhost,
+                    background: distTab === "notYet" ? "rgba(14,165,233,0.10)" : "#fff",
+                    borderColor: distTab === "notYet" ? "rgba(14,165,233,0.35)" : colors.border,
+                  }}
+                  onClick={() => setDistTab("notYet")}
+                  disabled={distBusy}
+                >
+                  未追加
+                </button>
+                <button
+                  style={{
+                    ...styles.btnGhost,
+                    background: distTab === "already" ? "rgba(22,163,74,0.10)" : "#fff",
+                    borderColor: distTab === "already" ? "rgba(22,163,74,0.35)" : colors.border,
+                  }}
+                  onClick={() => setDistTab("already")}
+                  disabled={distBusy}
+                >
+                  追加済み
+                </button>
+
+                <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 900, fontSize: 12, color: colors.textSub }}>
+                    <input
+                      type="checkbox"
+                      checked={distOverwrite}
+                      onChange={(e) => setDistOverwrite(e.target.checked)}
+                      disabled={distBusy}
+                    />
+                    追加済にも上書き同期（章も上書き）
+                  </label>
+                  <button
+                    style={{ ...styles.btnPrimary, opacity: distBusy ? 0.65 : 1 }}
+                    onClick={distributeToSelected}
+                    disabled={distBusy}
+                  >
+                    {distBusy ? "配布中..." : "✅ 選択した生徒に追加"}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <input
+                    value={distQuery}
+                    onChange={(e) => setDistQuery(e.target.value)}
+                    placeholder="生徒検索（名前）"
+                    style={{
+                      flex: 1,
+                      border: `1px solid ${colors.border}`,
+                      borderRadius: 12,
+                      padding: "10px 12px",
+                      fontWeight: 700,
+                      outline: "none",
+                      minWidth: 260,
+                    }}
+                    disabled={distBusy}
+                  />
+
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900, fontSize: 12, color: colors.textSub }}>
+                    <input
+                      type="checkbox"
+                      checked={selectAllState.checked}
+                      ref={(el) => {
+                        if (el) el.indeterminate = selectAllState.indeterminate;
+                      }}
+                      onChange={(e) => setSelectAllVisible(e.target.checked)}
+                      disabled={distBusy || distList.length === 0}
+                    />
+                    表示中を一括選択
+                  </label>
+
+                  <button style={styles.btnGhost} onClick={() => setSelectAllVisible(false)} disabled={distBusy || distSelected.size === 0}>
+                    選択解除
+                  </button>
+
+                  <button
+                    style={styles.btnGhost}
+                    onClick={async () => {
+                      if (!activeTemplateId) return;
+                      setDistBusy(true);
+                      const st = await loadDistributionStatus(activeTemplateId);
+                      setDistStatus(st);
+                      setDistBusy(false);
+                    }}
+                    disabled={distBusy}
+                  >
+                    状態更新
+                  </button>
+                </div>
+
+                {distBusy ? (
+                  <div style={{ fontSize: 13, color: colors.textSub, fontWeight: 800 }}>読み込み中...</div>
+                ) : distList.length === 0 ? (
+                  <div style={{ fontSize: 13, color: colors.textSub, fontWeight: 800 }}>該当生徒がいません。</div>
+                ) : (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                      gap: 10,
+                      maxHeight: 420,
+                      overflow: "auto",
+                      padding: 2,
+                    }}
+                  >
+                    {distList.map((s) => {
+                      const checked = distSelected.has(s.id);
+                      const already = distStatus.alreadyIds.has(s.id);
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => toggleDistSelected(s.id)}
+                          style={{
+                            textAlign: "left",
+                            border: `1px solid ${checked ? "rgba(14,165,233,0.55)" : colors.border}`,
+                            background: checked ? "rgba(14,165,233,0.10)" : "#fff",
+                            borderRadius: 14,
+                            padding: "12px 12px",
+                            cursor: "pointer",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: 10,
+                            alignItems: "center",
+                          }}
+                        >
+                          <div style={{ display: "grid", gap: 2 }}>
+                            <div style={{ fontWeight: 900, color: colors.textMain }}>{s.name ?? "未設定"}</div>
+                            <div style={{ fontSize: 12, color: colors.textSub, fontWeight: 700 }}>
+                              {s.phone ?? "-"} / {s.memo ?? "-"}
+                            </div>
+                          </div>
+                          <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
+                            <input type="checkbox" checked={checked} readOnly />
+                            {already ? pill("green", "追加済") : pill("amber", "未追加")}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {distMsg && <div style={distMsg.includes("完了") ? styles.info : styles.error}>{distMsg}</div>}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
