@@ -1,53 +1,157 @@
 /*
  * src/pages/Login.tsx
  * Responsibility: ログイン画面
- * - Supabase によるメール/パスワードでの認証処理
- * - 承認フローのトリガー（承認待ちユーザーの登録）
+ * - Supabase によるメール/パスワード認証
+ * - 承認フローの確認（profiles / approval_requests）
+ * - 未登録 or パス間違いの区別が難しいエラーでは:
+ *   1) 「ログインできませんでした」
+ *   2) パスワード再確認（入力を目立たせる）
+ *   3) 新規登録へ（ボタン）
+ *   4) パスワードを忘れた（リセットメール送信）
  */
-
-import { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import {
+  pageStyle,
+  cardStyle,
+  titleStyle,
+  subtitleStyle,
+  rowStyle,
+  fieldLabelStyle,
+  inputStyle,
+  applyFocusRing,
+  primaryButtonStyle,
+  secondaryButtonStyle,
+  linkButtonStyle,
+  dividerStyle,
+  noticeStyle,
+  helperTextStyle,
+} from "../ui/authUi";
+import type { UiNotice } from "../ui/friendlyAuth";
+import { friendlyLoginError, friendlyResetError } from "../ui/friendlyAuth";
 
 function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
-  try { return JSON.stringify(err); } catch { return "不明なエラー"; }
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return "不明なエラー";
+  }
 }
 
 export default function Login({ onSignup }: { onSignup: () => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState<UiNotice>({ kind: "none" });
+
+  const noticeData = notice.kind === "none" ? null : notice;
+  const emphasizePassword = noticeData?.showPasswordRecheck === true;
+
+  const canSubmit = useMemo(() => {
+    return !!email.trim() && !!password && !loading;
+  }, [email, password, loading]);
 
   async function ensureApprovalRequest(uid: string) {
-  const { data: existing } = await supabase
-    .from("approval_requests")
-    .select("id")
-    .eq("user_id", uid)
-    .is("resolved_at", null)
-    .limit(1);
+    const { data: existing } = await supabase
+      .from("approval_requests")
+      .select("id")
+      .eq("user_id", uid)
+      .is("resolved_at", null)
+      .limit(1);
 
-  if (existing && existing.length > 0) return;
+    if (existing && existing.length > 0) return;
 
-  const { error: insErr } = await supabase
-    .from("approval_requests")
-    .insert({ user_id: uid });
+    const { error: insErr } = await supabase.from("approval_requests").insert({
+      user_id: uid,
+    });
 
-  // ← 409(重複)は既存未解決があるだけなので無視
-  if (insErr && !/409|duplicate key|already exists/i.test(insErr.message)) {
-    console.warn("approval_requests insert:", insErr.message);
+    if (insErr && !/409|duplicate key|already exists/i.test(insErr.message)) {
+      console.warn("approval_requests insert:", insErr.message);
+    }
   }
-}
+
+  async function sendResetEmail() {
+    const to = email.trim();
+    if (!to) {
+      setNotice({
+        kind: "warning",
+        title: "メールアドレスを入力してください",
+        message: "パスワード再設定メールを送るために、Email欄を入力してください。",
+      });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(to, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) {
+        setNotice(friendlyResetError(error.message));
+        return;
+      }
+      setNotice({
+        kind: "success",
+        title: "再設定メールを送信しました",
+        message: "メール内のリンクを開いて、新しいパスワードを設定してください。",
+      });
+    } catch (e: unknown) {
+      setNotice({
+        kind: "error",
+        title: "送信に失敗しました",
+        message: getErrorMessage(e),
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function resubmitApproval() {
+    setLoading(true);
+    try {
+      const {
+        data: { user },
+        error: ue,
+      } = await supabase.auth.getUser();
+
+      if (ue) throw ue;
+
+      const uid = user?.id;
+      if (!uid) throw new Error("ユーザー情報が取得できませんでした。");
+
+      await ensureApprovalRequest(uid);
+
+      setNotice({
+        kind: "success",
+        title: "再申請を送信しました",
+        message: "申請を送信しました。教師の承認後に、もう一度ログインしてください。",
+      });
+    } catch (e: unknown) {
+      setNotice({
+        kind: "error",
+        title: "再申請に失敗しました",
+        message: getErrorMessage(e),
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setMsg(null);
+    setNotice({ kind: "none" });
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+
     if (error) {
-      setMsg("ログイン失敗: " + error.message);
+      setNotice(friendlyLoginError(error.message));
       setLoading(false);
       return;
     }
@@ -56,78 +160,181 @@ export default function Login({ onSignup }: { onSignup: () => void }) {
       const uid = data.user?.id;
       if (!uid) throw new Error("ユーザーIDが取得できませんでした。");
 
-      // 1) profiles で role / 承認状態を確認（admin/teacher はバイパス）
       const { data: profile, error: pe } = await supabase
         .from("profiles")
         .select("id, is_approved, name, role, status")
         .eq("id", uid)
         .maybeSingle();
+
       if (pe) throw pe;
 
       if (profile?.role === "admin" || profile?.role === "teacher") {
-        setMsg("ログインしました。（管理者/教師）");
-        setLoading(false);
+        setNotice({
+          kind: "success",
+          title: "ログインしました",
+          message: "管理者/教師としてログインしました。",
+        });
         return;
       }
 
-      // 2) 一般ユーザーの承認チェック
-      const approved = !!profile?.is_approved && (profile?.status ?? "active") === "active";
-      if (!approved) {
+      const status = (profile?.status ?? "active") as "active" | "suspended" | "withdrawn";
+      const isApproved = !!profile?.is_approved;
+
+      if (status === "withdrawn") {
+        setNotice({
+          kind: "warning",
+          title: "このアカウントは利用停止になっています",
+          message:
+            "このアカウントは退会（利用停止）状態のためログインできません。必要であれば先生にお問い合わせください。",
+          showSignupCta: true,
+        });
+        return;
+      }
+
+      if (status === "suspended") {
+        setNotice({
+          kind: "warning",
+          title: "申請が却下されました",
+          message:
+            "申請内容に不備があった可能性があります。必要であれば、再申請を送信できます。",
+          showResubmitCta: true,
+        });
+        return;
+      }
+
+      if (!isApproved) {
         await ensureApprovalRequest(uid);
-        setMsg("承認待ちです。教師による承認後にもう一度ログインしてください。");
-        setLoading(false);
+        setNotice({
+          kind: "info",
+          title: "承認待ちです",
+          message: "教師による承認後に、もう一度ログインしてください。",
+        });
         return;
       }
 
-      // 3) 承認済みユーザー
-      setMsg(`ようこそ、${profile?.name ?? "ユーザー"} さん。`);
+      setNotice({
+        kind: "success",
+        title: "ようこそ",
+        message: `${profile?.name ?? "ユーザー"} さん、ログインしました。`,
+      });
     } catch (err: unknown) {
-      setMsg("確認中にエラー: " + getErrorMessage(err));
+      setNotice({
+        kind: "error",
+        title: "確認中にエラー",
+        message: getErrorMessage(err),
+      });
     } finally {
       setLoading(false);
     }
   }
 
-  return (
-    <div className="min-h-screen grid place-items-center bg-gray-100">
-      <form onSubmit={onSubmit} className="bg-white shadow p-6 rounded-2xl w-full max-w-sm">
-        <h1 className="text-xl font-bold mb-4">ログイン</h1>
+  const showSignupCta = noticeData?.showSignupCta === true;
+  const showResetCta = noticeData?.showResetCta === true;
+  const showResubmitCta = noticeData?.showResubmitCta === true;
 
-        {msg && (
-          <div className="mb-3 text-sm rounded border border-amber-300 bg-amber-50 text-amber-900 px-3 py-2">
-            {msg}
+  return (
+    <div style={pageStyle()}>
+      <form onSubmit={onSubmit} style={cardStyle()}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <h1 style={titleStyle()}>ログイン</h1>
+          <p style={subtitleStyle()}>
+            メールアドレスとパスワードでログインします。承認が必要な場合があります。
+          </p>
+        </div>
+
+        {noticeData && (
+          <div style={noticeStyle(noticeData.kind)}>
+            {noticeData.title && (
+              <div style={{ fontWeight: 800, marginBottom: 4 }}>
+                {noticeData.title}
+              </div>
+            )}
+            <div>{noticeData.message}</div>
+
+            {(showSignupCta || showResetCta || showResubmitCta) && (
+              <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                {showResubmitCta && (
+                  <button type="button" onClick={resubmitApproval} style={secondaryButtonStyle(false)} disabled={loading}>
+                    もう一度申請を送る →
+                  </button>
+                )}
+                {showSignupCta && (
+                  <button type="button" onClick={onSignup} style={secondaryButtonStyle(false)} disabled={loading}>
+                    新規登録へ進む →
+                  </button>
+                )}
+
+                {showResetCta && (
+                  <button type="button" onClick={sendResetEmail} style={linkButtonStyle(loading)} disabled={loading}>
+                    パスワードを忘れた（再設定メールを送る）
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
-        <label className="block mb-3">
-          <span className="text-sm">Email</span>
-          <input
-            className="mt-1 w-full border rounded px-3 py-2"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-        </label>
+        <div style={{ height: 14 }} />
 
-        <label className="block mb-4">
-          <span className="text-sm">Password</span>
-          <input
-            className="mt-1 w-full border rounded px-3 py-2"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </label>
+        <div style={rowStyle()}>
+          <div>
+            <label style={fieldLabelStyle()}>Email</label>
+            <input
+              style={inputStyle()}
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              onFocus={(e) => applyFocusRing(e, true)}
+              onBlur={(e) => applyFocusRing(e, false)}
+              placeholder="example@mail.com"
+              autoComplete="email"
+            />
+          </div>
 
-        <button disabled={loading} className="w-full py-2 rounded bg-black text-white disabled:opacity-50">
-          {loading ? "ログイン中..." : "ログイン"}
-        </button>
+          <div>
+            <label style={fieldLabelStyle()}>Password</label>
+            <input
+              style={inputStyle({ emphasize: emphasizePassword })}
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              onFocus={(e) => applyFocusRing(e, true)}
+              onBlur={(e) => applyFocusRing(e, false)}
+              placeholder="••••••••"
+              autoComplete="current-password"
+            />
+            {emphasizePassword && (
+              <div style={helperTextStyle()}>
+                パスワードをもう一度入力し直してみてください。間違いが多い箇所です。
+              </div>
+            )}
+          </div>
 
-        <button type="button" onClick={onSignup} className="mt-4 w-full py-2 rounded border">
-          新規登録へ →
-        </button>
+          <button
+            disabled={!canSubmit}
+            style={primaryButtonStyle(!canSubmit)}
+            onMouseDown={(e) => {
+              if (canSubmit) e.currentTarget.style.transform = "scale(0.99)";
+            }}
+            onMouseUp={(e) => {
+              e.currentTarget.style.transform = "scale(1)";
+            }}
+          >
+            {loading ? "ログイン中..." : "ログイン"}
+          </button>
+
+          <div style={dividerStyle()} />
+
+          <button type="button" onClick={onSignup} style={secondaryButtonStyle(false)} disabled={loading}>
+            新規登録へ →
+          </button>
+
+          <div style={{ fontSize: 12, color: "#64748B", lineHeight: 1.4 }}>
+            ※登録後は教師の承認が必要です。承認後にログインできます。
+          </div>
+        </div>
       </form>
     </div>
   );

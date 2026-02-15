@@ -1,29 +1,57 @@
-/*
- * src/pages/Signup.tsx
- */
-
-import { useState } from "react";
+// src/pages/Signup.tsx
+import React, { useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import {
+  pageStyle,
+  cardStyle,
+  titleStyle,
+  subtitleStyle,
+  rowStyle,
+  fieldLabelStyle,
+  inputStyle,
+  applyFocusRing,
+  primaryButtonStyle,
+  secondaryButtonStyle,
+  noticeStyle,
+} from "../ui/authUi";
+import type { UiNotice } from "../ui/friendlyAuth";
 
 export default function Signup({ onBack }: { onBack: () => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [notice, setNotice] = useState<UiNotice>({ kind: "none" });
+
+  const canSubmit = useMemo(() => {
+    return !!email.trim() && !!password && !loading;
+  }, [email, password, loading]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setMsg(null);
+    setNotice({ kind: "none" });
 
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+    });
 
     if (error) {
-      if (error.message?.toLowerCase().includes("already")) {
-        setMsg("このメールはすでに登録済みです。ログインして、教師の承認を待ってください。");
+      const m = error.message?.toLowerCase?.() ?? "";
+      if (m.includes("already")) {
+        setNotice({
+          kind: "info",
+          title: "すでに登録済みです",
+          message: "このメールアドレスは登録済みの可能性があります。ログインして承認をお待ちください。",
+        });
       } else {
-        setMsg("登録失敗: " + error.message);
+        setNotice({
+          kind: "error",
+          title: "登録に失敗しました",
+          message: "入力内容を確認して、もう一度お試しください。",
+        });
       }
       setLoading(false);
       return;
@@ -32,23 +60,21 @@ export default function Signup({ onBack }: { onBack: () => void }) {
     try {
       const session = data.session ?? (await supabase.auth.getSession()).data.session;
       const uid = session?.user?.id;
-
       if (!uid) throw new Error("ユーザーIDが取得できませんでした（session null）");
 
-      // 1) profiles の氏名更新（任意）
       if (name.trim()) {
-        const { error: upErr } = await supabase.from("profiles").update({ name: name.trim() }).eq("id", uid);
+        const { error: upErr } = await supabase
+          .from("profiles")
+          .update({ name: name.trim() })
+          .eq("id", uid);
         if (upErr) throw upErr;
       }
 
-      // 2) ★ approval_requests に申請行を作る（先生側がこれを見る前提）
-      //    既にあれば作らない（重複防止）
       const { data: existing, error: exErr } = await supabase
         .from("approval_requests")
         .select("id")
         .eq("user_id", uid)
         .maybeSingle();
-
       if (exErr) throw exErr;
 
       if (!existing) {
@@ -57,52 +83,106 @@ export default function Signup({ onBack }: { onBack: () => void }) {
           email: email.trim(),
           name: name.trim() || null,
           phone: null,
-          approved: null,       // ★ 未処理 = NULL
+          approved: null,
           resolved_at: null,
           resolved_by: null,
         });
         if (insErr) throw insErr;
       }
 
-      // 3) 承認制なのでサインアウト
       await supabase.auth.signOut();
-      setMsg("登録完了。教師の承認後にログインできます（承認が必要です）。");
+
+      setNotice({
+        kind: "success",
+        title: "登録完了",
+        message: "教師の承認後にログインできます。承認が反映されたらログインしてください。",
+      });
     } catch (e: unknown) {
-      setMsg(e instanceof Error ? e.message : "不明なエラーが発生しました");
+      setNotice({
+        kind: "error",
+        title: "処理中にエラー",
+        message: e instanceof Error ? e.message : "不明なエラーが発生しました",
+      });
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="min-h-screen grid place-items-center bg-gray-100">
-      <form onSubmit={onSubmit} className="bg-white shadow p-6 rounded-2xl w-full max-w-sm">
-        <h1 className="text-xl font-bold mb-4">新規登録</h1>
+    <div style={pageStyle()}>
+      <form onSubmit={onSubmit} style={cardStyle()}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <h1 style={titleStyle()}>新規登録</h1>
+          <p style={subtitleStyle()}>
+            登録後、教師の承認が必要です。承認が完了するとログインできます。
+          </p>
+        </div>
 
-        <label className="block mb-3">
-          <span className="text-sm">氏名（任意）</span>
-          <input className="mt-1 w-full border rounded px-3 py-2" value={name} onChange={(e)=>setName(e.target.value)} />
-        </label>
+        {notice.kind !== "none" && (
+          <div style={noticeStyle(notice.kind)}>
+            {notice.title && (
+              <div style={{ fontWeight: 800, marginBottom: 4 }}>
+                {notice.title}
+              </div>
+            )}
+            <div>{notice.message}</div>
+          </div>
+        )}
 
-        <label className="block mb-3">
-          <span className="text-sm">Email</span>
-          <input className="mt-1 w-full border rounded px-3 py-2" type="email" value={email} onChange={(e)=>setEmail(e.target.value)} required />
-        </label>
+        <div style={{ height: 14 }} />
 
-        <label className="block mb-4">
-          <span className="text-sm">Password</span>
-          <input className="mt-1 w-full border rounded px-3 py-2" type="password" value={password} onChange={(e)=>setPassword(e.target.value)} required />
-        </label>
+        <div style={rowStyle()}>
+          <div>
+            <label style={fieldLabelStyle()}>氏名（任意）</label>
+            <input
+              style={inputStyle()}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onFocus={(e) => applyFocusRing(e, true)}
+              onBlur={(e) => applyFocusRing(e, false)}
+              placeholder="例）山田 太郎"
+              autoComplete="name"
+            />
+          </div>
 
-        <button disabled={loading} className="w-full py-2 rounded bg-black text-white disabled:opacity-50">
-          {loading ? "登録中..." : "登録"}
-        </button>
+          <div>
+            <label style={fieldLabelStyle()}>Email</label>
+            <input
+              style={inputStyle()}
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              onFocus={(e) => applyFocusRing(e, true)}
+              onBlur={(e) => applyFocusRing(e, false)}
+              placeholder="example@mail.com"
+              autoComplete="email"
+            />
+          </div>
 
-        {msg && <p className="mt-3 text-sm text-gray-700">{msg}</p>}
+          <div>
+            <label style={fieldLabelStyle()}>Password</label>
+            <input
+              style={inputStyle()}
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              onFocus={(e) => applyFocusRing(e, true)}
+              onBlur={(e) => applyFocusRing(e, false)}
+              placeholder="6文字以上推奨"
+              autoComplete="new-password"
+            />
+          </div>
 
-        <button type="button" onClick={onBack} className="mt-4 w-full py-2 rounded border">
-          ← ログインに戻る
-        </button>
+          <button disabled={!canSubmit} style={primaryButtonStyle(!canSubmit)}>
+            {loading ? "登録中..." : "登録"}
+          </button>
+
+          <button type="button" onClick={onBack} style={secondaryButtonStyle(false)} disabled={loading}>
+            ← ログインに戻る
+          </button>
+        </div>
       </form>
     </div>
   );

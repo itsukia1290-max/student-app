@@ -197,10 +197,11 @@ export default function Students() {
   async function approve(p: Student) {
     setErr(null);
 
-    const { error } = await supabase
-      .from("profiles")
-      .update({ is_approved: true })
-      .eq("id", p.id);
+    // RPC を呼んで承認（profiles.is_approved + approval_requests.resolved_at の整合性を保証）
+    const { error } = await supabase.rpc("process_approval", {
+      p_user_id: p.id,
+      p_action: "approve",
+    });
 
     if (error) {
       setErr("承認に失敗: " + error.message);
@@ -215,11 +216,11 @@ export default function Students() {
   async function reject(p: Student) {
     setErr(null);
 
-    // 却下の扱いは「無効化」推奨（消さない）
-    const { error } = await supabase
-      .from("profiles")
-      .update({ status: "inactive", is_approved: false })
-      .eq("id", p.id);
+    // RPC を呼んで却下（profiles.status = suspended + approval_requests.resolved_at 更新）
+    const { error } = await supabase.rpc("process_approval", {
+      p_user_id: p.id,
+      p_action: "reject",
+    });
 
     if (error) {
       setErr("却下に失敗: " + error.message);

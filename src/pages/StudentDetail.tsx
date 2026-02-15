@@ -85,14 +85,11 @@ export default function StudentDetail({ student, onBack }: Props) {
     setDeleting(true);
     setDeleteMsg(null);
 
-    const { error } = await supabase
-      .from("profiles")
-      .update({
-        status: "inactive",
-        is_approved: false,
-        withdrawn_at: new Date().toISOString(),
-      })
-      .eq("id", student.id);
+    // RPC を呼んで削除（profiles.status = withdrawn + approval_requests.resolved_at 更新）
+    const { error } = await supabase.rpc("process_approval", {
+      p_user_id: student.id,
+      p_action: "withdrawn",
+    });
 
     if (error) {
       setDeleteMsg("削除に失敗しました: " + error.message);

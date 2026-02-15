@@ -10,6 +10,7 @@ import Students from "./pages/Students";
 import SchoolCalendar from "./pages/SchoolCalendar";
 import DM from "./pages/DM";
 import GradeManagement from "./pages/GradeManagement";
+import ResetPassword from "./pages/ResetPassword";
 import { supabase } from "./lib/supabase";
 import { useMyApproval } from "./hooks/useMyApproval";
 import { useIsStaff } from "./hooks/useIsStaff";
@@ -93,11 +94,83 @@ function Shell() {
 }
 
 function PendingApproval() {
+  const { status, refetch } = useMyApproval();
+  const { session } = useAuth();
+  const uid = session?.user?.id;
+
+  const resubmit = async () => {
+    if (!uid) return;
+    try {
+      // 承認リクエストを再申請
+      const { ensureApprovalRequest } = await import("./lib/approval");
+      await ensureApprovalRequest(uid);
+
+      // status を active に戻す (再承認待ち)
+      const { error } = await supabase
+        .from("profiles")
+        .update({ status: "active" })
+        .eq("id", uid);
+
+      if (error) throw error;
+      refetch();
+      alert("再申請しました。承認をお待ちください。");
+    } catch (e) {
+      console.error(e);
+      alert("再申請に失敗しました。");
+    }
+  };
+
   return (
-    <div className="min-h-screen grid place-items-center">
-      <div className="bg-white p-6 rounded-2xl shadow text-center">
-        <h1 className="text-xl font-bold">承認待ち</h1>
-        <button onClick={() => supabase.auth.signOut()} className="mt-4 border px-4 py-2 rounded">
+    <div className="min-h-screen grid place-items-center px-4" style={{ backgroundColor: "#f8fafc" }}>
+      <div
+        className="w-full max-w-md p-8 rounded-2xl shadow-xl text-center"
+        style={{ backgroundColor: "#ffffff" }}
+      >
+        {status === "withdrawn" && (
+          <>
+            <h1 className="text-xl font-bold mb-4" style={{ color: "#dc2626" }}>
+              アカウント停止
+            </h1>
+            <p className="text-sm mb-6" style={{ color: "#6b7280" }}>
+              このアカウントは利用停止されています。詳細はお問い合わせください。
+            </p>
+          </>
+        )}
+
+        {status === "suspended" && (
+          <>
+            <h1 className="text-xl font-bold mb-4" style={{ color: "#ea580c" }}>
+              承認が却下されました
+            </h1>
+            <p className="text-sm mb-6" style={{ color: "#6b7280" }}>
+              再度申請することができます。
+            </p>
+            <button
+              onClick={resubmit}
+              className="w-full py-3 rounded-lg font-medium mb-4"
+              style={{ backgroundColor: "#3b82f6", color: "#ffffff" }}
+            >
+              再申請する
+            </button>
+          </>
+        )}
+
+        {status !== "withdrawn" && status !== "suspended" && (
+          <>
+            <h1 className="text-xl font-bold mb-4" style={{ color: "#3b82f6" }}>
+              承認待ち
+            </h1>
+            <p className="text-sm mb-6" style={{ color: "#6b7280" }}>
+              管理者の承認をお待ちください。
+            </p>
+          </>
+        )}
+
+        <button
+          onClick={() => supabase.auth.signOut()}
+          className="w-full py-3 rounded-lg font-medium border"
+          style={{ borderColor: "#d1d5db", color: "#374151" }}
+        >
           ログアウト
         </button>
       </div>
@@ -108,7 +181,11 @@ function PendingApproval() {
 function AuthGate() {
   const { session } = useAuth();
   const [mode, setMode] = useState<"login" | "signup">("login");
-  const { approved } = useMyApproval();
+  const { approved, status, loading } = useMyApproval();
+
+  if (window.location.pathname === "/reset-password") {
+    return <ResetPassword />;
+  }
 
   if (!session) {
     return mode === "login" ? (
@@ -118,8 +195,15 @@ function AuthGate() {
     );
   }
 
+  if (loading) return <div className="text-center">確認中...</div>;
+
+  // withdrawn または suspended は PendingApproval で専用案内
+  if (status === "withdrawn" || status === "suspended") {
+    return <PendingApproval />;
+  }
+
+  // active だが is_approved=false なら承認待ち
   if (approved === false) return <PendingApproval />;
-  if (approved === null) return <div className="text-center">確認中...</div>;
 
   return <Shell />;
 }
