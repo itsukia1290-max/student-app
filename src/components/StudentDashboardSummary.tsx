@@ -236,26 +236,24 @@ export default function StudentDashboardSummary({ userId, canEdit = true }: Prop
       </div>
 
       {/* 本文 */}
-      <div style={{ padding: 16 }}>
+      <div style={{ padding: isMobile ? 12 : 16 }}>
         {loading ? (
           <div style={{ fontSize: 13, fontWeight: 800, color: "#64748b" }}>読み込み中...</div>
         ) : err ? (
           <div style={{ fontSize: 13, fontWeight: 900, color: "#dc2626", whiteSpace: "pre-wrap" }}>{err}</div>
         ) : (
-          // ✅ 3つは常に横並び（狭い端末は横スクロールで潰れ防止）
-          <div style={{ overflowX: "auto", paddingBottom: 2 }}>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3, minmax(160px, 1fr))",
-                gap: 10,
-                minWidth: 520,
-              }}
-            >
-              <SummaryTile label="今日" value={hoursText(todayMin)} breakdown={todayBreakdown} chart="donut" />
-              <SummaryTile label="今週" value={hoursText(weekMin)} breakdown={weekBreakdown} chart="donut" />
-              <SummaryTile label="今月" value={hoursText(monthMin)} breakdown={monthBreakdown} chart="donut" />
-            </div>
+          // ✅ 3つは常に横並び（高さ扱いをコンパクト化）
+          <div
+            style={{
+              marginTop: 10,
+              display: "grid",
+              gridTemplateColumns: "repeat(3, minmax(0, 1fr))", // ✅ 常に3列（スクロールなし）
+              gap: isMobile ? 6 : 10,                           // ✅ モバイルは詳める
+            }}
+          >
+            <SummaryTile compact={isMobile} label="今日" value={hoursText(todayMin)} breakdown={todayBreakdown} chart="donut" />
+            <SummaryTile compact={isMobile} label="今週" value={hoursText(weekMin)} breakdown={weekBreakdown} chart="donut" />
+            <SummaryTile compact={isMobile} label="今月" value={hoursText(monthMin)} breakdown={monthBreakdown} chart="donut" />
           </div>
         )}
       </div>
@@ -268,11 +266,13 @@ function SummaryTile({
   value,
   breakdown,
   chart = "donut",
+  compact = false,
 }: {
   label: string;
   value: string;
   breakdown?: BreakdownItem[];
   chart?: "bar" | "donut";
+  compact?: boolean;
 }) {
   const total = (breakdown ?? []).reduce((s, b) => s + b.minutes, 0);
 
@@ -283,22 +283,43 @@ function SummaryTile({
         border: "1.5px solid rgba(15,23,42,0.10)",
         background: "#ffffff",
         boxShadow: "0 6px 14px rgba(15,23,42,0.06)",
-        padding: 12,
+        padding: compact ? 10 : 12, // ✅ 余白削減
+        minWidth: 0,                // ✅ 横並びで潰れやすい時の保険
       }}
     >
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 900, color: "#1d4ed8", whiteSpace: "nowrap" }}>{label}</div>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
+        <div
+          style={{
+            fontSize: compact ? 12 : 13,
+            fontWeight: 900,
+            color: "#1d4ed8",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {label}
+        </div>
       </div>
 
-      <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900, color: "#0f172a", whiteSpace: "nowrap" }}>
+      <div
+        style={{
+          marginTop: compact ? 4 : 6,
+          fontSize: compact ? 18 : 22, // ✅ 数値を少し小さく
+          fontWeight: 900,
+          color: "#0f172a",
+          whiteSpace: "nowrap",
+        }}
+      >
         {value}
       </div>
 
-      {chart === "donut" ? (
-        <MiniDonut breakdown={breakdown ?? []} total={total} />
-      ) : (
-        <MiniStackedBar breakdown={breakdown ?? []} total={total} />
-      )}
+      {/* ✅ ドーナツをモバイル時だけ縮小（MiniDonutをいじらずに） */}
+      <div style={{ transform: compact ? "scale(0.88)" : "none", transformOrigin: "left top" }}>
+        {chart === "donut" ? (
+          <MiniDonut breakdown={breakdown ?? []} total={total} />
+        ) : (
+          <MiniStackedBar breakdown={breakdown ?? []} total={total} />
+        )}
+      </div>
     </div>
   );
 }
