@@ -49,20 +49,6 @@ type Props = {
 
 type FilterMode = "all" | "x" | "blank" | "x_blank";
 
-function summarize(marks: Mark[]) {
-  let o = 0,
-    x = 0,
-    t = 0,
-    blank = 0;
-  for (const m of marks) {
-    if (m === "O") o++;
-    else if (m === "X") x++;
-    else if (m === "T") t++;
-    else blank++;
-  }
-  return { o, x, t, blank };
-}
-
 function cycleMark(cur: Mark): Mark {
   if (cur === "") return "O";
   if (cur === "O") return "X";
@@ -92,6 +78,11 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
   // status
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // create modal
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newWorkbookTitle, setNewWorkbookTitle] = useState("");
+  const [newChapters, setNewChapters] = useState([{ title: "", count: 10 }]);
 
   // autosave (marks)
   const gradeSaveTimers = useRef<Record<string, number>>({});
@@ -243,83 +234,101 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
     return mark === "X" || mark === "";
   }
 
-  // ---------- grade ops ----------
-  async function addStudentWorkbook() {
-    const title = window.prompt("問題集名を入力してください");
-    if (!title) return;
+  function applyHover(el: HTMLButtonElement, hovering: boolean) {
+    const base = el.dataset.baseBg ?? "rgba(255,255,255,0.92)";
+    const hover = el.dataset.hoverBg ?? "rgba(219,234,254,0.55)";
+    el.style.background = hovering ? hover : base;
+  }
 
+  // ---------- grade ops ----------
+  async function createWorkbookWithChapters() {
+    if (!newWorkbookTitle.trim()) {
+      alert("問題集名を入力してください");
+      return;
+    }
+
+    const total = newChapters.reduce((sum, c) => sum + Number(c.count || 0), 0);
+    if (total <= 0) {
+      alert("章の問題数を設定してください");
+      return;
+    }
+
+    // 1. grade 作成
     const { data, error } = await supabase
       .from("student_grades")
       .insert([
         {
           user_id: ownerUserId,
-          title: title.trim(),
-          problem_count: 0,
-          marks: [],
-          labels: [],
+          title: newWorkbookTitle.trim(),
+          problem_count: total,
+          marks: Array(total).fill(""),
+          labels: Array.from({ length: total }, (_, i) => String(i + 1)),
         },
       ])
       .select()
       .single();
 
     if (error) {
-      alert("問題集の追加に失敗しました: " + error.message);
+      alert(error.message);
       return;
     }
 
-    setGrades((prev) => [...prev, data]);
-    setActiveGradeId(data.id);
-    setChapters([]);
-    setActiveChapterId(null);
+    // 2. 章生成
+    let cursor = 0;
+    const chapterPayload = newChapters.map((ch) => {
+      const start = cursor;
+      const end = cursor + ch.count - 1;
+      cursor += ch.count;
+
+      return {
+        grade_id: data.id,
+        start_idx: start,
+        end_idx: end,
+        chapter_title: ch.title,
+      };
+    });
+
+    await supabase.from("student_grade_notes").insert(chapterPayload);
+
+    setCreateOpen(false);
+    setNewWorkbookTitle("");
+    setNewChapters([{ title: "", count: 10 }]);
+
+    loadGrades();
   }
 
   async function deleteWorkbook(g: GradeRow) {
     if (!confirm(`問題集「${g.title}」を削除します。よろしいですか？`)) return;
+
     const { error } = await supabase.from("student_grades").delete().eq("id", g.id);
     if (error) {
       alert("削除失敗: " + error.message);
       return;
     }
+
     setGrades((prev) => prev.filter((x) => x.id !== g.id));
-    setActiveGradeId((prev) => (prev !== g.id ? prev : null));
+    setActiveGradeId(null);
     setChapters([]);
     setActiveChapterId(null);
   }
 
-  async function expandWorkbookIfNeeded(grade: GradeRow, requiredTotal: number) {
-    if (requiredTotal <= grade.problem_count) return { ok: true as const };
+  async function deleteChapter(c: ChapterRow) {
+    if (!confirm(`「${chapterLabel(c)}」を削除します。よろしいですか？`)) return;
 
-    const addN = requiredTotal - grade.problem_count;
-    const nextMarks: Mark[] = [...grade.marks, ...Array(addN).fill("")];
-    const nextLabels: string[] = [
-      ...(grade.labels ?? Array.from({ length: grade.problem_count }, (_, i) => String(i + 1))),
-      ...Array.from({ length: addN }, (_, i) => String(grade.problem_count + i + 1)),
-    ];
-
-    const { error } = await supabase
-      .from("student_grades")
-      .update({
-        problem_count: requiredTotal,
-        marks: nextMarks,
-        labels: nextLabels,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", grade.id);
-
+    const { error } = await supabase.from("student_grade_notes").delete().eq("id", c.id);
     if (error) {
-      setErr("問題集の拡張に失敗: " + error.message);
-      return { ok: false as const };
+      alert("削除失敗: " + error.message);
+      return;
     }
 
-    setGrades((prev) =>
-      prev.map((g) =>
-        g.id === grade.id
-          ? { ...g, problem_count: requiredTotal, marks: nextMarks, labels: nextLabels, updated_at: new Date().toISOString() }
-          : g
-      )
-    );
+    setChapters((prev) => prev.filter((x) => x.id !== c.id));
+    setActiveChapterId((prev) => (prev === c.id ? null : prev));
 
-    return { ok: true as const };
+    setChapterDraft((prev) => {
+      const next = { ...prev };
+      delete next[c.id];
+      return next;
+    });
   }
 
   function scheduleSaveMarks(gradeId: string) {
@@ -362,111 +371,8 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
     scheduleSaveMarks(activeGrade.id);
   }
 
-  // ---------- chapter ops ----------
-  async function createChapter() {
-    if (!activeGrade) return;
-
-    const title = window.prompt("章名（空でもOK）", "") ?? "";
-    const titleNorm = title.trim() ? title.trim() : null;
-
-    const countStr = window.prompt("この章の問題数を入力（1〜）");
-    if (!countStr) return;
-
-    const chapterCount = Number(countStr);
-    if (!Number.isInteger(chapterCount) || chapterCount <= 0) {
-      alert("章の問題数は 1 以上の整数で入力してください。");
-      return;
-    }
-
-    const startIdx = activeGrade.problem_count;
-    const endIdx = startIdx + (chapterCount - 1);
-    const requiredTotal = endIdx + 1;
-
-    const res = await expandWorkbookIfNeeded(activeGrade, requiredTotal);
-    if (!res.ok) return;
-
-    const note = window.prompt("章の備考（生徒向け）", "") ?? "";
-    const teacherMemo = window.prompt("先生メモ（先生のみ）", "") ?? "";
-    const homework = window.prompt("次回宿題（先生のみ）", "") ?? "";
-
-    const payload: Record<string, unknown> = {
-      grade_id: activeGrade.id,
-      start_idx: startIdx,
-      end_idx: endIdx,
-      chapter_title: titleNorm,
-      chapter_note: note,
-      teacher_memo: teacherMemo,
-      next_homework: homework,
-      note: note,
-    };
-
-    const { data, error } = await supabase
-      .from("student_grade_notes")
-      .insert([payload])
-      .select("id,grade_id,start_idx,end_idx,chapter_title,chapter_note,teacher_memo,next_homework,note,created_at,updated_at")
-      .single();
-
-    if (error) {
-      alert("章作成失敗: " + error.message);
-      return;
-    }
-
-    const c = data as ChapterRow;
-
-    setChapters((prev) => [...prev, c].sort((a, b) => a.start_idx - b.start_idx || a.end_idx - b.end_idx));
-    setActiveChapterId(c.id);
-
-    setChapterDraft((prev) => ({
-      ...prev,
-      [c.id]: {
-        chapter_note: (c.chapter_note ?? c.note ?? "") as string,
-        teacher_memo: (c.teacher_memo ?? "") as string,
-        next_homework: (c.next_homework ?? "") as string,
-      },
-    }));
-  }
-
-  async function deleteChapter(c: ChapterRow) {
-    if (!confirm(`「${chapterLabel(c)}」を削除します。よろしいですか？`)) return;
-
-    const { error } = await supabase.from("student_grade_notes").delete().eq("id", c.id);
-    if (error) {
-      alert("削除失敗: " + error.message);
-      return;
-    }
-
-    setChapters((prev) => prev.filter((x) => x.id !== c.id));
-    setActiveChapterId((prev) => (prev === c.id ? null : prev));
-
-    setChapterDraft((prev) => {
-      const next = { ...prev };
-      delete next[c.id];
-      return next;
-    });
-  }
-
-  async function renameChapter(c: ChapterRow) {
-    const nextName = window.prompt("章名を入力（空で章名なし）", c.chapter_title ?? "") ?? null;
-    if (nextName == null) return;
-
-    const normalized = nextName.trim() ? nextName.trim() : null;
-
-    const { error } = await supabase
-      .from("student_grade_notes")
-      .update({ chapter_title: normalized, updated_at: new Date().toISOString() })
-      .eq("id", c.id);
-
-    if (error) {
-      alert("章名更新失敗: " + error.message);
-      return;
-    }
-
-    setChapters((prev) =>
-      prev.map((x) => (x.id === c.id ? { ...x, chapter_title: normalized, updated_at: new Date().toISOString() } : x))
-    );
-  }
-
   function scheduleSaveChapterFields(chapterId: string) {
+    if (isTemplate) return; // ⚠ テンプラでは保存しない
     if (chapterSaveTimers.current[chapterId]) window.clearTimeout(chapterSaveTimers.current[chapterId]);
 
     chapterSaveTimers.current[chapterId] = window.setTimeout(async () => {
@@ -504,8 +410,6 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
   }
 
   // ---------- computed ----------
-  const gradeSummary = useMemo(() => (activeGrade ? summarize(activeGrade.marks) : null), [activeGrade]);
-
   const chapterProblemItems = useMemo(() => {
     if (!activeGrade || !activeChapter) return [];
     const { lo, hi } = chapterRangeIndices(activeChapter, activeGrade);
@@ -521,24 +425,88 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
   // ---------- ui ----------
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      {/* header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ fontSize: 14, fontWeight: 950, color: "#0f172a" }}>
-          {mode === "template" ? "共通テンプレ編集（問題集 / 章）" : "問題集 / 章 編集"}
-        </div>
+      {createOpen && (
+        <div style={modalOverlay()}>
+          <div style={modalCard()}>
+            <div style={modalTitle()}>問題集を作成</div>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button style={ghostBtn()} onClick={loadGrades} disabled={loading}>
-            再読み込み
-          </button>
+            <div style={{ display: "grid", gap: 12 }}>
+              <div>
+                <div style={labelStyle()}>問題集名</div>
+                <input
+                  value={newWorkbookTitle}
+                  onChange={(e) => setNewWorkbookTitle(e.target.value)}
+                  style={inputStyle()}
+                />
+              </div>
 
-          {mode === "student" && (
-            <button style={ghostBtn()} onClick={addStudentWorkbook}>
-              ＋ 生徒の問題集を追加
-            </button>
-          )}
+              <div>
+                <div style={labelStyle()}>章設定</div>
+
+                {newChapters.map((ch, i) => (
+                  <div key={i} style={chapterRowStyle()}>
+                    <input
+                      placeholder="章名"
+                      value={ch.title}
+                      onChange={(e) => {
+                        const next = [...newChapters];
+                        next[i].title = e.target.value;
+                        setNewChapters(next);
+                      }}
+                      style={inputStyle()}
+                    />
+
+                    <input
+                      type="number"
+                      min={1}
+                      value={ch.count}
+                      onChange={(e) => {
+                        const next = [...newChapters];
+                        next[i].count = Number(e.target.value);
+                        setNewChapters(next);
+                      }}
+                      style={{ ...inputStyle(), width: 80 }}
+                    />
+
+                    <button
+                      onClick={() =>
+                        setNewChapters((prev) => prev.filter((_, idx) => idx !== i))
+                      }
+                      style={smallDeleteBtn()}
+                    >
+                      🗑
+                    </button>
+                  </div>
+                ))}
+
+                <button
+                  onClick={() =>
+                    setNewChapters((prev) => [...prev, { title: "", count: 5 }])
+                  }
+                  style={addChapterBtn()}
+                >
+                  ＋ 章を追加
+                </button>
+
+                <div style={{ marginTop: 8, fontWeight: 900 }}>
+                  合計問題数：
+                  {newChapters.reduce((sum, c) => sum + Number(c.count || 0), 0)}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                <button onClick={() => setCreateOpen(false)} style={cancelBtn()}>
+                  キャンセル
+                </button>
+
+                <button onClick={createWorkbookWithChapters} style={primaryBtn()}>
+                  作成
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
       {err && <div style={errorBox()}>{err}</div>}
       {loading && <div style={muted()}>読み込み中...</div>}
@@ -547,9 +515,10 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
       <div style={{ display: "grid", gridTemplateColumns: "280px minmax(0, 1fr)", gap: 12, alignItems: "start" }}>
         {/* left: workbook + chapters */}
         <div style={panel()}>
-          <div style={{ fontWeight: 950, color: "#0f172a", fontSize: 13, marginBottom: 10 }}>
+          <div style={mainSectionHeader()}>
             {mode === "template" ? "テンプレ問題集" : "問題集"}
           </div>
+          <div style={mainSectionDivider()} />
 
           {grades.length === 0 ? (
             <div style={muted()}>{mode === "template" ? "テンプレがありません。" : "問題集がありません。"}</div>
@@ -557,89 +526,98 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
             <div style={{ display: "grid", gap: 8 }}>
               {grades.map((g) => {
                 const active = g.id === activeGradeId;
+
                 return (
-                  <button
-                    key={g.id}
-                    type="button"
-                    onClick={() => {
-                      setActiveGradeId(g.id);
-                      setActiveChapterId(null);
-                      setFilterMode("all");
-                      setErr(null);
-                    }}
-                    style={listBtn(active)}
-                    title={g.title}
-                  >
-                    <div style={{ fontWeight: 950, fontSize: 13, color: active ? "#1d4ed8" : "#0f172a", textAlign: "left" }}>
-                      {g.title}
-                    </div>
-                    <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b", textAlign: "left", marginTop: 4 }}>
-                      {g.problem_count}問
-                    </div>
-                  </button>
+                  <div key={g.id} style={{ display: "grid", gap: 6 }}>
+                    {/* 問題集ボタン */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveGradeId(g.id);
+                        setActiveChapterId(null);
+                        setFilterMode("all");
+                        setErr(null);
+                      }}
+                      style={listBtn(active)}
+                      data-base-bg={active ? "rgba(219,234,254,0.65)" : "rgba(255,255,255,0.92)"}
+                      data-hover-bg="rgba(219,234,254,0.55)"
+                      onMouseEnter={(e) => applyHover(e.currentTarget, true)}
+                      onMouseLeave={(e) => applyHover(e.currentTarget, false)}
+                    >
+                      <div style={{ fontWeight: 950 }}>
+                        {g.title}
+                      </div>
+                      <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b", marginTop: 4 }}>
+                        {g.problem_count}問
+                      </div>
+                    </button>
+
+                    {/* ▼ 展開部分（activeのときだけ表示） */}
+                    {active && (
+                      <div style={expandedChapterArea()}>
+                        {chapters.length === 0 ? (
+                          <div style={muted()}>章がありません。</div>
+                        ) : (
+                          chapters.map((c) => {
+                            const cActive = c.id === activeChapterId;
+                            return (
+                              <div key={c.id} style={chapterRow()}>
+                                <button
+                                  type="button"
+                                  style={chapterInlineBtn(cActive)}
+                                  onClick={() => setActiveChapterId(c.id)}
+                                  data-base-bg={cActive ? "rgba(219,234,254,0.65)" : "rgba(255,255,255,0.92)"}
+                                  data-hover-bg="rgba(219,234,254,0.55)"
+                                  onMouseEnter={(e) => applyHover(e.currentTarget, true)}
+                                  onMouseLeave={(e) => applyHover(e.currentTarget, false)}
+                                >
+                                  {chapterLabel(c)}
+                                </button>
+
+                                {!isTemplate && (
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteChapter(c)}
+                                    style={chapterDeleteBtn()}
+                                    title="章を削除"
+                                  >
+                                    🗑
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
+
+              {mode === "student" && (
+                <button
+                  type="button"
+                  onClick={() => setCreateOpen(true)}
+                  style={addWorkbookRowBtn()}
+                  onMouseEnter={(e) => applyHover(e.currentTarget, true)}
+                  onMouseLeave={(e) => applyHover(e.currentTarget, false)}
+                >
+                  ＋ 問題集を追加
+                </button>
+              )}
+
+              {mode === "student" && activeGrade && (
+                <button
+                  type="button"
+                  onClick={() => deleteWorkbook(activeGrade)}
+                  style={deleteWorkbookRowBtn()}
+                  disabled={loading}
+                  title={`「${activeGrade.title}」を削除`}
+                >
+                  🗑 この問題集を削除
+                </button>
+              )}
             </div>
-          )}
-
-          {activeGrade && (
-            <>
-              <div style={{ marginTop: 12, borderTop: "1px dashed rgba(148,163,184,0.35)", paddingTop: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                  <div style={{ fontWeight: 950, color: "#0f172a", fontSize: 13 }}>章一覧</div>
-                  <button style={ghostBtn()} onClick={createChapter}>
-                    ＋ 章作成
-                  </button>
-                </div>
-
-                {chapters.length === 0 ? (
-                  <div style={{ marginTop: 8, ...muted() }}>章がありません。</div>
-                ) : (
-                  <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
-                    {chapters.map((c) => {
-                      const active = c.id === activeChapterId;
-                      return (
-                        <div key={c.id} style={chapterCard(active)}>
-                          <button
-                            type="button"
-                            style={chapterPickBtn(active)}
-                            onClick={() => {
-                              setActiveChapterId(c.id);
-                              setErr(null);
-                            }}
-                            title={chapterLabel(c)}
-                          >
-                            <div style={{ fontWeight: 950, fontSize: 12, color: active ? "#1d4ed8" : "#0f172a", textAlign: "left" }}>
-                              {chapterLabel(c)}
-                            </div>
-                            <div style={{ fontSize: 11, fontWeight: 900, color: "#64748b", textAlign: "left", marginTop: 4 }}>
-                              更新: {new Date(c.updated_at).toLocaleString()}
-                            </div>
-                          </button>
-
-                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                            <button style={ghostBtn()} onClick={() => renameChapter(c)}>
-                              名称
-                            </button>
-                            <button style={dangerBtn()} onClick={() => deleteChapter(c)}>
-                              削除
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {mode === "student" && (
-                  <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button style={dangerOutlineBtn()} onClick={() => activeGrade && deleteWorkbook(activeGrade)}>
-                      この問題集を削除
-                    </button>
-                  </div>
-                )}
-              </div>
-            </>
           )}
         </div>
 
@@ -649,35 +627,24 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
             <div style={muted()}>左から{mode === "template" ? "テンプレ" : "問題集"}を選択してください。</div>
           ) : (
             <>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
-                <div>
-                  <div style={{ fontWeight: 950, color: "#0f172a", fontSize: 14 }}>{activeGrade.title}</div>
-                  {gradeSummary && (
-                    <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b", marginTop: 4 }}>
-                      ○:{gradeSummary.o} ×:{gradeSummary.x} △:{gradeSummary.t} 未:{gradeSummary.blank}
-                    </div>
-                  )}
-                </div>
-
-                {/* filter */}
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  <span style={mutedChip()}>章内フィルタ</span>
-                  <button style={chipBtn(filterMode === "all")} onClick={() => setFilterMode("all")}>
-                    全て
-                  </button>
-                  <button style={chipBtn(filterMode === "x")} onClick={() => setFilterMode("x")}>
-                    ×のみ
-                  </button>
-                  <button style={chipBtn(filterMode === "blank")} onClick={() => setFilterMode("blank")}>
-                    未のみ
-                  </button>
-                  <button style={chipBtn(filterMode === "x_blank")} onClick={() => setFilterMode("x_blank")}>
-                    ×/未
-                  </button>
-                </div>
+              {/* 章内フィルタ（ヘッダーカードは廃止） */}
+              <div style={filterBar()}>
+                <span style={mutedChip()}>章内フィルタ</span>
+                <button style={chipBtn(filterMode === "all")} onClick={() => setFilterMode("all")}>
+                  全て
+                </button>
+                <button style={chipBtn(filterMode === "x")} onClick={() => setFilterMode("x")}>
+                  ×のみ
+                </button>
+                <button style={chipBtn(filterMode === "blank")} onClick={() => setFilterMode("blank")}>
+                  未のみ
+                </button>
+                <button style={chipBtn(filterMode === "x_blank")} onClick={() => setFilterMode("x_blank")}>
+                  ×/未
+                </button>
               </div>
 
-              <div style={{ marginTop: 12, borderTop: "1px dashed rgba(148,163,184,0.35)", paddingTop: 12 }}>
+              <div>
                 {!activeChapter ? (
                   <div style={muted()}>左の「章一覧」から章を選択してください（無ければ「章作成」）。</div>
                 ) : (
@@ -703,7 +670,10 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
                     )}
                     {/* bulk ops */}
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                      <div style={{ fontWeight: 950, fontSize: 13, color: "#0f172a" }}>選択中：{chapterLabel(activeChapter)}</div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                        <span style={sectionTitle()}>選択中</span>
+                        <span style={{ fontWeight: 950, color: "#0f172a", fontSize: 13 }}>{chapterLabel(activeChapter)}</span>
+                      </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <button
                           style={markBtn("O", isTemplate)}
@@ -773,12 +743,13 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
                     <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
                       <div style={notePanel()}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                          <div style={{ fontWeight: 950, color: "#0f172a", fontSize: 12 }}>備考（生徒向け）</div>
+                          <div style={sectionHeading()}>備考（生徒向け）</div>
                           <span style={mutedChip()}>章単位</span>
                         </div>
                         <textarea
                           value={chapterDraft[activeChapter.id]?.chapter_note ?? (activeChapter.chapter_note ?? activeChapter.note ?? "")}
                           onChange={(e) => {
+                            if (isTemplate) return; // ⚠ テンプレーでは編集不可
                             const v = e.target.value;
                             setChapterDraft((p) => ({
                               ...p,
@@ -790,19 +761,23 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
                             }));
                             scheduleSaveChapterFields(activeChapter.id);
                           }}
-                          style={noteArea()}
-                          placeholder="生徒に見せる備考（章の説明・注意点など）"
+                          disabled={isTemplate}
+                          style={isTemplate ? lockedNoteArea() : noteArea()}
+                          placeholder={isTemplate ? "（テンプレートでは編集できません。生徒の成績編集画面で入力してください）" : "生徒に見せる備考（章の説明・注意点など）"}
                         />
                       </div>
 
+                      <div style={{ height: 1, background: "rgba(148,163,184,0.22)" }} />
+
                       <div style={notePanel()}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                          <div style={{ fontWeight: 950, color: "#0f172a", fontSize: 12 }}>先生メモ</div>
+                          <div style={sectionHeading()}>先生メモ</div>
                           <span style={mutedChip()}>先生のみ</span>
                         </div>
                         <textarea
                           value={chapterDraft[activeChapter.id]?.teacher_memo ?? (activeChapter.teacher_memo ?? "")}
                           onChange={(e) => {
+                            if (isTemplate) return;
                             const v = e.target.value;
                             setChapterDraft((p) => ({
                               ...p,
@@ -814,19 +789,23 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
                             }));
                             scheduleSaveChapterFields(activeChapter.id);
                           }}
-                          style={noteArea()}
-                          placeholder="指導方針、弱点、次回やること、保護者連絡など"
+                          disabled={isTemplate}
+                          style={isTemplate ? lockedNoteArea() : noteArea()}
+                          placeholder={isTemplate ? "（テンプレートでは編集できません。生徒の成績編集画面で入力してください）" : "指導方針、弱点、次回やること、保護者連絡など"}
                         />
                       </div>
 
+                      <div style={{ height: 1, background: "rgba(148,163,184,0.22)" }} />
+
                       <div style={notePanel()}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                          <div style={{ fontWeight: 950, color: "#0f172a", fontSize: 12 }}>次回宿題</div>
+                          <div style={sectionHeading()}>次回宿題</div>
                           <span style={mutedChip()}>章単位</span>
                         </div>
                         <textarea
                           value={chapterDraft[activeChapter.id]?.next_homework ?? (activeChapter.next_homework ?? "")}
                           onChange={(e) => {
+                            if (isTemplate) return;
                             const v = e.target.value;
                             setChapterDraft((p) => ({
                               ...p,
@@ -838,8 +817,9 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
                             }));
                             scheduleSaveChapterFields(activeChapter.id);
                           }}
-                          style={noteArea()}
-                          placeholder="例：次回までに1〜20の×/未をやり直し。時間：30分。"
+                          disabled={isTemplate}
+                          style={isTemplate ? lockedNoteArea() : noteArea()}
+                          placeholder={isTemplate ? "（テンプレートでは編集できません。生徒の成績編集画面で入力してください）" : "例：次回までに1〜20の×/未をやり直し。時間：30分。"}
                         />
                       </div>
                     </div>
@@ -855,6 +835,28 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
 }
 
 /* ================= styles ================= */
+
+function sectionTitle(): React.CSSProperties {
+  return {
+    fontWeight: 1000,
+    color: "#0f172a",
+    fontSize: 12,
+    letterSpacing: "0.02em",
+    textTransform: "none",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+  };
+}
+
+function sectionHeading(): React.CSSProperties {
+  return {
+    fontSize: 14,
+    fontWeight: 950,
+    color: "#0f172a",
+    letterSpacing: 0.2,
+  };
+}
 
 function muted(): React.CSSProperties {
   return { fontSize: 13, fontWeight: 800, color: "#64748b" };
@@ -879,41 +881,6 @@ function panel(): React.CSSProperties {
     border: "1px solid rgba(148,163,184,0.18)",
     background: "rgba(255,255,255,0.92)",
     padding: 14,
-  };
-}
-
-function ghostBtn(active?: boolean): React.CSSProperties {
-  return {
-    border: active ? "1px solid rgba(37,99,235,0.35)" : "1px solid rgba(148,163,184,0.22)",
-    background: active ? "rgba(219,234,254,0.80)" : "rgba(255,255,255,0.92)",
-    borderRadius: 9999,
-    padding: "8px 12px",
-    fontWeight: 900,
-    fontSize: 12,
-    cursor: "pointer",
-    color: active ? "#1d4ed8" : "#0f172a",
-  };
-}
-
-function dangerBtn(): React.CSSProperties {
-  return {
-    ...ghostBtn(false),
-    color: "#dc2626",
-    borderColor: "rgba(220,38,38,0.30)",
-    background: "rgba(254,242,242,0.92)",
-  };
-}
-
-function dangerOutlineBtn(): React.CSSProperties {
-  return {
-    border: "1px solid rgba(220,38,38,0.35)",
-    background: "rgba(255,255,255,0.92)",
-    borderRadius: 9999,
-    padding: "8px 12px",
-    fontWeight: 900,
-    fontSize: 12,
-    cursor: "pointer",
-    color: "#dc2626",
   };
 }
 
@@ -947,34 +914,18 @@ function chipBtn(active: boolean): React.CSSProperties {
 function listBtn(active: boolean): React.CSSProperties {
   return {
     width: "100%",
-    border: active ? "1px solid rgba(37,99,235,0.35)" : "1px solid rgba(148,163,184,0.22)",
-    background: active ? "rgba(219,234,254,0.65)" : "rgba(255,255,255,0.92)",
-    borderRadius: 14,
-    padding: "10px 10px",
+    border: "2px solid rgba(15,23,42,0.15)",
+    background: "#fff",
+    borderRadius: 16,
+    padding: "12px 12px",
     cursor: "pointer",
+    position: "relative",
+    fontWeight: active ? 950 : 900,
+    transition: "all 0.15s ease",
+    boxShadow: active
+      ? "0 0 0 1px rgba(37,99,235,0.18)"
+      : "none",
   };
-}
-
-function chapterCard(active: boolean): React.CSSProperties {
-  return {
-    borderRadius: 14,
-    border: active ? "1px solid rgba(37,99,235,0.35)" : "1px solid rgba(148,163,184,0.18)",
-    background: active ? "rgba(219,234,254,0.55)" : "rgba(248,250,252,0.85)",
-    padding: 10,
-    display: "grid",
-    gap: 8,
-  };
-}
-
-function chapterPickBtn(active: boolean): React.CSSProperties {
-  return {
-    all: "unset",
-    cursor: "pointer",
-    borderRadius: 12,
-    padding: "8px 8px",
-    background: "rgba(255,255,255,0.75)",
-    border: active ? "1px solid rgba(37,99,235,0.35)" : "1px solid rgba(148,163,184,0.18)",
-  } as React.CSSProperties;
 }
 
 function markBtn(mark: Mark, disabled?: boolean): React.CSSProperties {
@@ -1056,3 +1007,221 @@ function noteArea(): React.CSSProperties {
     marginTop: 8,
   };
 }
+
+function lockedNoteArea(): React.CSSProperties {
+  return {
+    ...noteArea(),
+    background: "rgba(148,163,184,0.10)",
+    color: "#64748b",
+    cursor: "not-allowed",
+  };
+}
+
+function mainSectionHeader(): React.CSSProperties {
+  return {
+    fontSize: 18,
+    fontWeight: 1000,
+    color: "#0f172a",
+    letterSpacing: "0.02em",
+    marginBottom: 6,
+  };
+}
+
+function mainSectionDivider(): React.CSSProperties {
+  return {
+    height: 3,
+    width: "fit-content",
+    minWidth: 60,
+    background: "linear-gradient(90deg, rgba(37,99,235,0.45), rgba(37,99,235,0.15))",
+    borderRadius: 999,
+    marginBottom: 14,
+  };
+}
+
+function filterBar(): React.CSSProperties {
+  return {
+    display: "flex",
+    gap: 8,
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    paddingBottom: 10,
+    marginBottom: 10,
+    borderBottom: "1px solid rgba(148,163,184,0.18)",
+  };
+}
+
+function expandedChapterArea(): React.CSSProperties {
+  return {
+    marginLeft: 16,
+    paddingLeft: 10,
+    borderLeft: "2px solid rgba(37,99,235,0.20)",
+    display: "grid",
+    gap: 6,
+  };
+}
+
+function chapterInlineBtn(active: boolean): React.CSSProperties {
+  return {
+    textAlign: "left",
+    borderRadius: 10,
+    padding: "6px 10px",
+    fontSize: 12,
+    fontWeight: 900,
+    border: active
+      ? "1px solid rgba(37,99,235,0.35)"
+      : "1px solid rgba(148,163,184,0.22)",
+    background: active
+      ? "rgba(219,234,254,0.65)"
+      : "rgba(255,255,255,0.92)",
+    cursor: "pointer",
+  };
+}
+
+function addWorkbookRowBtn(): React.CSSProperties {
+  return {
+    width: "100%",
+    borderRadius: 14,
+    padding: "10px 10px",
+    cursor: "pointer",
+    border: "1px dashed rgba(37,99,235,0.35)",
+    background: "rgba(255,255,255,0.92)",
+    color: "#1d4ed8",
+    fontWeight: 1000,
+    fontSize: 12,
+    textAlign: "center",
+  };
+}
+
+function deleteWorkbookRowBtn(): React.CSSProperties {
+  return {
+    width: "100%",
+    borderRadius: 14,
+    padding: "10px 10px",
+    cursor: "pointer",
+    border: "1px solid rgba(220,38,38,0.30)",
+    background: "rgba(254,242,242,0.92)",
+    color: "#dc2626",
+    fontWeight: 1000,
+    fontSize: 12,
+    textAlign: "center",
+  };
+}
+
+function chapterRow(): React.CSSProperties {
+  return {
+    display: "grid",
+    gridTemplateColumns: "1fr 34px",
+    gap: 8,
+    alignItems: "center",
+  };
+}
+
+function chapterDeleteBtn(): React.CSSProperties {
+  return {
+    height: 32,
+    width: 34,
+    borderRadius: 10,
+    border: "1px solid rgba(220,38,38,0.28)",
+    background: "rgba(254,242,242,0.92)",
+    color: "#dc2626",
+    cursor: "pointer",
+    fontWeight: 1000,
+    display: "grid",
+    placeItems: "center",
+  };
+}
+
+function modalOverlay(): React.CSSProperties {
+  return {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(15,23,42,0.35)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1000,
+  };
+}
+
+function modalCard(): React.CSSProperties {
+  return {
+    width: 520,
+    background: "#fff",
+    borderRadius: 18,
+    padding: 20,
+    boxShadow: "0 20px 50px rgba(0,0,0,0.15)",
+  };
+}
+
+function modalTitle(): React.CSSProperties {
+  return { fontSize: 18, fontWeight: 1000, marginBottom: 16 };
+}
+
+function labelStyle(): React.CSSProperties {
+  return { fontWeight: 900, fontSize: 13, marginBottom: 6 };
+}
+
+function inputStyle(): React.CSSProperties {
+  return {
+    width: "100%",
+    padding: "8px 10px",
+    borderRadius: 10,
+    border: "1px solid rgba(148,163,184,0.30)",
+  };
+}
+
+function chapterRowStyle(): React.CSSProperties {
+  return {
+    display: "grid",
+    gridTemplateColumns: "1fr 80px 40px",
+    gap: 8,
+    marginBottom: 6,
+  };
+}
+
+function smallDeleteBtn(): React.CSSProperties {
+  return {
+    borderRadius: 8,
+    border: "1px solid rgba(220,38,38,0.30)",
+    background: "rgba(254,242,242,0.92)",
+    cursor: "pointer",
+  };
+}
+
+function addChapterBtn(): React.CSSProperties {
+  return {
+    padding: "6px 10px",
+    borderRadius: 10,
+    border: "1px dashed rgba(37,99,235,0.35)",
+    background: "rgba(255,255,255,0.92)",
+    color: "#1d4ed8",
+    fontWeight: 900,
+    fontSize: 12,
+    cursor: "pointer",
+  };
+}
+
+function cancelBtn(): React.CSSProperties {
+  return {
+    padding: "8px 14px",
+    borderRadius: 10,
+    border: "1px solid rgba(148,163,184,0.3)",
+    background: "#fff",
+    cursor: "pointer",
+  };
+}
+
+function primaryBtn(): React.CSSProperties {
+  return {
+    padding: "8px 14px",
+    borderRadius: 10,
+    border: "none",
+    background: "#2563eb",
+    color: "#fff",
+    fontWeight: 900,
+    cursor: "pointer",
+  };
+}
+
+

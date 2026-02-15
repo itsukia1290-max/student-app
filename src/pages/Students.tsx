@@ -14,105 +14,167 @@ type Student = {
 };
 
 const colors = {
-  bg: "#f0f9ff",
+  // 背景は薄いまま。アクセントだけ濃く。
+  bgTop: "#ffffff",
+  bg: "#f1f5f9",
+
   card: "#ffffff",
-  border: "#e5e7eb",
+  border: "rgba(15,23,42,0.10)",
+  borderSoft: "rgba(15,23,42,0.06)",
+
   textMain: "#0f172a",
   textSub: "#475569",
+
+  // 濃い青（レポートと揃える）
+  blue: "#1d4ed8",
+  blueSoft: "rgba(29,78,216,0.10)",
+
+  // アバター用の空色
   sky: "#0ea5e9",
   skySoft: "#e0f2fe",
-  red: "#ef4444",
-  redSoft: "#fee2e2",
+
+  red: "#dc2626",
+  redSoft: "rgba(220,38,38,0.12)",
 };
 
 const styles = {
   page: {
     minHeight: "100vh",
-    background: `linear-gradient(to bottom, ${colors.bg}, #ffffff)`,
-    padding: "24px",
+    background: `linear-gradient(180deg, ${colors.bgTop} 0px, ${colors.bg} 240px, ${colors.bg} 100%)`,
+    padding: "20px",
   },
   container: {
     maxWidth: "1000px",
     margin: "0 auto",
     display: "flex",
     flexDirection: "column" as const,
-    gap: "24px",
+    gap: "16px",
   },
-  header: {
+
+  // ✅ 上部ヘッダーをカード化（ここが"淡泊"脱却の一手）
+  hero: {
+    background: colors.card,
+    borderRadius: "18px",
+    border: `1.5px solid ${colors.border}`,
+    boxShadow: "0 10px 26px rgba(15,23,42,0.08)",
+    overflow: "hidden",
+    position: "relative" as const,
+  },
+  heroInner: {
+    padding: "16px 18px",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "flex-start",
+    gap: "12px",
   },
   title: {
     fontSize: "22px",
-    fontWeight: 600,
+    fontWeight: 900,
     color: colors.textMain,
+    lineHeight: 1.2,
   },
   subtitle: {
     fontSize: "13px",
     color: colors.textSub,
-    marginTop: "4px",
+    marginTop: "6px",
+    fontWeight: 800,
   },
+
+  // ✅ セクションカード（左アクセントバー）
   card: {
     background: colors.card,
     borderRadius: "18px",
-    border: `1px solid ${colors.border}`,
-    boxShadow: "0 4px 12px rgba(0,0,0,0.04)",
+    border: `1.5px solid ${colors.border}`,
+    boxShadow: "0 10px 26px rgba(15,23,42,0.08)",
+    overflow: "hidden",
+    position: "relative" as const,
   },
   cardHeader: {
-    padding: "16px 20px",
-    borderBottom: `1px solid ${colors.border}`,
+    padding: "14px 18px",
+    borderBottom: `1px solid ${colors.borderSoft}`,
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  cardBody: {
-    padding: "16px 20px",
+  cardHeaderTitle: {
+    fontWeight: 900,
+    color: colors.textMain,
   },
+  cardBody: {
+    padding: "10px 12px 12px 12px",
+  },
+
+  // ✅ バッジを少し濃く
   badge: {
     fontSize: "12px",
-    padding: "4px 10px",
+    padding: "6px 10px",
     borderRadius: "999px",
-    background: colors.skySoft,
-    color: colors.sky,
-    fontWeight: 600,
+    background: "rgba(15,23,42,0.06)",
+    color: "#334155",
+    fontWeight: 900,
+    border: "1px solid rgba(15,23,42,0.12)",
+    whiteSpace: "nowrap" as const,
   },
-  listItem: {
+
+  // ✅ 行デザイン：カードの中のカードをやめる
+  row: {
     display: "flex",
     justifyContent: "space-between",
     gap: "12px",
-    padding: "14px",
+    padding: "12px 12px",
     borderRadius: "14px",
-    border: `1px solid ${colors.border}`,
-    marginBottom: "12px",
+    border: `1px solid ${colors.borderSoft}`,
+    background: "#fff",
+    alignItems: "center",
   },
+  rowHover: {
+    background: "rgba(15,23,42,0.03)",
+  },
+
   avatar: {
-    width: "40px",
-    height: "40px",
-    borderRadius: "14px",
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     background: colors.skySoft,
     color: colors.sky,
     display: "grid",
     placeItems: "center",
-    fontWeight: 700,
+    fontWeight: 900,
     flexShrink: 0,
   },
+
+  // ✅ memoをチップ風に
+  memoChip: {
+    maxWidth: 280,
+    fontSize: 12,
+    fontWeight: 800,
+    color: colors.textSub,
+    border: `1px solid ${colors.borderSoft}`,
+    borderRadius: 999,
+    padding: "6px 10px",
+    background: "rgba(248,250,252,0.9)",
+    overflow: "hidden" as const,
+    textOverflow: "ellipsis" as const,
+    whiteSpace: "nowrap" as const,
+  },
+
   btnPrimary: {
-    background: colors.sky,
+    background: colors.blue,
     color: "#fff",
     border: "none",
     borderRadius: "12px",
     padding: "8px 14px",
-    fontWeight: 600,
+    fontWeight: 900,
     cursor: "pointer",
   },
   btnGhost: {
     background: "#fff",
-    border: `1px solid ${colors.border}`,
+    border: `1.5px solid ${colors.border}`,
     borderRadius: "12px",
     padding: "8px 14px",
-    fontWeight: 600,
+    fontWeight: 900,
     cursor: "pointer",
+    color: colors.textMain,
   },
   btnDanger: {
     background: colors.red,
@@ -120,21 +182,23 @@ const styles = {
     border: "none",
     borderRadius: "12px",
     padding: "8px 14px",
-    fontWeight: 600,
+    fontWeight: 900,
     cursor: "pointer",
   },
+
   hint: {
     fontSize: "12px",
     color: colors.textSub,
     marginTop: "8px",
+    fontWeight: 800,
   },
   error: {
     marginTop: "10px",
     fontSize: "13px",
-    fontWeight: 800,
+    fontWeight: 900,
     color: colors.red,
     background: colors.redSoft,
-    border: `1px solid rgba(239, 68, 68, 0.25)`,
+    border: `1px solid rgba(220,38,38,0.25)`,
     borderRadius: 12,
     padding: "10px 12px",
     whiteSpace: "pre-wrap" as const,
@@ -153,40 +217,92 @@ export default function Students() {
   const [selected, setSelected] = useState<Student | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [withdrawnStudents, setWithdrawnStudents] = useState<Student[]>([]);
+  const [withdrawnOpen, setWithdrawnOpen] = useState(false);
+  const [q, setQ] = useState("");
 
-  const studentCount = useMemo(() => students.length, [students]);
-  const pendingCount = useMemo(() => pending.length, [pending]);
+  function norm(s: string) {
+    return s
+      .toLowerCase()
+      .replace(/\s+/g, "")
+      .replace(/[\u2010-\u2015-]/g, "-"); // なんとなくの記号ゆれ吸收
+  }
+
+  const filteredPending = useMemo(() => {
+    const qq = norm(q.trim());
+    if (!qq) return pending;
+
+    return pending.filter((p) => {
+      const hay = norm([p.name ?? "", p.phone ?? "", p.memo ?? ""].join(" "));
+      return hay.includes(qq);
+    });
+  }, [pending, q]);
+
+  const filteredStudents = useMemo(() => {
+    const qq = norm(q.trim());
+    if (!qq) return students;
+
+    return students.filter((s) => {
+      const hay = norm([s.name ?? "", s.phone ?? "", s.memo ?? ""].join(" "));
+      return hay.includes(qq);
+    });
+  }, [students, q]);
+
+  const filteredStudentCount = useMemo(() => filteredStudents.length, [filteredStudents]);
+  const filteredPendingCount = useMemo(() => filteredPending.length, [filteredPending]);
 
   async function loadAll() {
     if (!isStaff) return;
     setLoading(true);
     setErr(null);
 
-    // 承認待ち & 承認済みを profiles から取得（単一の真実）
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, name, phone, memo, is_approved, status, role")
-      .eq("role", "student")
-      .eq("status", "active");
+    try {
+      // ① 在籍（activeのみ）
+      const { data: activeData, error: activeErr } = await supabase
+        .from("profiles")
+        .select("id, name, phone, memo, is_approved, status, role")
+        .eq("role", "student")
+        .eq("status", "active");
 
-    if (error) {
-      setErr("読み込み失敗: " + error.message);
+      if (activeErr) throw activeErr;
+
+      const activeRows = ((activeData ?? []) as Array<Record<string, unknown>>).map((r) => ({
+        id: r.id as string,
+        name: (r.name ?? null) as string | null,
+        phone: (r.phone ?? null) as string | null,
+        memo: (r.memo ?? null) as string | null,
+        is_approved: !!r.is_approved,
+        status: (r.status ?? null) as string | null,
+      })) as Student[];
+
+      setPending(activeRows.filter((x) => !x.is_approved));
+      setStudents(activeRows.filter((x) => x.is_approved));
+
+      // ② 退会（withdrawn）
+      const { data: wData, error: wErr } = await supabase
+        .from("profiles")
+        .select("id, name, phone, memo, is_approved, status, role")
+        .eq("role", "student")
+        .eq("status", "withdrawn");
+
+      if (wErr) throw wErr;
+
+      const wRows = ((wData ?? []) as Array<Record<string, unknown>>).map((r) => ({
+        id: r.id as string,
+        name: (r.name ?? null) as string | null,
+        phone: (r.phone ?? null) as string | null,
+        memo: (r.memo ?? null) as string | null,
+        is_approved: !!r.is_approved,
+        status: (r.status ?? null) as string | null,
+      })) as Student[];
+
+      setWithdrawnStudents(wRows);
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : "不明なエラー";
+      setErr("読み込み失敗: " + errorMessage);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const rows = ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
-      id: r.id as string,
-      name: (r.name ?? null) as string | null,
-      phone: (r.phone ?? null) as string | null,
-      memo: (r.memo ?? null) as string | null,
-      is_approved: !!r.is_approved,
-      status: (r.status ?? null) as string | null,
-    })) as Student[];
-
-    setPending(rows.filter((x) => !x.is_approved));
-    setStudents(rows.filter((x) => x.is_approved));
-    setLoading(false);
   }
 
   useEffect(() => {
@@ -237,31 +353,79 @@ export default function Students() {
   return (
     <div style={styles.page}>
       <div style={styles.container}>
-        <div style={styles.header}>
-          <div>
-            <div style={styles.title}>生徒</div>
-            <div style={styles.subtitle}>承認待ちの管理と在籍生徒の確認</div>
-            {loading && <div style={styles.hint}>読み込み中...</div>}
-            {err && <div style={styles.error}>{err}</div>}
-          </div>
+        <div style={styles.hero}>
+          <div style={styles.heroInner}>
+            <div>
+              <div style={styles.title}>生徒</div>
+              <div style={styles.subtitle}>承認待ちの管理と在籍生徒の確認</div>
+              {loading && <div style={styles.hint}>読み込み中...</div>}
+              {err && <div style={styles.error}>{err}</div>}
+            </div>
 
-          <button style={styles.btnGhost} onClick={loadAll} disabled={loading}>
-            再読み込み
-          </button>
+            <button style={styles.btnGhost} onClick={loadAll} disabled={loading}>
+              再読み込み
+            </button>
+          </div>
+        </div>
+
+        {/* 検索欄 */}
+        <div
+          style={{
+            background: "#ffffff",
+            border: "1.5px solid rgba(15,23,42,0.10)",
+            borderRadius: 16,
+            boxShadow: "0 8px 18px rgba(15,23,42,0.06)",
+            padding: "12px 12px",
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+          }}
+        >
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="検索（名前 / 電話 / メモ）"
+            style={{
+              width: "100%",
+              border: "1px solid rgba(15,23,42,0.10)",
+              borderRadius: 12,
+              padding: "10px 12px",
+              fontWeight: 800,
+              outline: "none",
+            }}
+          />
+          {q.trim() && (
+            <button
+              style={{
+                background: "#ffffff",
+                border: "1.5px solid rgba(15,23,42,0.12)",
+                borderRadius: 12,
+                padding: "10px 12px",
+                fontWeight: 900,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+              onClick={() => setQ("")}
+            >
+              クリア
+            </button>
+          )}
         </div>
 
         {/* 承認待ち */}
         <div style={styles.card}>
           <div style={styles.cardHeader}>
-            <strong>承認待ち</strong>
-            <span style={styles.badge}>{pendingCount} 件</span>
+            <strong style={styles.cardHeaderTitle}>承認待ち</strong>
+            <span style={styles.badge}>{filteredPendingCount} 件</span>
           </div>
           <div style={styles.cardBody}>
-            {pending.length === 0 ? (
-              <div style={{ color: colors.textSub, fontSize: "14px" }}>承認待ちはありません。</div>
+            {filteredPending.length === 0 ? (
+              <div style={{ color: colors.textSub, fontSize: "14px" }}>
+                {q.trim() ? "検索条件に一致する承認待ちはありません。" : "承認待ちはありません。"}
+              </div>
             ) : (
-              pending.map((p) => (
-                <div key={p.id} style={styles.listItem}>
+              filteredPending.map((p) => (
+                <div key={p.id} style={styles.row}>
                   <div style={{ display: "flex", gap: "12px" }}>
                     <div style={styles.avatar}>{initial(p.name)}</div>
                     <div>
@@ -287,17 +451,19 @@ export default function Students() {
         {/* 生徒一覧 */}
         <div style={styles.card}>
           <div style={styles.cardHeader}>
-            <strong>生徒一覧</strong>
-            <span style={styles.badge}>{studentCount} 人</span>
+            <strong style={styles.cardHeaderTitle}>生徒一覧</strong>
+            <span style={styles.badge}>{filteredStudentCount} 人</span>
           </div>
           <div style={styles.cardBody}>
-            {students.length === 0 ? (
-              <div style={{ color: colors.textSub, fontSize: "14px" }}>生徒がいません。</div>
+            {filteredStudents.length === 0 ? (
+              <div style={{ color: colors.textSub, fontSize: "14px" }}>
+                {q.trim() ? "検索条件に一致する生徒がいません。" : "生徒がいません。"}
+              </div>
             ) : (
-              students.map((s) => (
+              filteredStudents.map((s) => (
                 <div
                   key={s.id}
-                  style={{ ...styles.listItem, cursor: "pointer" }}
+                  style={{ ...styles.row, cursor: "pointer" }}
                   onClick={() => setSelected(s)}
                 >
                   <div style={{ display: "flex", gap: "12px" }}>
@@ -307,11 +473,88 @@ export default function Students() {
                       <div style={{ fontSize: "12px", color: colors.textSub }}>{s.phone ?? "-"}</div>
                     </div>
                   </div>
-                  <div style={{ fontSize: "12px", color: colors.textSub }}>{s.memo ?? "-"}</div>
+                  <div style={styles.memoChip}>{s.memo ?? "-"}</div>
                 </div>
               ))
             )}
           </div>
+        </div>
+
+        {/* 退会済み（折りたたみ） */}
+        <div style={styles.card}>
+          <div style={styles.cardHeader}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <strong style={styles.cardHeaderTitle}>退会済み</strong>
+              <span style={styles.badge}>{withdrawnStudents.length} 人</span>
+            </div>
+
+            <button
+              type="button"
+              style={styles.btnGhost}
+              onClick={() => setWithdrawnOpen((v) => !v)}
+            >
+              {withdrawnOpen ? "折りたたむ" : "表示する"} →
+            </button>
+          </div>
+
+          {withdrawnOpen && (
+            <div style={styles.cardBody}>
+              {withdrawnStudents.length === 0 ? (
+                <div style={{ color: colors.textSub, fontSize: "14px" }}>退会済みの生徒はいません。</div>
+              ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {withdrawnStudents.map((s) => (
+                    <div key={s.id} style={styles.row}>
+                      <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                        <div style={styles.avatar}>{initial(s.name)}</div>
+                        <div>
+                          <div style={{ fontWeight: 700 }}>{s.name ?? "未設定"}</div>
+                          <div style={{ fontSize: "12px", color: colors.textSub }}>{s.phone ?? "-"}</div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={styles.memoChip}>{s.memo ?? "-"}</div>
+
+                        {/* 任意：複活ボタン（必要ならON） */}
+                        <button
+                          type="button"
+                          style={styles.btnGhost}
+                          onClick={async () => {
+                            setErr(null);
+                            const ok = window.confirm(`「${s.name ?? "未設定"}」を複活（在籍に戻す）しますか？`);
+                            if (!ok) return;
+
+                            const { error } = await supabase
+                              .from("profiles")
+                              .update({
+                                status: "active",
+                                withdrawn_at: null,
+                                // 複活後は承認待ちに戻す運用なら false のままでもOK
+                                // is_approved: false,
+                              })
+                              .eq("id", s.id);
+
+                            if (error) {
+                              setErr("複活に失敗: " + error.message);
+                              return;
+                            }
+
+                            // リストを即時反映（再読み込みでもOK）
+                            setWithdrawnStudents((arr) => arr.filter((x) => x.id !== s.id));
+                            setPending((arr) => [{ ...s, status: "active", is_approved: false }, ...arr]);
+                          }}
+                        >
+                          複活
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={styles.hint} />
+            </div>
+          )}
         </div>
       </div>
     </div>
