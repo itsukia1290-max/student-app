@@ -72,7 +72,13 @@ function formatTime(iso: string) {
   return d.toLocaleDateString();
 }
 
-export default function DM() {
+export default function DM({
+  initialUserId,
+  initialDraft,
+}: {
+  initialUserId?: string | null;
+  initialDraft?: string;
+}) {
   const { user } = useAuth();
   const myId = user?.id ?? "";
 
@@ -212,6 +218,33 @@ export default function DM() {
     }
     setLastByGroup(next);
   }, []);
+
+  // ---- 初期DM自動生成（initialUserId が渡されたら自動で開く） ----
+  useEffect(() => {
+    if (!initialUserId || !myId) return;
+
+    (async () => {
+      const { data, error } = await supabase.rpc("create_or_get_dm", {
+        partner_id: initialUserId,
+      });
+      if (error) {
+        console.error("❌ openDmWith failed:", error.message);
+        return;
+      }
+
+      const row = Array.isArray(data) ? data[0] : data;
+      const gid = row.group_id as string;
+
+      const newGroup: Group = { id: gid, name: "DM", type: "dm", owner_id: null };
+
+      setGroups((prev) => (prev.some((g) => g.id === gid) ? prev : [...prev, newGroup]));
+      setActive(newGroup);
+
+      if (initialDraft && initialDraft.trim()) {
+        setInput(initialDraft);
+      }
+    })();
+  }, [initialUserId, initialDraft, myId]);
 
   // ---- 自分が所属するDM一覧をロード（相手名ラベルも計算） ----
   useEffect(() => {

@@ -32,6 +32,10 @@ function Shell() {
   const [myPageInitialTab, setMyPageInitialTab] = useState<MyPageTab>("profile");
   const [myPageInitialGoalPeriod, setMyPageInitialGoalPeriod] = useState<GoalPeriod>("week");
 
+  // DM 初期化制御
+  const [dmInitialUserId, setDmInitialUserId] = useState<string | null>(null);
+  const [dmInitialDraft, setDmInitialDraft] = useState<string>("");
+
   const openMyGoals = (period: GoalPeriod) => {
     setMyPageInitialTab("goals");
     setMyPageInitialGoalPeriod(period);
@@ -41,6 +45,12 @@ function Shell() {
   const openMyRecords = () => {
     setMyPageInitialTab("records");
     setView("mypage");
+  };
+
+  const openDmWith = (userId: string, draft = "") => {
+    setDmInitialUserId(userId);
+    setDmInitialDraft(draft);
+    setView("dm");
   };
 
   const tabs = useMemo((): { key: View; label: string }[] => {
@@ -70,7 +80,8 @@ function Shell() {
       value={{
         setView,
         openMyGoals,
-        openMyRecords, // ★追加
+        openMyRecords,
+        openDmWith,
         myPageInitialTab,
         myPageInitialGoalPeriod,
       }}
@@ -83,7 +94,9 @@ function Shell() {
             <MyPage initialTab={myPageInitialTab} initialGoalPeriod={myPageInitialGoalPeriod} />
           )}
           {effectiveView === "chat" && <Chat />}
-          {effectiveView === "dm" && <DM />}
+          {effectiveView === "dm" && (
+            <DM initialUserId={dmInitialUserId} initialDraft={dmInitialDraft} />
+          )}
           {effectiveView === "schoolCalendar" && isStaff && <SchoolCalendar />}
         </main>
 

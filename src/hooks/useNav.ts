@@ -9,7 +9,8 @@ export type NavApi = {
   setView: (v: View) => void;
 
   openMyGoals: (period: GoalPeriod) => void;
-  openMyRecords: () => void; // ★追加
+  openMyRecords: () => void;
+  openDmWith: (userId: string, draft?: string) => void;
 
   myPageInitialTab: MyPageTab;
   myPageInitialGoalPeriod: GoalPeriod;
