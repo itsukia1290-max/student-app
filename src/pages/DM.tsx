@@ -1135,7 +1135,7 @@ export default function DM() {
 
         {/* ===== 新規DM（モーダル）: mainの外に出す（重要） ===== */}
         {showNewDm && (
-          <div className="fixed inset-0 z-[999] bg-black/40 grid place-items-center">
+          <div className="fixed inset-0 z-999 bg-black/40 grid place-items-center">
             <div className="w-[min(720px,95vw)]">
               <SelectUserDialog
                 onClose={() => setShowNewDm(false)}

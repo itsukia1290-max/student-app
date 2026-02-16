@@ -5,6 +5,8 @@
  * - 自分自身を除外
  * - 既にDMが存在する相手を除外（＝既に追加している人が出ない）
  * - 承認済み / active のみ
+ * - 追加: 学年(profiles.school_year) / 教科(profile_subjects→study_subjects) を一覧表示・検索対象に
+ * - 電話番号の一覧表示は省く
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -15,14 +17,23 @@ type UserRow = {
   id: string;
   name: string | null;
   role: "student" | "teacher" | "admin";
-  phone: string | null;
   memo: string | null;
   is_approved?: boolean | null;
   status?: string | null;
+
+  // ✅追加
+  school_year?: string | null;
+  subjects?: string[]; // 教科名
 };
 
 type GroupRow = { id: string; type: string };
 type GmRow = { group_id: string; user_id: string };
+
+type ProfileSubRow = {
+  user_id: string;
+  // join先のエイリアス（Supabaseのselectで指定）
+  subject: { name: string | null } | null;
+};
 
 export default function SelectUserDialog({
   onClose,
@@ -87,7 +98,7 @@ export default function SelectUserDialog({
       let existingDmPartnerIds: string[] = [];
 
       if (groupIds.length > 0) {
-        // 2-1) その中で type='dm' のグループだけ抽出
+        // 2-1) type='dm' のグループだけ抽出
         const { data: dmGroups, error: gErr } = await supabase
           .from("groups")
           .select("id,type")
@@ -129,15 +140,13 @@ export default function SelectUserDialog({
       }
 
       // 3) 自分のroleに応じて “相手ロール” を決定
-      // 先生側(teacher/admin) → 生徒(student)
-      // 生徒(student) → 先生(teacher/admin)
       const wantRoles: Array<"student" | "teacher" | "admin"> =
         myRole === "student" ? ["teacher", "admin"] : ["student"];
 
       // 4) 相手候補を取得（承認済み / active）
       const { data: cand, error: cErr } = await supabase
         .from("profiles")
-        .select("id,name,role,phone,memo,is_approved,status")
+        .select("id,name,role,memo,is_approved,status,school_year")
         .in("role", wantRoles)
         .eq("is_approved", true)
         .eq("status", "active")
@@ -153,14 +162,50 @@ export default function SelectUserDialog({
       }
 
       // 5) 自分＆既存DM相手を除外
-      const filtered = (cand ?? []).filter((u) => {
+      const base = (cand ?? []).filter((u) => {
         const id = u.id as string;
-        if (id === myId) return false; // 自分は出さない
-        if (existingDmPartnerIds.includes(id)) return false; // 既にDMがある相手は出さない
+        if (id === myId) return false;
+        if (existingDmPartnerIds.includes(id)) return false;
         return true;
-      });
+      }) as UserRow[];
 
-      setUsers(filtered as UserRow[]);
+      // 6) ✅教科を一括取得（profile_subjects → study_subjects(name)）
+      const userIds = base.map((u) => u.id);
+      const subjectMap = new Map<string, string[]>();
+
+      if (userIds.length > 0) {
+        const { data: ps, error: psErr } = await supabase
+          .from("profile_subjects")
+          .select("user_id, subject:study_subjects(name)")
+          .in("user_id", userIds);
+
+        if (!alive) return;
+
+        if (psErr) {
+          // 教科が取れないだけなら一覧自体は出す（安全運用）
+          setMsg((prev) => prev ?? "教科の取得に失敗: " + psErr.message);
+        } else {
+          for (const row of (ps ?? []) as unknown as ProfileSubRow[]) {
+            const uid = String(row.user_id);
+            const name = row.subject?.name ?? null;
+            if (!name) continue;
+            const arr = subjectMap.get(uid) ?? [];
+            arr.push(name);
+            subjectMap.set(uid, arr);
+          }
+          // 重複除去
+          for (const [k, arr] of subjectMap.entries()) {
+            subjectMap.set(k, Array.from(new Set(arr)));
+          }
+        }
+      }
+
+      const withSubjects = base.map((u) => ({
+        ...u,
+        subjects: subjectMap.get(u.id) ?? [],
+      }));
+
+      setUsers(withSubjects);
       setLoading(false);
     })();
 
@@ -175,12 +220,15 @@ export default function SelectUserDialog({
 
     return users.filter((u) => {
       const name = (u.name ?? "").toLowerCase();
-      const phone = (u.phone ?? "").toLowerCase();
       const memo = (u.memo ?? "").toLowerCase();
+      const year = (u.school_year ?? "").toLowerCase();
+      const subjects = (u.subjects ?? []).join(" ").toLowerCase();
+
       return (
         name.includes(t) ||
-        phone.includes(t) ||
         memo.includes(t) ||
+        year.includes(t) ||
+        subjects.includes(t) ||
         u.id.toLowerCase().includes(t) ||
         u.role.toLowerCase().includes(t)
       );
@@ -277,7 +325,8 @@ export default function SelectUserDialog({
       justifyContent: "space-between",
       gap: 12,
       cursor: "pointer",
-      transition: "transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background 120ms ease",
+      transition:
+        "transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background 120ms ease",
     } as React.CSSProperties,
 
     rowLeft: { minWidth: 0, flex: 1 },
@@ -360,7 +409,7 @@ export default function SelectUserDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-[999] grid place-items-center" style={styles.overlay}>
+    <div className="fixed inset-0 z-999 grid place-items-center" style={styles.overlay}>
       <div style={styles.card} role="dialog" aria-modal="true">
         <div style={styles.header}>
           <div style={styles.titleWrap}>
@@ -378,7 +427,7 @@ export default function SelectUserDialog({
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="名前 / 電話 / メモ / ID で検索"
+            placeholder="名前 / 学年 / 教科 / メモ / ID で検索"
             style={styles.searchInput}
           />
         </div>
@@ -392,6 +441,9 @@ export default function SelectUserDialog({
             <div style={styles.list}>
               {filtered.map((u) => {
                 const displayName = u.name ?? "（未設定）";
+                const year = u.school_year ?? "-";
+                const subj = (u.subjects ?? []).length > 0 ? (u.subjects ?? []).join(" / ") : "-";
+
                 return (
                   <div
                     key={u.id}
@@ -414,9 +466,10 @@ export default function SelectUserDialog({
                     <div style={styles.rowLeft}>
                       <div style={styles.name}>{displayName}</div>
                       <div style={styles.meta}>
-                        <span style={styles.pill}>ID: {u.id.slice(0, 8)}…</span>
-                        <span style={styles.pill}>📞 {u.phone ?? "-"}</span>
+                        <span style={styles.pill}>学年: {year}</span>
+                        <span style={styles.pill}>教科: {subj}</span>
                         <span style={styles.pill}>📝 {u.memo ?? "-"}</span>
+                        <span style={styles.pill}>ID: {u.id.slice(0, 8)}…</span>
                       </div>
                     </div>
 

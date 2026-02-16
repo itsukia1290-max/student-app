@@ -12,6 +12,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useIsStaff } from "../hooks/useIsStaff";
 import InviteMemberDialog from "../components/InviteMemberDialog";
 import GroupMembersDialog from "../components/GroupMembersDialog";
+import CreateGroupDialog from "../components/CreateGroupDialog";
 
 type Group = {
   id: string;
@@ -84,6 +85,7 @@ export default function Chat() {
 
   const [showInvite, setShowInvite] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
 
   const [q, setQ] = useState("");
 
@@ -425,28 +427,15 @@ export default function Chat() {
     }
   }
 
-  async function createGroup() {
+  function createGroup() {
     if (!canManage) return;
+    setShowCreate(true);
+  }
 
-    const name = prompt("グループ名？（例：2年A組）");
-    if (!name || !myId) return;
-
-    const id = crypto.randomUUID();
-
-    const { error: ge } = await supabase.from("groups").insert({ id, name, type: "class", owner_id: myId });
-    if (ge) return alert("グループ作成失敗: " + ge.message);
-
-    const { error: me } = await supabase.from("group_members").insert({
-      group_id: id,
-      user_id: myId,
-      last_read_at: new Date().toISOString(),
-    });
-    if (me) return alert("メンバー追加失敗: " + me.message);
-
-    const newGroup: Group = { id, name, type: "class", owner_id: myId };
-    setGroups((prev) => [...prev, newGroup]);
-    setUnreadByGroup((prev) => ({ ...prev, [id]: 0 }));
-    setActive(newGroup);
+  function handleCreatedGroup(g: Group) {
+    setGroups((prev) => [...prev, g]);
+    setUnreadByGroup((prev) => ({ ...prev, [g.id]: 0 }));
+    setActive(g);
   }
 
   async function deleteGroup(g: Group) {
@@ -1076,6 +1065,22 @@ export default function Chat() {
             isOwner={isActiveOwner}
             ownerId={active.owner_id ?? null}
             onClose={() => setShowMembers(false)}
+          />
+        </div>
+      )}
+
+      {showCreate && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            pointerEvents: "auto",
+          }}
+        >
+          <CreateGroupDialog
+            onClose={() => setShowCreate(false)}
+            onCreated={handleCreatedGroup}
           />
         </div>
       )}

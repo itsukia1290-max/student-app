@@ -16,6 +16,9 @@ export default {
     },
     extend: {
       // ここにカスタムカラーやフォントを追加できます
+      zIndex: {
+        '999': '999',
+      },
     },
   },
   plugins: [],

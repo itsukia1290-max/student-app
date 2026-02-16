@@ -1,96 +1,28 @@
 /*
  * src/components/InviteMemberDialog.tsx
- * Responsibility: 指定したグループに生徒を招待するダイアログ
- * - グループに未所属の承認済み生徒を検索して招待を行う
+ * Responsibility: 指定したグループに生徒を一括招待するダイアログ
+ * - グループに未所属の承認済み生徒をチェックボックスで複数選択
+ * - 学年/教科で検索・絞り込み
+ * - 一括招待機能
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 
-type Student = {
+type Role = string;
+type PickUser = {
   id: string;
   name: string | null;
-  phone: string | null;
+  role: Role;
   memo: string | null;
+  school_year: string | null;
+  subjects: string[];
 };
 
-function MiniConfirmDialog({
-  open,
-  title,
-  description,
-  primaryLabel = "実行",
-  cancelLabel = "キャンセル",
-  onCancel,
-  onConfirm,
-  confirming = false,
-}: {
-  open: boolean;
-  title: string;
-  description?: string;
-  primaryLabel?: string;
-  cancelLabel?: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-  confirming?: boolean;
-}) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-      if (e.key === "Enter") onConfirm();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onCancel, onConfirm]);
-
-  if (!open) return null;
-
-  return (
-    <div style={styles.confirmBackdrop} onMouseDown={onCancel}>
-      <div style={styles.confirmCard} onMouseDown={(e) => e.stopPropagation()}>
-        <div style={styles.confirmHead}>
-          <div style={styles.confirmIcon}>✉️</div>
-          <div style={{ minWidth: 0 }}>
-            <div style={styles.confirmTitle}>{title}</div>
-            {description && <div style={styles.confirmDesc}>{description}</div>}
-          </div>
-        </div>
-
-        <div style={styles.confirmActions}>
-          <button
-            style={{
-              ...styles.confirmCancelBtn,
-              ...(confirming ? styles.btnDisabled : {}),
-            }}
-            onClick={onCancel}
-            disabled={confirming}
-          >
-            {cancelLabel}
-          </button>
-
-          <button
-            style={{
-              ...styles.confirmPrimaryBtn,
-              ...(confirming ? styles.btnDisabled : {}),
-            }}
-            onClick={onConfirm}
-            disabled={confirming}
-            onMouseDown={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.transform =
-                "translateY(1px)";
-            }}
-            onMouseUp={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.transform =
-                "translateY(0px)";
-            }}
-          >
-            {confirming ? "処理中…" : primaryLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+type ProfileSubRow = {
+  user_id: string;
+  subject: { name: string | null } | null;
+};
 
 export default function InviteMemberDialog({
   groupId,
@@ -99,29 +31,23 @@ export default function InviteMemberDialog({
 }: {
   groupId: string;
   onClose: () => void;
-  onInvited?: (userId: string) => void;
+  onInvited?: (userIds: string[]) => void;
 }) {
-  const [loading, setLoading] = useState(true);
-  const [students, setStudents] = useState<Student[]>([]);
+  const [users, setUsers] = useState<PickUser[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
   const [q, setQ] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  // 招待ボタンの二重押し防止
-  const [invitingId, setInvitingId] = useState<string | null>(null);
-
-  // 確認モーダル用
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [confirmTarget, setConfirmTarget] = useState<Student | null>(null);
-
-  // ESCで閉じる（メインダイアログ）
+  // ESC
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // 初期データ
   useEffect(() => {
     let alive = true;
 
@@ -129,7 +55,7 @@ export default function InviteMemberDialog({
       setLoading(true);
       setMsg(null);
 
-      // 1) 既存メンバーID
+      // 既存メンバー
       const { data: m, error: me } = await supabase
         .from("group_members")
         .select("user_id")
@@ -137,35 +63,67 @@ export default function InviteMemberDialog({
 
       if (me) {
         if (alive) {
-          setMsg("メンバー取得に失敗: " + me.message);
+          setMsg("メンバー取得失敗: " + me.message);
           setLoading(false);
         }
         return;
       }
-      const memberIds = (m ?? []).map((r) => r.user_id as string);
+      const memberIds = (m ?? []).map((r) => String(r.user_id));
 
-      // 2) 承認済み・有効な生徒一覧
-      const { data: s, error: se } = await supabase
+      // 承認済み生徒
+      const { data: p, error: pe } = await supabase
         .from("profiles")
-        .select("id, name, phone, memo, role, is_approved, status")
+        .select("id, name, memo, role, is_approved, status, school_year")
         .eq("role", "student")
         .eq("is_approved", true)
         .eq("status", "active")
         .order("name", { ascending: true });
 
-      if (se) {
+      if (pe) {
         if (alive) {
-          setMsg("生徒一覧の取得に失敗: " + se.message);
+          setMsg("生徒取得失敗: " + pe.message);
           setLoading(false);
         }
         return;
       }
 
-      // 3) 既メンバーを除外
-      const notYet = (s ?? []).filter((st) => !memberIds.includes(st.id));
+      // 既存メンバーをフィルタ
+      const notYet = (p ?? []).filter((u) => !memberIds.includes(u.id));
+
+      // 教科取得
+      const ids = notYet.map((u) => u.id);
+      const subMap = new Map<string, string[]>();
+
+      if (ids.length > 0) {
+        const { data: ps } = await supabase
+          .from("profile_subjects")
+          .select("user_id, subject:study_subjects(name)")
+          .in("user_id", ids);
+
+        for (const row of (ps ?? []) as unknown as ProfileSubRow[]) {
+          const uid = String(row.user_id);
+          const name = row.subject?.name ?? null;
+          if (!name) continue;
+          const arr = subMap.get(uid) ?? [];
+          arr.push(name);
+          subMap.set(uid, arr);
+        }
+        for (const [k, arr] of subMap.entries()) {
+          subMap.set(k, Array.from(new Set(arr)));
+        }
+      }
+
+      const merged: PickUser[] = notYet.map((u) => ({
+        id: u.id,
+        name: u.name,
+        role: u.role,
+        memo: u.memo,
+        school_year: u.school_year,
+        subjects: subMap.get(u.id) ?? [],
+      }));
 
       if (alive) {
-        setStudents(notYet as Student[]);
+        setUsers(merged);
         setLoading(false);
       }
     }
@@ -178,196 +136,220 @@ export default function InviteMemberDialog({
 
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
-    if (!t) return students;
-    return students.filter((s) => {
-      const name = (s.name ?? "").toLowerCase();
-      const phone = (s.phone ?? "").toLowerCase();
-      const memo = (s.memo ?? "").toLowerCase();
+    if (!t) return users;
+    return users.filter((u) => {
+      const name = (u.name ?? "").toLowerCase();
+      const memo = (u.memo ?? "").toLowerCase();
+      const year = (u.school_year ?? "").toLowerCase();
+      const subjects = u.subjects.join(" ").toLowerCase();
       return (
         name.includes(t) ||
-        phone.includes(t) ||
         memo.includes(t) ||
-        s.id.toLowerCase().includes(t)
+        year.includes(t) ||
+        subjects.includes(t) ||
+        u.id.toLowerCase().includes(t)
       );
     });
-  }, [q, students]);
+  }, [q, users]);
 
-  function openInviteConfirm(s: Student) {
-    setMsg(null);
-    setConfirmTarget(s);
-    setConfirmOpen(true);
+  const selectedUsers = useMemo(() => {
+    const set = new Set(selected);
+    return users.filter((u) => set.has(u.id));
+  }, [selected, users]);
+
+  function toggle(id: string) {
+    setSelected((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   }
 
-  function closeConfirm() {
-    setConfirmOpen(false);
-    setConfirmTarget(null);
+  function clearAll() {
+    setSelected([]);
   }
 
-  async function doInviteConfirmed() {
-    if (!confirmTarget) return;
+  function selectAllVisible() {
+    const ids = filtered.map((u) => u.id);
+    setSelected((prev) => Array.from(new Set([...prev, ...ids])));
+  }
 
+  async function invite() {
+    if (selected.length === 0) {
+      setMsg("生徒を選択してください");
+      return;
+    }
+    setSaving(true);
     setMsg(null);
-    setInvitingId(confirmTarget.id);
 
-    const { error } = await supabase
-      .from("group_members")
-      .insert({ group_id: groupId, user_id: confirmTarget.id });
+    const rows = selected.map((uid) => ({
+      group_id: groupId,
+      user_id: uid,
+      last_read_at: new Date().toISOString(),
+    }));
 
-    // 409（重複）は成功扱い
+    const { error } = await supabase.from("group_members").insert(rows);
+
     if (error && !/409|duplicate/i.test(error.message)) {
-      setMsg("招待に失敗: " + error.message);
-      setInvitingId(null);
+      setMsg("招待失敗: " + error.message);
+      setSaving(false);
       return;
     }
 
-    // UIから除外
-    setStudents((prev) => prev.filter((s) => s.id !== confirmTarget.id));
-
-    setInvitingId(null);
-    closeConfirm();
-    onInvited?.(confirmTarget.id);
+    setSaving(false);
+    onInvited?.(selected);
+    onClose();
   }
 
   const s = styles;
 
   return (
-    <>
-      <div style={s.backdrop} onMouseDown={onClose}>
-        <div style={s.modal} onMouseDown={(e) => e.stopPropagation()}>
-          {/* Header */}
-          <div style={s.header}>
-            <div style={s.titleWrap}>
-              <div style={s.title}>生徒を招待</div>
-              <div style={s.sub}>未所属の承認済み生徒を追加できます</div>
-            </div>
-
-            <button style={s.iconBtn} onClick={onClose} aria-label="閉じる">
-              ✕
-            </button>
+    <div style={s.backdrop} onMouseDown={onClose}>
+      <div style={s.modal} onMouseDown={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div style={s.header}>
+          <div style={s.titleWrap}>
+            <div style={s.title}>生徒を一括招待</div>
+            <div style={s.sub}>未所属の生徒を複数選択して招待できます</div>
           </div>
+          <button style={s.iconBtn} onClick={onClose} aria-label="閉じる">
+            ✕
+          </button>
+        </div>
 
-          {/* Search */}
-          <div style={s.searchArea}>
-            <div style={s.searchBox}>
-              <span style={s.searchIcon}>🔎</span>
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="氏名・電話・メモ・ID で検索"
-                style={s.searchInput}
-              />
-            </div>
-          </div>
-
-          {/* Body */}
-          <div style={s.body}>
-            {loading ? (
-              <div style={s.loadingBox}>
-                <div style={s.spinner} />
-                <div style={s.loadingText}>読み込み中...</div>
-              </div>
-            ) : filtered.length === 0 ? (
-              <div style={s.empty}>
-                <div style={s.emptyTitle}>招待できる生徒がいません</div>
-                <div style={s.emptySub}>
-                  条件（承認済み/有効/未所属）に合う生徒が見つかりませんでした。
-                </div>
-              </div>
-            ) : (
-              <div style={s.table}>
-                <div style={s.thead}>
-                  <div style={{ ...s.th, ...s.colName }}>氏名</div>
-                  <div style={{ ...s.th, ...s.colPhone }}>電話番号</div>
-                  <div style={{ ...s.th, ...s.colMemo }}>メモ</div>
-                  <div style={{ ...s.th, ...s.colAction }} />
-                </div>
-
-                <div style={s.tbody}>
-                  {filtered.map((st) => {
-                    const isInviting = invitingId === st.id;
-
-                    return (
-                      <div
-                        key={st.id}
-                        style={s.row}
-                        onMouseEnter={(e) => {
-                          (e.currentTarget as HTMLDivElement).style.background =
-                            "rgba(234, 246, 255, 0.55)";
-                        }}
-                        onMouseLeave={(e) => {
-                          (e.currentTarget as HTMLDivElement).style.background =
-                            "#FFFFFF";
-                        }}
-                      >
-                        <div style={{ ...s.td, ...s.colName }}>
-                          <div style={s.nameRow}>
-                            <div style={s.name}>{st.name ?? "（未設定）"}</div>
-                          </div>
-                          <div style={s.idText}>ID: {st.id}</div>
-                        </div>
-
-                        <div style={{ ...s.td, ...s.colPhone }}>
-                          <span style={s.muted}>{st.phone ?? "-"}</span>
-                        </div>
-
-                        <div style={{ ...s.td, ...s.colMemo }}>
-                          <span style={s.muted}>{st.memo ?? "-"}</span>
-                        </div>
-
-                        <div
-                          style={{
-                            ...s.td,
-                            ...s.colAction,
-                            display: "flex",
-                            justifyContent: "flex-end",
-                            alignItems: "center",
-                          }}
-                        >
-                          <button
-                            onClick={() => openInviteConfirm(st)}
-                            disabled={isInviting}
-                            style={{
-                              ...s.inviteBtn,
-                              ...(isInviting ? s.inviteBtnDisabled : {}),
-                            }}
-                          >
-                            {isInviting ? "処理中…" : "招待"}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {msg && <div style={s.error}>{msg}</div>}
-          </div>
-
-          {/* Footer */}
-          <div style={s.footer}>
-            <button style={s.closeBtn} onClick={onClose}>
-              閉じる
-            </button>
+        {/* Search */}
+        <div style={s.searchArea}>
+          <div style={s.searchBox}>
+            <span style={s.searchIcon}>🔎</span>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="氏名・学年・教科・メモ・ID で検索"
+              style={s.searchInput}
+            />
           </div>
         </div>
-      </div>
 
-      <MiniConfirmDialog
-        open={confirmOpen}
-        title="この生徒を招待しますか？"
-        description={
-          confirmTarget
-            ? `${confirmTarget.name ?? "（未設定）"} をこのグループに追加します。`
-            : undefined
-        }
-        primaryLabel="招待する"
-        cancelLabel="キャンセル"
-        confirming={!!(confirmTarget && invitingId === confirmTarget.id)}
-        onCancel={closeConfirm}
-        onConfirm={doInviteConfirmed}
-      />
-    </>
+        {/* Body */}
+        <div style={s.body}>
+          {loading ? (
+            <div style={s.loadingBox}>
+              <div style={s.spinner} />
+              <div style={s.loadingText}>読み込み中...</div>
+            </div>
+          ) : (
+            <div style={s.panels}>
+              {/* 左パネル */}
+              <div style={s.leftPanel}>
+                <div style={s.panelHead}>
+                  <div style={s.panelTitle}>候補（{filtered.length}）</div>
+                  {filtered.length > 0 && (
+                    <button style={s.selectAllBtn} onClick={selectAllVisible}>
+                      表示中を全選択
+                    </button>
+                  )}
+                </div>
+
+                {filtered.length === 0 ? (
+                  <div style={s.empty}>
+                    <div style={s.emptyTitle}>候補なし</div>
+                    <div style={s.emptySub}>
+                      該当する生徒が見つかりませんでした
+                    </div>
+                  </div>
+                ) : (
+                  <div style={s.list}>
+                    {filtered.map((u) => {
+                      const isChecked = selected.includes(u.id);
+                      return (
+                        <div
+                          key={u.id}
+                          style={s.listItem}
+                          onClick={() => toggle(u.id)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            readOnly
+                            style={s.check}
+                          />
+                          <div style={s.listContent}>
+                            <div style={s.userName}>{u.name ?? "（未設定）"}</div>
+                            <div style={s.userLine}>
+                              <span style={s.muted}>
+                                {u.school_year ?? "-"}
+                              </span>
+                              {u.subjects.length > 0 && (
+                                <span style={s.muted}>
+                                  ・{u.subjects.join(" / ")}
+                                </span>
+                              )}
+                            </div>
+                            {u.memo && (
+                              <div style={s.userMemo}>{u.memo}</div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* 右パネル */}
+              <div style={s.rightPanel}>
+                <div style={s.panelHead}>
+                  <div style={s.panelTitle}>選択中（{selected.length}）</div>
+                  {selected.length > 0 && (
+                    <button style={s.clearBtn} onClick={clearAll}>
+                      全解除
+                    </button>
+                  )}
+                </div>
+
+                {selected.length === 0 ? (
+                  <div style={s.empty}>
+                    <div style={s.emptyTitle}>未選択</div>
+                    <div style={s.emptySub}>
+                      左から生徒をクリックして選択してください
+                    </div>
+                  </div>
+                ) : (
+                  <div style={s.chips}>
+                    {selectedUsers.map((u) => (
+                      <div key={u.id} style={s.chip}>
+                        <div style={s.chipLabel}>{u.name ?? "（未設定）"}</div>
+                        <button
+                          style={s.chipX}
+                          onClick={() => toggle(u.id)}
+                          aria-label="削除"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {msg && <div style={s.error}>{msg}</div>}
+        </div>
+
+        {/* Footer */}
+        <div style={s.footer}>
+          <button style={s.closeBtn} onClick={onClose}>
+            キャンセル
+          </button>
+          <button
+            style={{ ...s.inviteBtn, ...(saving ? s.inviteBtnDisabled : {}) }}
+            onClick={invite}
+            disabled={saving || selected.length === 0}
+          >
+            {saving ? "招待中..." : `${selected.length}人を招待`}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -384,8 +366,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   modal: {
-    width: "min(920px, 96vw)",
-    maxHeight: "min(640px, 92vh)",
+    width: "min(1080px, 96vw)",
+    maxHeight: "min(720px, 92vh)",
     background: "linear-gradient(180deg, #F2FAFF 0%, #FFFFFF 55%)",
     border: "1px solid #CFE8FF",
     borderRadius: 18,
@@ -462,85 +444,143 @@ const styles: Record<string, React.CSSProperties> = {
   },
   loadingText: { fontSize: 13, fontWeight: 800, color: "#0F172A" },
 
-  table: {
+  panels: {
+    display: "grid",
+    gridTemplateColumns: "1fr 0.9fr",
+    gap: 14,
+    minHeight: 420,
+  },
+
+  leftPanel: {
     border: "1px solid #DCEFFF",
     borderRadius: 14,
-    overflow: "hidden",
     background: "#FFFFFF",
+    overflow: "hidden",
+    display: "flex",
+    flexDirection: "column",
   },
-  thead: {
-    display: "grid",
-    gridTemplateColumns: "1.1fr 0.8fr 1.3fr 0.5fr",
-    background: "linear-gradient(180deg, #EAF6FF 0%, #F7FBFF 100%)",
-    borderBottom: "1px solid #DCEFFF",
+  rightPanel: {
+    border: "1px solid #DCEFFF",
+    borderRadius: 14,
+    background: "#FFFFFF",
+    overflow: "hidden",
+    display: "flex",
+    flexDirection: "column",
   },
-  th: {
+
+  panelHead: {
     padding: "10px 12px",
+    borderBottom: "1px solid #DCEFFF",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    background: "linear-gradient(180deg, #EAF6FF 0%, #F7FBFF 100%)",
+  },
+  panelTitle: { fontSize: 12.5, fontWeight: 900, color: "#0F172A" },
+
+  selectAllBtn: {
+    border: "1px solid #CFE8FF",
+    background: "#FFFFFF",
+    color: "#0F172A",
+    padding: "6px 10px",
+    borderRadius: 8,
+    fontSize: 11,
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow: "0 4px 10px rgba(15,23,42,0.05)",
+  },
+
+  clearBtn: {
+    border: "1px solid #FECACA",
+    background: "#FFF1F2",
+    color: "#B91C1C",
+    padding: "6px 10px",
+    borderRadius: 8,
+    fontSize: 11,
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow: "0 4px 10px rgba(185,28,28,0.08)",
+  },
+
+  list: {
+    padding: "8px",
+    overflow: "auto",
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+
+  listItem: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: "10px",
+    borderRadius: 10,
+    border: "1px solid #E2F1FF",
+    background: "#FAFCFF",
+    cursor: "pointer",
+    transition: "background 120ms ease",
+  },
+
+  check: {
+    cursor: "pointer",
+    marginTop: 2,
+  },
+
+  listContent: { flex: 1, minWidth: 0 },
+  userName: { fontSize: 14, fontWeight: 900, color: "#0B1220" },
+  userLine: {
+    marginTop: 3,
     fontSize: 12,
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 4,
+  },
+  muted: { color: "#64748B", fontSize: 12 },
+  userMemo: { marginTop: 4, fontSize: 11.5, color: "#94A3B8" },
+
+  chips: {
+    padding: "10px",
+    overflow: "auto",
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+    alignContent: "flex-start",
+  },
+
+  chip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "7px 10px",
+    borderRadius: 8,
+    border: "1px solid #7CC7FF",
+    background: "linear-gradient(180deg, #EAF6FF 0%, #FFFFFF 100%)",
+    fontSize: 12.5,
     fontWeight: 900,
     color: "#0F172A",
   },
-
-  tbody: { display: "flex", flexDirection: "column", gap: 0 },
-  row: {
-    display: "grid",
-    gridTemplateColumns: "1.1fr 0.8fr 1.3fr 0.5fr",
-    borderBottom: "1px solid #EEF6FF",
-    background: "#FFFFFF",
-    transition: "background 120ms ease",
-  },
-  td: { padding: "12px 12px", fontSize: 14, color: "#0B1220" },
-
-  colName: {},
-  colPhone: {},
-  colMemo: {},
-  colAction: {},
-
-  nameRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    minWidth: 0,
-  },
-  name: {
-    fontWeight: 900,
-    fontSize: 15.5,
-    lineHeight: 1.2,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  idText: { marginTop: 4, fontSize: 11.5, color: "#94A3B8" },
-  muted: { color: "#64748B" },
-
-  inviteBtn: {
-    border: "1px solid #7CC7FF",
-    background: "linear-gradient(180deg, #53B9FF 0%, #2EA8FF 100%)",
-    color: "#fff",
-    padding: "8px 12px",
-    borderRadius: 999,
-    fontSize: 12.5,
-    fontWeight: 900,
+  chipLabel: { flex: 1 },
+  chipX: {
+    border: "none",
+    background: "transparent",
+    color: "#64748B",
+    fontSize: 12,
     cursor: "pointer",
-    boxShadow: "0 8px 18px rgba(46, 168, 255, 0.20)",
-    transition: "transform 120ms ease, box-shadow 120ms ease, filter 120ms ease",
-    userSelect: "none",
-  },
-  inviteBtnDisabled: {
-    opacity: 0.65,
-    cursor: "not-allowed",
-    filter: "grayscale(0.08)",
+    padding: 0,
+    lineHeight: 1,
   },
 
   empty: {
-    padding: "26px 16px",
-    border: "1px dashed #BFE3FF",
-    borderRadius: 14,
-    background: "rgba(234, 246, 255, 0.55)",
+    padding: "26px 14px",
     textAlign: "center",
+    border: "1px dashed #BFE3FF",
+    borderRadius: 10,
+    background: "rgba(234, 246, 255, 0.55)",
+    margin: 10,
   },
-  emptyTitle: { fontSize: 14, fontWeight: 900, color: "#0F172A" },
-  emptySub: { marginTop: 6, fontSize: 12.5, color: "#64748B" },
+  emptyTitle: { fontSize: 13, fontWeight: 900, color: "#0F172A" },
+  emptySub: { marginTop: 4, fontSize: 12, color: "#64748B" },
 
   error: {
     marginTop: 12,
@@ -558,6 +598,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderTop: "1px solid #DCEFFF",
     display: "flex",
     justifyContent: "flex-end",
+    gap: 10,
     background: "#FFFFFF",
   },
   closeBtn: {
@@ -571,91 +612,21 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     boxShadow: "0 6px 14px rgba(15,23,42,0.06)",
   },
-
-  // ===== mini confirm =====
-  confirmBackdrop: {
-    position: "fixed",
-    inset: 0,
-    zIndex: 10000,
-    background: "rgba(15, 23, 42, 0.30)",
-    display: "grid",
-    placeItems: "center",
-    padding: 16,
-  },
-  confirmCard: {
-    width: "min(420px, 92vw)",
-    borderRadius: 16,
-    border: "1px solid #CFE8FF",
-    background: "linear-gradient(180deg, #F2FAFF 0%, #FFFFFF 70%)",
-    boxShadow: "0 18px 50px rgba(15, 23, 42, 0.22)",
-    padding: 14,
-  },
-  confirmHead: {
-    display: "flex",
-    gap: 12,
-    alignItems: "flex-start",
-  },
-  confirmIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 999,
-    border: "1px solid #CFE8FF",
-    background: "rgba(234,246,255,0.75)",
-    display: "grid",
-    placeItems: "center",
-    fontSize: 16,
-    flexShrink: 0,
-  },
-  confirmTitle: {
-    fontSize: 14.5,
-    fontWeight: 950,
-    color: "#0B1220",
-    letterSpacing: 0.2,
-  },
-  confirmDesc: {
-    marginTop: 4,
-    fontSize: 12.5,
-    color: "#64748B",
-    lineHeight: 1.45,
-    wordBreak: "break-word",
-  },
-  confirmActions: {
-    marginTop: 12,
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: 10,
-  },
-  confirmCancelBtn: {
-    border: "1px solid #CFE8FF",
-    background: "#FFFFFF",
-    color: "#0F172A",
-    padding: "9px 12px",
-    borderRadius: 12,
-    fontSize: 12.5,
-    fontWeight: 900,
-    cursor: "pointer",
-    boxShadow: "0 6px 14px rgba(15,23,42,0.06)",
-  },
-  confirmPrimaryBtn: {
+  inviteBtn: {
     border: "1px solid #7CC7FF",
     background: "linear-gradient(180deg, #53B9FF 0%, #2EA8FF 100%)",
     color: "#fff",
-    padding: "9px 12px",
+    padding: "9px 16px",
     borderRadius: 12,
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: 950,
     cursor: "pointer",
     boxShadow: "0 10px 20px rgba(46, 168, 255, 0.20)",
     userSelect: "none",
+    transition: "opacity 120ms ease",
   },
-  btnDisabled: {
+  inviteBtnDisabled: {
     opacity: 0.7,
     cursor: "not-allowed",
   },
 };
-
-/**
- * NOTE:
- * spinnerの animation を動かしたい場合は index.css に追加：
- * @keyframes spin { to { transform: rotate(360deg); } }
- */
