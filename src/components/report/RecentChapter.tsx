@@ -10,6 +10,7 @@ type GradeRow = {
   title: string;
   marks: unknown;
   labels?: unknown;
+  last_edited_chapter_id?: string | null;
 };
 
 type NoteRow = {
@@ -17,20 +18,16 @@ type NoteRow = {
   grade_id: string;
   start_idx: number;
   end_idx: number;
-  note: string;
+
+  // 新設計
+  chapter_title: string | null;
+  chapter_note: string | null;
+
+  // 互換用（旧設計）
+  note: string | null;
+
   updated_at: string;
 };
-
-function splitChapterNote(raw: string) {
-  const s = (raw ?? "").replace(/\r\n/g, "\n");
-  const lines = s.split("\n");
-  const title = (lines[0] ?? "").trim();
-  const body = lines.slice(1).join("\n").trim();
-  return {
-    title: title || "（章名未設定）",
-    body,
-  };
-}
 
 function parseMarks(raw: unknown): Mark[] {
   const arr = Array.isArray(raw) ? (raw as unknown[]) : [];
@@ -60,23 +57,17 @@ export default function RecentChapter({
     (async () => {
       setLoading(true);
 
-      // 直近に更新された章（note）を1件取得
-      // student_grade_notes -> student_grades を join して user_id で絞り込み
-      const { data: noteData, error: noteErr } = await supabase
-        .from("student_grade_notes")
-        .select(
-          `
-          id,grade_id,start_idx,end_idx,note,updated_at,
-          student_grades!inner(id,user_id,title,marks,labels)
-        `
-        )
-        .eq("student_grades.user_id", ownerUserId)
+      // ① 最新の student_grades を取得（last_edited_chapter_id 含む）
+      const { data: gradeData, error: gradeErr } = await supabase
+        .from("student_grades")
+        .select("id,user_id,title,marks,labels,last_edited_chapter_id")
+        .eq("user_id", ownerUserId)
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (noteErr) {
-        console.error("❌ load recent chapter:", noteErr.message);
+      if (gradeErr) {
+        console.error("❌ load recent grade:", gradeErr.message);
         if (!cancelled) {
           setGrade(null);
           setNote(null);
@@ -85,28 +76,66 @@ export default function RecentChapter({
         return;
       }
 
+      if (!gradeData) {
+        if (!cancelled) {
+          setGrade(null);
+          setNote(null);
+          setLoading(false);
+        }
+        return;
+      }
+
+      const g = gradeData as GradeRow;
+
+      // ② 章取得（★重要：last_edited_chapter_id優先）
+      let noteData = null;
+
+      if (g.last_edited_chapter_id) {
+        const { data: n, error: nErr } = await supabase
+          .from("student_grade_notes")
+          .select(
+            "id,grade_id,start_idx,end_idx,chapter_title,chapter_note,teacher_memo,next_homework,updated_at"
+          )
+          .eq("id", g.last_edited_chapter_id)
+          .eq("grade_id", g.id) // ← 安全性強化
+          .maybeSingle();
+
+        if (!nErr && n) {
+          noteData = n;
+        }
+      }
+
+      // ★ フォールバック（万一chapter_idが消えていた場合）
       if (!noteData) {
-        if (!cancelled) {
-          setGrade(null);
-          setNote(null);
-          setLoading(false);
-        }
-        return;
-      }
+        const { data: n } = await supabase
+          .from("student_grade_notes")
+          .select(
+            "id,grade_id,start_idx,end_idx,chapter_title,chapter_note,teacher_memo,next_homework,updated_at"
+          )
+          .eq("grade_id", g.id)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-      // noteData.student_grades は join結果
-      const g = (noteData as Record<string, unknown>).student_grades as GradeRow | null;
+        noteData = n;
+      }
 
       if (!cancelled) {
-        setGrade(g ?? null);
-        setNote({
-          id: noteData.id,
-          grade_id: noteData.grade_id,
-          start_idx: noteData.start_idx,
-          end_idx: noteData.end_idx,
-          note: noteData.note ?? "",
-          updated_at: noteData.updated_at,
-        });
+        setGrade(g);
+        setNote(
+          noteData
+            ? {
+                id: noteData.id,
+                grade_id: noteData.grade_id,
+                start_idx: noteData.start_idx,
+                end_idx: noteData.end_idx,
+                note: null,
+                chapter_title: noteData.chapter_title ?? null,
+                chapter_note: noteData.chapter_note ?? null,
+                updated_at: noteData.updated_at,
+              }
+            : null
+        );
         setLoading(false);
       }
     })();
@@ -116,7 +145,28 @@ export default function RecentChapter({
     };
   }, [ownerUserId]);
 
-  const parsed = useMemo(() => splitChapterNote(note?.note ?? ""), [note?.note]);
+  const displayTitle = useMemo(() => {
+    const t = (note?.chapter_title ?? "").trim();
+    if (t) return t;
+
+    // 互換：旧 note の最初の非空行を使う
+    const raw = String(note?.note ?? "");
+    const lines = raw.replace(/\r\n/g, "\n").split("\n");
+    const first = lines.find((l) => l.trim().length > 0)?.trim() ?? "";
+    return first || "（章名未設定）";
+  }, [note?.chapter_title, note?.note]);
+
+  const displayBody = useMemo(() => {
+    const b = (note?.chapter_note ?? "").trim();
+    if (b) return b;
+
+    // 互換：旧 note の2行目以降
+    const raw = String(note?.note ?? "").replace(/\r\n/g, "\n");
+    const lines = raw.split("\n");
+    const firstNonEmptyIdx = lines.findIndex((l) => l.trim().length > 0);
+    const body = lines.slice(firstNonEmptyIdx + 1).join("\n").trim();
+    return body;
+  }, [note?.chapter_note, note?.note]);
 
   if (loading) {
     return <div style={{ fontSize: 13, fontWeight: 900, color: "#94a3b8" }}>読み込み中...</div>;
@@ -156,7 +206,7 @@ export default function RecentChapter({
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 900, color: "#0f172a", fontSize: 14 }}>
-            {parsed.title}
+            {displayTitle}
           </div>
           <div style={{ marginTop: 4, fontSize: 12, fontWeight: 900, color: "#64748b" }}>
             {grade.title} / 範囲: {startLabel}〜{endLabel} / ○:{o} ×:{x} △:{t} 未:{blank}
@@ -182,7 +232,7 @@ export default function RecentChapter({
           padding: 12,
         }}
       >
-        {parsed.body ? parsed.body : "（備考なし）"}
+        {displayBody ? displayBody : "（備考なし）"}
       </div>
 
       {/* ===== 章内の評価（〇×△） ===== */}

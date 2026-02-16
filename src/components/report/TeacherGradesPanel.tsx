@@ -331,7 +331,7 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
     });
   }
 
-  function scheduleSaveMarks(gradeId: string) {
+  function scheduleSaveMarks(gradeId: string, chapterId: string | null) {
     if (gradeSaveTimers.current[gradeId]) window.clearTimeout(gradeSaveTimers.current[gradeId]);
 
     gradeSaveTimers.current[gradeId] = window.setTimeout(async () => {
@@ -340,7 +340,11 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
 
       const { error } = await supabase
         .from("student_grades")
-        .update({ marks: g.marks, updated_at: new Date().toISOString() })
+        .update({
+          marks: g.marks,
+          updated_at: new Date().toISOString(),
+          last_edited_chapter_id: chapterId,
+        })
         .eq("id", gradeId);
 
       if (error) setErr("marks 保存失敗: " + error.message);
@@ -352,7 +356,7 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
     setGrades((prev) =>
       prev.map((g) => (g.id === gradeId ? { ...g, marks: g.marks.map((m, i) => (i === idx ? next : m)) } : g))
     );
-    scheduleSaveMarks(gradeId);
+    scheduleSaveMarks(gradeId, activeChapterId ?? null);
   }
 
   async function bulkSetMarksInChapter(mark: Mark) {
@@ -368,7 +372,7 @@ export default function TeacherGradesPanel({ ownerUserId, mode = "student" }: Pr
       })
     );
 
-    scheduleSaveMarks(activeGrade.id);
+    scheduleSaveMarks(activeGrade.id, activeChapterId ?? null);
   }
 
   function scheduleSaveChapterFields(chapterId: string) {
