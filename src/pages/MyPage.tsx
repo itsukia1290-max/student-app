@@ -10,6 +10,26 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsStaff } from "../hooks/useIsStaff";
 
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const onChange = () => setMatches(mql.matches);
+
+    onChange();
+    if (mql.addEventListener) mql.addEventListener("change", onChange);
+    else mql.addListener(onChange);
+
+    return () => {
+      if (mql.removeEventListener) mql.removeEventListener("change", onChange);
+      else mql.removeListener(onChange);
+    };
+  }, [query]);
+
+  return matches;
+}
+
 import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
 import StudentGroups from "../components/StudentGroups";
@@ -35,6 +55,7 @@ type Props = {
 export default function MyPage({ initialTab = "profile", initialGoalPeriod = "week" }: Props) {
   const { user } = useAuth();
   const { isStaff } = useIsStaff();
+  const isMobile = useMediaQuery("(max-width: 520px)");
   const [tab, setTab] = useState<Tab>(initialTab);
 
   // ★ Report→MyPage遷移時に確実に反映
@@ -106,22 +127,25 @@ export default function MyPage({ initialTab = "profile", initialGoalPeriod = "we
   // ================== styles ==================
   const pageBg: React.CSSProperties = {
     minHeight: "70vh",
-    background: "#ffffff",
+    background: "#f8fafc",
+    padding: isMobile ? "8px" : "16px",
   };
 
   const container: React.CSSProperties = {
     maxWidth: 980,
     margin: "0 auto",
-    padding: "14px 14px 90px",
+    display: "flex",
+    flexDirection: "column",
+    gap: isMobile ? 10 : 14,
+    paddingBottom: 90,
   };
 
   const topHeader: React.CSSProperties = {
-    borderRadius: 20,
-    padding: "16px 16px 14px",
-    background: "rgba(255,255,255,0.78)",
-    border: "1px solid rgba(148,163,184,0.20)",
-    boxShadow: "0 12px 30px rgba(15,23,42,0.08)",
-    backdropFilter: "blur(8px)",
+    borderRadius: isMobile ? 16 : 22,
+    padding: isMobile ? 12 : 16,
+    background: "#ffffff",
+    border: "1px solid rgba(148,163,184,0.18)",
+    boxShadow: "0 12px 34px rgba(15, 23, 42, 0.08)",
   };
 
   const headerRow: React.CSSProperties = {
@@ -171,20 +195,16 @@ export default function MyPage({ initialTab = "profile", initialGoalPeriod = "we
 
   const tabPills: React.CSSProperties = {
     display: "flex",
-    gap: 6,
-    padding: 6,
+    gap: isMobile ? 4 : 6,
+    padding: isMobile ? 4 : 6,
     borderRadius: 9999,
     backgroundColor: "rgba(255,255,255,0.80)",
     border: "1px solid rgba(148,163,184,0.20)",
     boxShadow: "0 10px 26px rgba(15, 23, 42, 0.06)",
+    flexWrap: "wrap",
   };
 
-  const body: React.CSSProperties = {
-    marginTop: 14,
-    display: "flex",
-    flexDirection: "column",
-    gap: 14,
-  };
+
 
   // ================== guard ==================
   if (!user) {
@@ -216,7 +236,7 @@ export default function MyPage({ initialTab = "profile", initialGoalPeriod = "we
             </div>
           </div>
 
-          <div style={body}>
+          <div>
             <Card title="プロフィール">
               {!form ? <InfoText>読み込み中...</InfoText> : <ProfileForm form={form} setForm={setForm} onSave={onSave} saving={saving} msg={msg} />}
             </Card>
@@ -260,7 +280,7 @@ export default function MyPage({ initialTab = "profile", initialGoalPeriod = "we
         </div>
 
         {/* Body */}
-        <div style={body}>
+        <div>
           {tab === "profile" && (
             <>
               <Card title="プロフィール">
@@ -339,14 +359,15 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 }
 
 function Card({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
+  const isMobile = useMediaQuery("(max-width: 520px)");
   return (
     <section
       style={{
-        borderRadius: 16,
+        borderRadius: isMobile ? 16 : 22,
         backgroundColor: "#ffffff",
-        padding: 16,
-        boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
-        border: "1px solid #e5e7eb",
+        padding: isMobile ? 12 : 16,
+        boxShadow: "0 12px 34px rgba(15, 23, 42, 0.08)",
+        border: "1px solid rgba(148,163,184,0.18)",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
@@ -363,9 +384,10 @@ function InfoText({ children }: { children: React.ReactNode }) {
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  const isMobile = useMediaQuery("(max-width: 520px)");
   return (
-    <label style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 12, alignItems: "start" }}>
-      <div style={{ fontSize: 13, fontWeight: 900, color: "#0f172a", paddingTop: 10 }}>{label}</div>
+    <label style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "160px 1fr", gap: 12, alignItems: "start" }}>
+      <div style={{ fontSize: 13, fontWeight: 900, color: "#0f172a", paddingTop: isMobile ? 0 : 10 }}>{label}</div>
       <div style={{ minWidth: 0 }}>{children}</div>
     </label>
   );
