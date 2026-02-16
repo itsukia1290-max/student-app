@@ -11,6 +11,8 @@ type Student = {
   memo: string | null;
   is_approved: boolean;
   status: string | null;
+  school_year: string | null;
+  subjects: string[];
 };
 
 const colors = {
@@ -209,6 +211,43 @@ function initial(name?: string | null) {
   return name?.trim()?.slice(0, 1) || "生";
 }
 
+function mapProfileRow(r: Record<string, unknown>): Student {
+  return {
+    id: r.id as string,
+    name: (r.name ?? null) as string | null,
+    phone: (r.phone ?? null) as string | null,
+    memo: (r.memo ?? null) as string | null,
+    is_approved: !!r.is_approved,
+    status: (r.status ?? null) as string | null,
+    school_year: (r.school_year ?? null) as string | null,
+    subjects: [],
+  };
+}
+
+async function loadSubjectsMap(userIds: string[]) {
+  if (userIds.length === 0) return new Map<string, string[]>();
+
+  const { data, error } = await supabase
+    .from("profile_subjects")
+    .select("user_id, study_subjects(name)")
+    .in("user_id", userIds);
+
+  if (error) throw error;
+
+  const map = new Map<string, string[]>();
+  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+    const uid = row.user_id as string;
+    const name = (row.study_subjects as Record<string, unknown> | null)?.name as string | undefined;
+    if (!uid || !name) continue;
+    map.set(uid, [...(map.get(uid) ?? []), name]);
+  }
+
+  for (const [k, v] of map.entries()) {
+    map.set(k, [...new Set(v)].sort((a, b) => a.localeCompare(b, "ja")));
+  }
+  return map;
+}
+
 export default function Students() {
   const { isStaff } = useIsStaff();
 
@@ -233,7 +272,15 @@ export default function Students() {
     if (!qq) return pending;
 
     return pending.filter((p) => {
-      const hay = norm([p.name ?? "", p.phone ?? "", p.memo ?? ""].join(" "));
+      const hay = norm(
+        [
+          p.name ?? "",
+          p.phone ?? "",
+          p.memo ?? "",
+          p.school_year ?? "",
+          (p.subjects ?? []).join(" "),
+        ].join(" ")
+      );
       return hay.includes(qq);
     });
   }, [pending, q]);
@@ -243,7 +290,15 @@ export default function Students() {
     if (!qq) return students;
 
     return students.filter((s) => {
-      const hay = norm([s.name ?? "", s.phone ?? "", s.memo ?? ""].join(" "));
+      const hay = norm(
+        [
+          s.name ?? "",
+          s.phone ?? "",
+          s.memo ?? "",
+          s.school_year ?? "",
+          (s.subjects ?? []).join(" "),
+        ].join(" ")
+      );
       return hay.includes(qq);
     });
   }, [students, q]);
@@ -260,20 +315,17 @@ export default function Students() {
       // ① 在籍（activeのみ）
       const { data: activeData, error: activeErr } = await supabase
         .from("profiles")
-        .select("id, name, phone, memo, is_approved, status, role")
+        .select("id, name, phone, memo, is_approved, status, role, school_year")
         .eq("role", "student")
         .eq("status", "active");
 
       if (activeErr) throw activeErr;
 
-      const activeRows = ((activeData ?? []) as Array<Record<string, unknown>>).map((r) => ({
-        id: r.id as string,
-        name: (r.name ?? null) as string | null,
-        phone: (r.phone ?? null) as string | null,
-        memo: (r.memo ?? null) as string | null,
-        is_approved: !!r.is_approved,
-        status: (r.status ?? null) as string | null,
-      })) as Student[];
+      const activeRows = ((activeData ?? []) as Array<Record<string, unknown>>).map(mapProfileRow);
+
+      const activeIds = activeRows.map((x) => x.id);
+      const activeSubMap = await loadSubjectsMap(activeIds);
+      for (const s of activeRows) s.subjects = activeSubMap.get(s.id) ?? [];
 
       setPending(activeRows.filter((x) => !x.is_approved));
       setStudents(activeRows.filter((x) => x.is_approved));
@@ -281,20 +333,17 @@ export default function Students() {
       // ② 退会（withdrawn）
       const { data: wData, error: wErr } = await supabase
         .from("profiles")
-        .select("id, name, phone, memo, is_approved, status, role")
+        .select("id, name, phone, memo, is_approved, status, role, school_year")
         .eq("role", "student")
         .eq("status", "withdrawn");
 
       if (wErr) throw wErr;
 
-      const wRows = ((wData ?? []) as Array<Record<string, unknown>>).map((r) => ({
-        id: r.id as string,
-        name: (r.name ?? null) as string | null,
-        phone: (r.phone ?? null) as string | null,
-        memo: (r.memo ?? null) as string | null,
-        is_approved: !!r.is_approved,
-        status: (r.status ?? null) as string | null,
-      })) as Student[];
+      const wRows = ((wData ?? []) as Array<Record<string, unknown>>).map(mapProfileRow);
+
+      const wIds = wRows.map((x) => x.id);
+      const wSubMap = await loadSubjectsMap(wIds);
+      for (const s of wRows) s.subjects = wSubMap.get(s.id) ?? [];
 
       setWithdrawnStudents(wRows);
     } catch (e: unknown) {
@@ -473,7 +522,14 @@ export default function Students() {
                       <div style={{ fontSize: "12px", color: colors.textSub }}>{s.phone ?? "-"}</div>
                     </div>
                   </div>
-                  <div style={styles.memoChip}>{s.memo ?? "-"}</div>
+                  <div
+                    style={styles.memoChip}
+                    title={`${s.school_year ?? "-"} / ${(s.subjects ?? []).join("・")}`}
+                  >
+                    {(s.school_year ?? "-") +
+                      " / " +
+                      (s.subjects?.length ? s.subjects.join("・") : "教科未設定")}
+                  </div>
                 </div>
               ))
             )}

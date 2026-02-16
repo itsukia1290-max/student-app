@@ -1,8 +1,10 @@
 /*
  * src/pages/StudentDetail.tsx
- * - 初期表示は「レポート」
- * - タブ順：レポート / 成績 / 目標 / プロフィール
- * - 所属グループ取得は 1クエリ（group_members → groups のJOIN）
+ * - 先生が生徒1人を閲覧/編集する画面
+ * - 初期表示: レポート
+ * - タブ順: レポート / 成績 / 目標 / プロフィール
+ * - 今回: プロフィールの見やすさ改善 + 学校/学年/受講教科（study_subjects）追加
+ * - 今回: 所属グループ/カレンダーは一旦削除（後で戻せる）
  */
 
 import { useEffect, useState } from "react";
@@ -11,8 +13,9 @@ import { supabase } from "../lib/supabase";
 import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
 import Report from "./Report";
-import CalendarBoard from "../components/CalendarBoard";
 import TeacherGradesPanel from "../components/report/TeacherGradesPanel";
+
+const SCHOOL_YEARS = ["中1", "中2", "中3", "高1", "高2", "高3", "その他"];
 
 type Props = {
   student: {
@@ -26,30 +29,119 @@ type Props = {
 
 type Tab = "report" | "grades" | "goals" | "profile";
 
-type GroupMini = {
+type StudySubject = {
   id: string;
+  scope: string | null;
   name: string;
-  type: "class" | "dm" | string;
+  sort_order: number | null;
+  is_active: boolean | null;
+  color: string | null;
 };
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const onChange = () => setMatches(mql.matches);
+    onChange();
+    if (mql.addEventListener) mql.addEventListener("change", onChange);
+    else mql.addListener(onChange);
+    return () => {
+      if (mql.removeEventListener) mql.removeEventListener("change", onChange);
+      else mql.removeListener(onChange);
+    };
+  }, [query]);
+  return matches;
+}
 
 export default function StudentDetail({ student, onBack }: Props) {
   const { isStaff } = useIsStaff();
+  const isMobile = useMediaQuery("(max-width: 520px)");
   const [tab, setTab] = useState<Tab>("report");
 
-  // ===== profile form =====
+  // ===== profile fields =====
   const [formName, setFormName] = useState(student.name ?? "");
   const [formPhone, setFormPhone] = useState(student.phone ?? "");
   const [formMemo, setFormMemo] = useState(student.memo ?? "");
+
+  // new
+  const [formSchool, setFormSchool] = useState("");
+  const [formGrade, setFormGrade] = useState(""); // "中1" 等もOK（text）
+  const [allSubjects, setAllSubjects] = useState<StudySubject[]>([]);
+  const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
+
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
   const [deleteMsg, setDeleteMsg] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [loadingProfileExtra, setLoadingProfileExtra] = useState(false);
 
   useEffect(() => {
     setFormName(student.name ?? "");
     setFormPhone(student.phone ?? "");
     setFormMemo(student.memo ?? "");
   }, [student]);
+
+  // ===== load: profile extra + subjects =====
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      if (!student.id) return;
+      setLoadingProfileExtra(true);
+
+      // 1) profiles（追加列）
+      const { data: p, error: pe } = await supabase
+        .from("profiles")
+        .select("school,school_year")
+        .eq("id", student.id)
+        .maybeSingle();
+
+      if (!cancelled) {
+        if (!pe && p) {
+          setFormSchool((p.school ?? "") as string);
+          setFormGrade((p.school_year ?? "") as string);
+        }
+      }
+
+      // 2) study_subjects（junior固定 / is_active）
+      const { data: subs, error: se } = await supabase
+        .from("study_subjects")
+        .select("id,scope,name,sort_order,is_active,color")
+        .eq("scope", "junior")
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+
+      if (!cancelled) {
+        if (!se) setAllSubjects((subs ?? []) as StudySubject[]);
+      }
+
+      // 3) profile_subjects（選択済み）
+      const { data: ps, error: pse } = await supabase
+        .from("profile_subjects")
+        .select("subject_id")
+        .eq("user_id", student.id);
+
+      if (!cancelled) {
+        if (!pse) {
+          const ids = (ps ?? [])
+            .map((r: Record<string, unknown>) => String(r.subject_id))
+            .filter(Boolean);
+          setSelectedSubjectIds(ids);
+        }
+      }
+
+      if (!cancelled) setLoadingProfileExtra(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [student.id]);
+
+  function toggleSubject(id: string) {
+    setSelectedSubjectIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
 
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault();
@@ -58,17 +150,48 @@ export default function StudentDetail({ student, onBack }: Props) {
     setSavingProfile(true);
     setProfileMsg(null);
 
-    const { error } = await supabase
+    // 1) profiles update
+    const { error: ue } = await supabase
       .from("profiles")
       .update({
-        name: formName,
-        phone: formPhone || null,
-        memo: formMemo || null,
+        name: formName.trim(),
+        phone: formPhone.trim() || null,
+        memo: formMemo.trim() || null,
+        school: formSchool.trim() || null,
+        school_year: formGrade.trim() || null,
       })
       .eq("id", student.id);
 
-    if (error) setProfileMsg("プロフィール保存に失敗しました: " + error.message);
-    else setProfileMsg("プロフィールを保存しました。");
+    if (ue) {
+      setProfileMsg("プロフィール保存に失敗しました: " + ue.message);
+      setSavingProfile(false);
+      return;
+    }
+
+    // 2) profile_subjects update（シンプルに入れ替え）
+    // ここはRPCでトランザクション化もできるけど、まずは堅実に。
+    const { error: de } = await supabase.from("profile_subjects").delete().eq("user_id", student.id);
+    if (de) {
+      setProfileMsg("教科の保存に失敗しました（削除）: " + de.message);
+      setSavingProfile(false);
+      return;
+    }
+
+    if (selectedSubjectIds.length > 0) {
+      const payload = selectedSubjectIds.map((sid) => ({
+        user_id: student.id,
+        subject_id: sid,
+      }));
+
+      const { error: ie } = await supabase.from("profile_subjects").insert(payload);
+      if (ie) {
+        setProfileMsg("教科の保存に失敗しました（追加）: " + ie.message);
+        setSavingProfile(false);
+        return;
+      }
+    }
+
+    setProfileMsg("プロフィールを保存しました。");
     setSavingProfile(false);
   }
 
@@ -85,7 +208,7 @@ export default function StudentDetail({ student, onBack }: Props) {
     setDeleting(true);
     setDeleteMsg(null);
 
-    // RPC を呼んで削除（profiles.status = withdrawn + approval_requests.resolved_at 更新）
+    // RPC: process_approval(p_action='withdrawn') を使う前提（あなたの設計に合わせる）
     const { error } = await supabase.rpc("process_approval", {
       p_user_id: student.id,
       p_action: "withdrawn",
@@ -102,324 +225,206 @@ export default function StudentDetail({ student, onBack }: Props) {
     onBack();
   }
 
-  // ===== groups (1 query) =====
-  const [groups, setGroups] = useState<GroupMini[]>([]);
-  const [groupsLoading, setGroupsLoading] = useState(false);
+  const page: React.CSSProperties = {
+    padding: isMobile ? "10px" : "16px",
+    paddingBottom: "calc(96px + env(safe-area-inset-bottom))",
+    boxSizing: "border-box",
+    background: "#f8fafc",
+    minHeight: "100vh",
+  };
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setGroupsLoading(true);
-
-      // group_members から groups をJOINして取る（1回）
-      const { data, error } = await supabase
-        .from("group_members")
-        .select("groups(id,name,type)")
-        .eq("user_id", student.id);
-
-      if (error) {
-        console.error("❌ load student groups:", error.message);
-        if (!cancelled) setGroups([]);
-        setGroupsLoading(false);
-        return;
-      }
-
-      const list: GroupMini[] = (data ?? [])
-        .flatMap((r) => (Array.isArray(r?.groups) ? r.groups : r?.groups ? [r.groups] : []))
-        .filter(Boolean)
-        .map((g) => ({
-          id: g.id as string,
-          name: (g.name ?? "(名称未設定)") as string,
-          type: (g.type ?? "class") as string,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name, "ja"));
-
-      if (!cancelled) setGroups(list);
-      setGroupsLoading(false);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [student.id]);
+  const container: React.CSSProperties = {
+    maxWidth: 1040,
+    margin: "0 auto",
+    display: "grid",
+    gap: 12,
+  };
 
   return (
-    <div style={{ padding: "16px", paddingBottom: "calc(96px + env(safe-area-inset-bottom))", boxSizing: "border-box" }}>
-      {/* ===== Top bar ===== */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
-        <button
-          onClick={onBack}
-          style={{
-            border: "1px solid rgba(148,163,184,0.35)",
-            backgroundColor: "#ffffff",
-            borderRadius: "9999px",
-            padding: "10px 14px",
-            fontWeight: 800,
-            cursor: "pointer",
-            boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)",
-          }}
-        >
-          ← 一覧に戻る
-        </button>
+    <div style={page}>
+      <div style={container}>
+        {/* ===== Top ===== */}
+        <div style={topHeader(isMobile)}>
+          <div style={topRow()}>
+            <button onClick={onBack} style={backBtn()}>
+              ← 一覧に戻る
+            </button>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0 }}>
-          <div
-            style={{
-              width: "42px",
-              height: "42px",
-              borderRadius: "9999px",
-              backgroundColor: "rgba(59,130,246,0.10)",
-              display: "grid",
-              placeItems: "center",
-              color: "#2563eb",
-              fontWeight: 900,
-              fontSize: "16px",
-              flexShrink: 0,
-            }}
-          >
-            {(student.name ?? "？").slice(0, 1)}
-          </div>
-
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: "22px", fontWeight: 900, color: "#0f172a" }}>
-              {student.name ?? "（未設定）"}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+              <div style={avatarCircle()}>{(student.name ?? "？").slice(0, 1)}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={pageTitle()}>{student.name ?? "（未設定）"}</div>
+                <div style={pageSubTitle()}>生徒詳細（先生用）</div>
+              </div>
             </div>
-            <div style={{ fontSize: "13px", color: "#64748b", fontWeight: 700 }}>
-              生徒詳細（先生用）
+
+            <div style={tabWrap(isMobile)}>
+              <TabBtn active={tab === "report"} onClick={() => setTab("report")}>
+                レポート
+              </TabBtn>
+              <TabBtn active={tab === "grades"} onClick={() => setTab("grades")}>
+                成績
+              </TabBtn>
+              <TabBtn active={tab === "goals"} onClick={() => setTab("goals")}>
+                目標
+              </TabBtn>
+              <TabBtn active={tab === "profile"} onClick={() => setTab("profile")}>
+                プロフィール
+              </TabBtn>
             </div>
           </div>
         </div>
 
-        {/* ===== Tabs (レポート/成績/目標/プロフィール) ===== */}
-        <div
-          style={{
-            display: "flex",
-            gap: "6px",
-            padding: "6px",
-            borderRadius: "9999px",
-            backgroundColor: "rgba(255,255,255,0.75)",
-            border: "1px solid rgba(148,163,184,0.20)",
-            boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)",
-          }}
-        >
-          <TabBtn active={tab === "report"} onClick={() => setTab("report")}>
-            レポート
-          </TabBtn>
-          <TabBtn active={tab === "grades"} onClick={() => setTab("grades")}>
-            成績
-          </TabBtn>
-          <TabBtn active={tab === "goals"} onClick={() => setTab("goals")}>
-            目標
-          </TabBtn>
-          <TabBtn active={tab === "profile"} onClick={() => setTab("profile")}>
-            プロフィール
-          </TabBtn>
-        </div>
-      </div>
-
-      {/* ===== Body ===== */}
-      <div style={{ marginTop: "16px" }}>
-        {tab === "report" && <Report ownerUserId={student.id} mode="student" viewerRole="staff" />}
+        {/* ===== Body ===== */}
+        {tab === "report" && (
+          <Card>
+            <Report ownerUserId={student.id} mode="student" viewerRole="staff" />
+          </Card>
+        )}
 
         {tab === "grades" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            <Card>
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                <div style={{ fontSize: "16px", fontWeight: 900, color: "#0f172a" }}>
-                  問題集の成績
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b" }}>
-                  {isStaff ? "先生：編集モード" : "生徒：閲覧/自己編集（許可時）"}
-                </div>
-              </div>
+          <Card>
+            <div style={sectionHeader()}>
+              <div style={sectionTitle()}>問題集の成績</div>
+              <div style={sectionHint()}>{isStaff ? "先生：編集" : "生徒：閲覧/自己編集（許可時）"}</div>
+            </div>
 
-              <div style={{ marginTop: 12 }}>
-                {isStaff ? (
-                  <TeacherGradesPanel ownerUserId={student.id} />
-                ) : (
-                  <StudentGrades userId={student.id} editable={true /* 生徒側編集可ならtrue */} />
-                )}
-              </div>
-            </Card>
-          </div>
+            <div style={{ marginTop: 12 }}>
+              {isStaff ? <TeacherGradesPanel ownerUserId={student.id} /> : <StudentGrades userId={student.id} editable={true} />}
+            </div>
+          </Card>
         )}
 
         {tab === "goals" && (
           <Card>
-            <div style={{ fontSize: "16px", fontWeight: 900, color: "#0f172a", marginBottom: "10px" }}>
-              目標
+            <div style={sectionHeader()}>
+              <div style={sectionTitle()}>目標</div>
+              <div style={sectionHint()}>週 / 月の目標</div>
             </div>
-            <StudentGoals userId={student.id} editable={true} />
+            <div style={{ marginTop: 12 }}>
+              <StudentGoals userId={student.id} editable={true} />
+            </div>
           </Card>
         )}
 
         {tab === "profile" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            <Card>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
-                <div style={{ fontSize: "16px", fontWeight: 900, color: "#0f172a" }}>
-                  プロフィール
-                </div>
-                <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 800 }}>
-                  先生のみ編集可
-                </div>
-              </div>
+          <Card>
+            <div style={sectionHeader()}>
+              <div style={sectionTitle()}>プロフィール</div>
+              <div style={sectionHint()}>先生のみ編集可</div>
+            </div>
 
-              <form onSubmit={saveProfile} style={{ marginTop: "14px", display: "grid", gap: "12px", maxWidth: "720px" }}>
-                <Field label="氏名">
-                  <input
-                    style={inputStyle()}
-                    value={formName}
-                    onChange={(e) => setFormName(e.target.value)}
-                  />
-                </Field>
-
-                <Field label="電話番号">
-                  <input
-                    style={inputStyle()}
-                    placeholder="例）090-xxxx-xxxx"
-                    value={formPhone}
-                    onChange={(e) => setFormPhone(e.target.value)}
-                  />
-                </Field>
-
-                <Field label="メモ">
-                  <textarea
-                    style={{ ...inputStyle(), minHeight: "120px", resize: "vertical" }}
-                    value={formMemo}
-                    onChange={(e) => setFormMemo(e.target.value)}
-                  />
-                </Field>
-
-                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px" }}>
-                  <button
-                    type="button"
-                    onClick={softDeleteStudent}
-                    disabled={deleting}
-                    style={{
-                      border: "none",
-                      backgroundColor: "#ef4444",
-                      color: "#ffffff",
-                      borderRadius: "9999px",
-                      padding: "10px 16px",
-                      fontWeight: 900,
-                      cursor: "pointer",
-                      opacity: deleting ? 0.6 : 1,
-                    }}
-                  >
-                    {deleting ? "削除中..." : "この生徒を削除"}
-                  </button>
-
-                  <button
-                    type="submit"
-                    disabled={savingProfile}
-                    style={{
-                      border: "none",
-                      backgroundColor: "#60a5fa",
-                      color: "#ffffff",
-                      borderRadius: "9999px",
-                      padding: "10px 16px",
-                      fontWeight: 900,
-                      cursor: "pointer",
-                      opacity: savingProfile ? 0.6 : 1,
-                    }}
-                  >
-                    {savingProfile ? "保存中..." : "保存"}
-                  </button>
-                </div>
-
-                {deleteMsg && (
-                  <div style={{ marginTop: 10, fontSize: "13px", color: "#b91c1c", fontWeight: 900 }}>
-                    {deleteMsg}
-                  </div>
-                )}
-
-                {profileMsg && (
-                  <div style={{ fontSize: "13px", color: "#334155", fontWeight: 800 }}>
-                    {profileMsg}
-                  </div>
-                )}
-              </form>
-            </Card>
-
-            <Card>
-              <div style={{ fontSize: "16px", fontWeight: 900, color: "#0f172a", marginBottom: "10px" }}>
-                所属グループ
-              </div>
-
-              {groupsLoading ? (
-                <div style={{ fontSize: "13px", color: "#64748b", fontWeight: 800 }}>
-                  読み込み中...
-                </div>
-              ) : groups.length === 0 ? (
-                <div style={{ fontSize: "13px", color: "#64748b", fontWeight: 800 }}>
-                  所属グループはありません。
-                </div>
+            <div style={{ marginTop: 10, borderTop: "1px solid rgba(148,163,184,0.18)", paddingTop: 12 }}>
+              {loadingProfileExtra ? (
+                <div style={mutedText()}>読み込み中...</div>
               ) : (
-                <ul style={{ marginTop: "8px", paddingLeft: "18px", display: "grid", gap: "6px" }}>
-                  {groups.map((g) => (
-                    <li key={g.id} style={{ fontSize: "14px", fontWeight: 800, color: "#0f172a" }}>
-                      {g.name}
-                      {g.type === "dm" && (
-                        <span style={{ marginLeft: "8px", fontSize: "12px", color: "#64748b", fontWeight: 900 }}>
-                          （DM）
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
+                <form onSubmit={saveProfile} style={{ display: "grid", gap: 12 }}>
+                  <div style={formGrid(isMobile)}>
+                    <Field label="氏名">
+                      <input style={inputStyle()} value={formName} onChange={(e) => setFormName(e.target.value)} />
+                    </Field>
+
+                    <Field label="電話番号">
+                      <input
+                        style={inputStyle()}
+                        placeholder="例）090-xxxx-xxxx"
+                        value={formPhone}
+                        onChange={(e) => setFormPhone(e.target.value)}
+                      />
+                    </Field>
+
+                    <Field label="学校">
+                      <input
+                        style={inputStyle()}
+                        placeholder="例）〇〇中学校"
+                        value={formSchool}
+                        onChange={(e) => setFormSchool(e.target.value)}
+                      />
+                    </Field>
+
+                    <Field label="学年">
+                      <select
+                        style={inputStyle()}
+                        value={formGrade}
+                        onChange={(e) => setFormGrade(e.target.value)}
+                      >
+                        <option value="">選択してください</option>
+                        {SCHOOL_YEARS.map((year) => (
+                          <option key={year} value={year}>
+                            {year}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+
+                  <Field label="受講教科">
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {allSubjects.map((s) => {
+                        const active = selectedSubjectIds.includes(s.id);
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => toggleSubject(s.id)}
+                            style={subjectChip(active)}
+                            title={s.name}
+                          >
+                            {s.name}
+                          </button>
+                        );
+                      })}
+                      {allSubjects.length === 0 && <div style={mutedText()}>教科マスタ（study_subjects）がありません。</div>}
+                    </div>
+                    <div style={{ marginTop: 8, ...mutedText() }}>
+                      
+                    </div>
+                  </Field>
+
+                  <Field label="メモ">
+                    <textarea
+                      style={{ ...inputStyle(), minHeight: 120, resize: "vertical" }}
+                      value={formMemo}
+                      onChange={(e) => setFormMemo(e.target.value)}
+                    />
+                  </Field>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
+                    <button type="button" onClick={softDeleteStudent} disabled={deleting} style={dangerBtn(deleting)}>
+                      {deleting ? "削除中..." : "この生徒を削除"}
+                    </button>
+
+                    <button type="submit" disabled={savingProfile} style={primaryBtn(savingProfile)}>
+                      {savingProfile ? "保存中..." : "保存"}
+                    </button>
+                  </div>
+
+                  {deleteMsg && <div style={dangerMsg()}>{deleteMsg}</div>}
+                  {profileMsg && <div style={okMsg()}>{profileMsg}</div>}
+                </form>
               )}
-            </Card>
-
-            <Card tone="soft">
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
-                <div style={{ fontSize: "16px", fontWeight: 900, color: "#0f172a" }}>カレンダー</div>
-                <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 900 }}>
-                  personal=閲覧 / 塾=編集（先生）
-                </div>
-              </div>
-
-              <div style={{ marginTop: "12px" }}>
-                <CalendarBoard
-                  ownerUserId={student.id}
-                  permissions={{
-                    viewPersonal: true,
-                    editPersonal: false,
-                    viewSchool: true,
-                    editSchool: true,
-                  }}
-                />
-              </div>
-            </Card>
-          </div>
+            </div>
+          </Card>
         )}
       </div>
     </div>
   );
 }
 
-/* ================= UI helpers ================= */
+/* ================= UI parts ================= */
 
-function TabBtn({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
+function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
       style={{
         border: "none",
-        backgroundColor: active ? "rgba(59,130,246,0.14)" : "transparent",
+        backgroundColor: active ? "rgba(37,99,235,0.14)" : "transparent",
         color: active ? "#1d4ed8" : "#0f172a",
-        borderRadius: "9999px",
+        borderRadius: 9999,
         padding: "10px 14px",
         fontWeight: 900,
-        fontSize: "13px",
+        fontSize: 13,
         cursor: "pointer",
         whiteSpace: "nowrap",
       }}
@@ -429,22 +434,15 @@ function TabBtn({
   );
 }
 
-function Card({
-  children,
-  tone = "white",
-}: {
-  children: React.ReactNode;
-  tone?: "white" | "soft";
-}) {
-  const bg = tone === "soft" ? "rgba(243,246,255,0.70)" : "#ffffff";
+function Card({ children }: { children: React.ReactNode }) {
   return (
     <section
       style={{
-        borderRadius: "18px",
-        backgroundColor: bg,
-        padding: "16px",
+        borderRadius: 18,
+        backgroundColor: "#ffffff",
+        padding: 16,
         boxShadow: "0 10px 30px rgba(15, 23, 42, 0.06)",
-        border: "1px solid rgba(148, 163, 184, 0.18)",
+        border: "1px solid rgba(148,163,184,0.18)",
       }}
     >
       {children}
@@ -454,24 +452,157 @@ function Card({
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label style={{ display: "grid", gridTemplateColumns: "180px 1fr", gap: "12px", alignItems: "start" }}>
-      <div style={{ fontSize: "13px", fontWeight: 900, color: "#0f172a", paddingTop: "10px" }}>
-        {label}
-      </div>
-      <div>{children}</div>
+    <label style={{ display: "grid", gap: 8 }}>
+      <div style={{ fontSize: 13, fontWeight: 950, color: "#0f172a" }}>{label}</div>
+      <div style={{ minWidth: 0 }}>{children}</div>
     </label>
   );
+}
+
+/* ================= styles ================= */
+
+function topHeader(isMobile: boolean): React.CSSProperties {
+  return {
+    borderRadius: isMobile ? 16 : 18,
+    background: "#ffffff",
+    padding: isMobile ? 12 : 14,
+    boxShadow: "0 10px 28px rgba(15,23,42,0.08)",
+    border: "1px solid rgba(148,163,184,0.18)",
+  };
+}
+function topRow(): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    flexWrap: "wrap",
+  };
+}
+function backBtn(): React.CSSProperties {
+  return {
+    border: "1px solid rgba(148,163,184,0.35)",
+    backgroundColor: "#ffffff",
+    borderRadius: 9999,
+    padding: "10px 14px",
+    fontWeight: 900,
+    cursor: "pointer",
+  };
+}
+function avatarCircle(): React.CSSProperties {
+  return {
+    width: 42,
+    height: 42,
+    borderRadius: 9999,
+    backgroundColor: "rgba(59,130,246,0.10)",
+    display: "grid",
+    placeItems: "center",
+    color: "#2563eb",
+    fontWeight: 950,
+    fontSize: 16,
+    flexShrink: 0,
+  };
+}
+function pageTitle(): React.CSSProperties {
+  return { fontSize: 20, fontWeight: 950, color: "#0f172a", lineHeight: 1.1 };
+}
+function pageSubTitle(): React.CSSProperties {
+  return { fontSize: 12, fontWeight: 900, color: "#64748b", marginTop: 2 };
+}
+function tabWrap(isMobile: boolean): React.CSSProperties {
+  return {
+    display: "flex",
+    gap: 6,
+    padding: 6,
+    borderRadius: 9999,
+    backgroundColor: "rgba(255,255,255,0.75)",
+    border: "1px solid rgba(148,163,184,0.20)",
+    boxShadow: "0 10px 26px rgba(15, 23, 42, 0.05)",
+    flexWrap: "wrap",
+    justifyContent: isMobile ? "flex-start" : "flex-end",
+  };
+}
+
+function sectionHeader(): React.CSSProperties {
+  return { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" };
+}
+function sectionTitle(): React.CSSProperties {
+  return { fontSize: 16, fontWeight: 950, color: "#0f172a" };
+}
+function sectionHint(): React.CSSProperties {
+  return { fontSize: 12, fontWeight: 900, color: "#64748b" };
+}
+
+function mutedText(): React.CSSProperties {
+  return { fontSize: 13, fontWeight: 800, color: "#64748b" };
+}
+
+function formGrid(isMobile: boolean): React.CSSProperties {
+  return {
+    display: "grid",
+    gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+    gap: 12,
+  };
 }
 
 function inputStyle(): React.CSSProperties {
   return {
     width: "100%",
+    boxSizing: "border-box",
     border: "1px solid rgba(148,163,184,0.35)",
-    borderRadius: "14px",
+    borderRadius: 14,
     padding: "12px 14px",
-    fontSize: "14px",
-    fontWeight: 800,
+    fontSize: 14,
+    fontWeight: 850,
     outline: "none",
-    backgroundColor: "rgba(255,255,255,0.9)",
+    backgroundColor: "rgba(255,255,255,0.95)",
   };
+}
+
+function subjectChip(active: boolean): React.CSSProperties {
+  return {
+    border: active ? "1px solid rgba(37,99,235,0.35)" : "1px solid rgba(148,163,184,0.22)",
+    background: active ? "rgba(219,234,254,0.85)" : "rgba(255,255,255,0.92)",
+    borderRadius: 9999,
+    padding: "8px 12px",
+    fontWeight: 950,
+    fontSize: 13,
+    cursor: "pointer",
+    color: active ? "#1d4ed8" : "#0f172a",
+    whiteSpace: "nowrap",
+  };
+}
+
+function primaryBtn(disabled?: boolean): React.CSSProperties {
+  return {
+    border: "none",
+    backgroundColor: "#60a5fa",
+    color: "#ffffff",
+    borderRadius: 9999,
+    padding: "10px 16px",
+    fontWeight: 950,
+    cursor: "pointer",
+    opacity: disabled ? 0.6 : 1,
+    boxShadow: "0 10px 20px rgba(37, 99, 235, 0.18)",
+  };
+}
+
+function dangerBtn(disabled?: boolean): React.CSSProperties {
+  return {
+    border: "none",
+    backgroundColor: "#ef4444",
+    color: "#ffffff",
+    borderRadius: 9999,
+    padding: "10px 16px",
+    fontWeight: 950,
+    cursor: "pointer",
+    opacity: disabled ? 0.6 : 1,
+  };
+}
+
+function dangerMsg(): React.CSSProperties {
+  return { marginTop: 8, fontSize: 13, fontWeight: 950, color: "#b91c1c" };
+}
+function okMsg(): React.CSSProperties {
+  return { marginTop: 8, fontSize: 13, fontWeight: 850, color: "#334155" };
 }

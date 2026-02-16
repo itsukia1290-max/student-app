@@ -1,14 +1,12 @@
-/*
- * src/pages/MyPage.tsx
- * - スタッフ用: プロフィール編集のみ（最小）
- * - 生徒用: プロフィール / 目標 / 成績 / 記録（StudyLogs + Calendar）
- * - UIは MyPage が統一（カード/余白/タブ/ヘッダー）
- */
-
-import React, { useEffect, useMemo, useState } from "react";
+// src/pages/MyPage.tsx
+import React, { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsStaff } from "../hooks/useIsStaff";
+
+import StudentGrades from "../components/StudentGrades";
+import StudentGoals from "../components/StudentGoals";
+import StudentStudyLogs from "../components/StudentStudyLogs";
 
 function useMediaQuery(query: string) {
   const [matches, setMatches] = useState(false);
@@ -30,18 +28,26 @@ function useMediaQuery(query: string) {
   return matches;
 }
 
-import StudentGrades from "../components/StudentGrades";
-import StudentGoals from "../components/StudentGoals";
-import StudentGroups from "../components/StudentGroups";
-import StudentStudyLogs from "../components/StudentStudyLogs";
-import CalendarBoard from "../components/CalendarBoard";
-import type { CalendarPermissions } from "../components/CalendarBoard";
+type StudySubject = {
+  id: string;
+  name: string;
+  sort_order: number | null;
+  scope: string | null;
+  is_active: boolean | null;
+};
+
+const SCHOOL_YEARS = ["中1", "中2", "中3", "高1", "高2", "高3", "その他"] as const;
+type SchoolYear = (typeof SCHOOL_YEARS)[number];
 
 type Profile = {
   id: string;
   name: string;
   phone: string | null;
   memo: string | null;
+
+  // ✅追加
+  school: string | null;
+  school_year: SchoolYear | null;
 };
 
 type Tab = "profile" | "goals" | "grades" | "records";
@@ -67,24 +73,69 @@ export default function MyPage({ initialTab = "profile", initialGoalPeriod = "we
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  // ===== Load profile =====
+  // ✅教科
+  const [allSubjects, setAllSubjects] = useState<StudySubject[]>([]);
+  const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
+  const [loadingExtra, setLoadingExtra] = useState(false);
+
+  function toggleSubject(id: string) {
+    setSelectedSubjectIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  // ===== Load profile + extra =====
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       if (!user) return;
       setMsg(null);
+      setLoadingExtra(true);
 
+      // 1) profiles
       const { data, error } = await supabase
         .from("profiles")
-        .select("id,name,phone,memo")
+        .select("id,name,phone,memo,school,school_year")
         .eq("id", user.id)
         .maybeSingle();
 
       if (cancelled) return;
 
-      if (error) setMsg("読み込み失敗: " + error.message);
-      else setForm((data as Profile) ?? null);
+      if (error) {
+        setMsg("読み込み失敗: " + error.message);
+        setLoadingExtra(false);
+        return;
+      }
+
+      setForm((data as Profile) ?? null);
+
+      // 2) study_subjects（junior固定・active）
+      const { data: subs, error: se } = await supabase
+        .from("study_subjects")
+        .select("id,name,sort_order,scope,is_active")
+        .eq("scope", "junior")
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+
+      if (!cancelled) {
+        if (!se) setAllSubjects((subs ?? []) as StudySubject[]);
+      }
+
+      // 3) profile_subjects（本人の選択済み）
+      const { data: ps, error: pse } = await supabase
+        .from("profile_subjects")
+        .select("subject_id")
+        .eq("user_id", user.id);
+
+      if (!cancelled) {
+        if (!pse) {
+          const ids = (ps ?? [])
+            .map((r: Record<string, unknown>) => String(r.subject_id))
+            .filter(Boolean);
+          setSelectedSubjectIds(ids);
+        }
+      }
+
+      if (!cancelled) setLoadingExtra(false);
     }
 
     load();
@@ -95,34 +146,48 @@ export default function MyPage({ initialTab = "profile", initialGoalPeriod = "we
 
   async function onSave(e: React.FormEvent) {
     e.preventDefault();
-    if (!form) return;
+    if (!form || !user) return;
 
     setSaving(true);
     setMsg(null);
 
+    // 1) profiles update
     const payload = {
       name: (form.name ?? "").trim(),
       phone: (form.phone ?? "").trim() || null,
       memo: (form.memo ?? "").trim() || null,
+      school: (form.school ?? "").trim() || null,
+      school_year: (form.school_year ?? null) as SchoolYear | null,
     };
 
-    const { error } = await supabase.from("profiles").update(payload).eq("id", form.id);
+    const { error: ue } = await supabase.from("profiles").update(payload).eq("id", form.id);
+    if (ue) {
+      setMsg("保存失敗: " + ue.message);
+      setSaving(false);
+      return;
+    }
 
-    if (error) setMsg("保存失敗: " + error.message);
-    else setMsg("保存しました。");
+    // 2) profile_subjects 入れ替え（安全に delete → insert）
+    const { error: de } = await supabase.from("profile_subjects").delete().eq("user_id", user.id);
+    if (de) {
+      setMsg("教科の保存に失敗（削除）: " + de.message);
+      setSaving(false);
+      return;
+    }
 
+    if (selectedSubjectIds.length > 0) {
+      const ins = selectedSubjectIds.map((sid) => ({ user_id: user.id, subject_id: sid }));
+      const { error: ie } = await supabase.from("profile_subjects").insert(ins);
+      if (ie) {
+        setMsg("教科の保存に失敗（追加）: " + ie.message);
+        setSaving(false);
+        return;
+      }
+    }
+
+    setMsg("保存しました。");
     setSaving(false);
   }
-
-  // ===== Calendar permissions (必ず渡す) =====
-  const calendarPermissions: CalendarPermissions = useMemo(() => {
-    return {
-      viewPersonal: true,
-      editPersonal: true,
-      viewSchool: true,
-      editSchool: !!isStaff,
-    };
-  }, [isStaff]);
 
   // ================== styles ==================
   const pageBg: React.CSSProperties = {
@@ -238,7 +303,11 @@ export default function MyPage({ initialTab = "profile", initialGoalPeriod = "we
 
           <div>
             <Card title="プロフィール">
-              {!form ? <InfoText>読み込み中...</InfoText> : <ProfileForm form={form} setForm={setForm} onSave={onSave} saving={saving} msg={msg} />}
+              {!form ? (
+                <InfoText>読み込み中...</InfoText>
+              ) : (
+                <ProfileForm form={form} setForm={setForm} onSave={onSave} saving={saving} msg={msg} allSubjects={[]} selectedSubjectIds={[]} toggleSubject={() => {}} loadingExtra={false} />
+              )}
             </Card>
           </div>
         </div>
@@ -282,24 +351,23 @@ export default function MyPage({ initialTab = "profile", initialGoalPeriod = "we
         {/* Body */}
         <div>
           {tab === "profile" && (
-            <>
-              <Card title="プロフィール">
-                {!form ? <InfoText>読み込み中...</InfoText> : <ProfileForm form={form} setForm={setForm} onSave={onSave} saving={saving} msg={msg} />}
-              </Card>
-
-              <Card title="所属グループ">
-                <div
-                  style={{
-                    borderRadius: 14,
-                    border: "1px solid rgba(148,163,184,0.22)",
-                    background: "#ffffff",
-                    padding: 12,
-                  }}
-                >
-                  <StudentGroups userId={user.id} />
-                </div>
-              </Card>
-            </>
+            <Card title="プロフィール">
+              {!form ? (
+                <InfoText>読み込み中...</InfoText>
+              ) : (
+                <ProfileForm
+                  form={form}
+                  setForm={setForm}
+                  onSave={onSave}
+                  saving={saving}
+                  msg={msg}
+                  allSubjects={allSubjects}
+                  selectedSubjectIds={selectedSubjectIds}
+                  toggleSubject={toggleSubject}
+                  loadingExtra={loadingExtra}
+                />
+              )}
+            </Card>
           )}
 
           {tab === "goals" && (
@@ -315,18 +383,9 @@ export default function MyPage({ initialTab = "profile", initialGoalPeriod = "we
           )}
 
           {tab === "records" && (
-            <>
-              <Card title="勉強時間の記録">
-                <StudentStudyLogs userId={user.id} editable={true} />
-              </Card>
-
-              <Card
-                title="カレンダー"
-                right={<span style={{ fontSize: 12, fontWeight: 900, color: "#64748b" }}>個人=編集OK / 塾=閲覧</span>}
-              >
-                <CalendarBoard ownerUserId={user.id} permissions={calendarPermissions} />
-              </Card>
-            </>
+            <Card title="勉強時間の記録">
+              <StudentStudyLogs userId={user.id} editable={true} />
+            </Card>
           )}
         </div>
       </div>
@@ -413,18 +472,55 @@ function ProfileForm({
   onSave,
   saving,
   msg,
+  allSubjects,
+  selectedSubjectIds,
+  toggleSubject,
+  loadingExtra,
 }: {
   form: Profile;
   setForm: React.Dispatch<React.SetStateAction<Profile | null>>;
   onSave: (e: React.FormEvent) => Promise<void>;
   saving: boolean;
   msg: string | null;
+  allSubjects: StudySubject[];
+  selectedSubjectIds: string[];
+  toggleSubject: (id: string) => void;
+  loadingExtra: boolean;
 }) {
+  const isMobile = useMediaQuery("(max-width: 520px)");
+  const canShowExtra = true; // for non-staff students
+  
   return (
     <form onSubmit={onSave} style={{ display: "grid", gap: 12, maxWidth: 720 }}>
       <Field label="氏名">
         <input style={inputStyle()} value={form.name ?? ""} onChange={(e) => setForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))} />
       </Field>
+
+      <Field label="学校">
+        <input
+          style={inputStyle()}
+          placeholder="例）○○中学校"
+          value={form.school ?? ""}
+          onChange={(e) => setForm((prev) => (prev ? { ...prev, school: e.target.value || null } : prev))}
+        />
+      </Field>
+
+      {canShowExtra && (
+        <Field label="学年">
+          <select
+            style={inputStyle()}
+            value={form.school_year ?? ""}
+            onChange={(e) => setForm((prev) => (prev ? { ...prev, school_year: (e.target.value as SchoolYear) || null } : prev))}
+          >
+            <option value="">選択してください</option>
+            {SCHOOL_YEARS.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
 
       <Field label="電話番号">
         <input
@@ -434,6 +530,40 @@ function ProfileForm({
           onChange={(e) => setForm((prev) => (prev ? { ...prev, phone: e.target.value || null } : prev))}
         />
       </Field>
+
+      {canShowExtra && (
+        <Field label="教科">
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(3, 1fr)",
+              gap: 8,
+            }}
+          >
+            {allSubjects.map((subj) => (
+              <button
+                key={subj.id}
+                type="button"
+                onClick={() => toggleSubject(subj.id)}
+                disabled={loadingExtra}
+                style={{
+                  ...inputStyle(),
+                  backgroundColor: selectedSubjectIds.includes(subj.id) ? "rgba(59,130,246,0.16)" : "rgba(255,255,255,0.95)",
+                  color: selectedSubjectIds.includes(subj.id) ? "#1d4ed8" : "#0f172a",
+                  fontWeight: selectedSubjectIds.includes(subj.id) ? 900 : 800,
+                  border: selectedSubjectIds.includes(subj.id) ? "2px solid #3b82f6" : "1px solid rgba(148,163,184,0.35)",
+                  cursor: loadingExtra ? "not-allowed" : "pointer",
+                  opacity: loadingExtra ? 0.6 : 1,
+                  transition: "all 120ms ease",
+                  padding: "10px 12px",
+                }}
+              >
+                {subj.name}
+              </button>
+            ))}
+          </div>
+        </Field>
+      )}
 
       <Field label="メモ">
         <textarea
