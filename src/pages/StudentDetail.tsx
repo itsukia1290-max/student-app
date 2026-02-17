@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { useIsStaff } from "../hooks/useIsStaff";
+import { useNav } from "../hooks/useNav";
 import { supabase } from "../lib/supabase";
 import StudentGrades from "../components/StudentGrades";
 import StudentGoals from "../components/StudentGoals";
@@ -56,6 +57,7 @@ function useMediaQuery(query: string) {
 
 export default function StudentDetail({ student, onBack }: Props) {
   const { isStaff } = useIsStaff();
+  const nav = useNav();
   const isMobile = useMediaQuery("(max-width: 520px)");
   const [tab, setTab] = useState<Tab>("report");
 
@@ -285,8 +287,20 @@ export default function StudentDetail({ student, onBack }: Props) {
         {tab === "grades" && (
           <Card>
             <div style={sectionHeader()}>
-              <div style={sectionTitle()}>問題集の成績</div>
-              <div style={sectionHint()}>{isStaff ? "先生：編集" : "生徒：閲覧/自己編集（許可時）"}</div>
+              <div>
+                <div style={sectionTitle()}>問題集の成績</div>
+                <div style={sectionHint()}>{isStaff ? "先生：編集" : "生徒：閲覧/自己編集（許可時）"}</div>
+              </div>
+
+              {isStaff && (
+                <button
+                  type="button"
+                  style={backBtn()}
+                  onClick={() => nav.openDmWith(student.id)}
+                >
+                  DMへ
+                </button>
+              )}
             </div>
 
             <div style={{ marginTop: 12 }}>

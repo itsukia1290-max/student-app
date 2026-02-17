@@ -81,12 +81,14 @@ export default function TeacherReportView({ ownerUserId }: { ownerUserId: string
           <div style={{ display: "flex", gap: 8 }}>
             <span style={subtleRightStyle}>Teacher</span>
             <button
-              onClick={() =>
-                nav.openDmWith(
-                  ownerUserId,
-                  "成績を更新しました。ご確認ください。"
-                )
-              }
+              onClick={() => {
+                // まずは確実にDM画面へ遷移
+                nav.setView("dm");
+
+                // openDmWith がある環境なら生徒DMを開く（存在しなければ無視）
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (nav as any).openDmWith?.(ownerUserId);
+              }}
               style={{
                 ...subtleRightStyle,
                 background: "linear-gradient(180deg, #53B9FF 0%, #2EA8FF 100%)",

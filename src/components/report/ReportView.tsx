@@ -139,9 +139,29 @@ function SoftCard({
 }
 
 export default function ReportView(props: Props) {
+  console.log("[ReportView render]", { mode: props.mode, ownerUserId: props.ownerUserId });
+
   // ★ 教師は完全に別画面
   if (props.mode === "teacher") {
-    return <TeacherReportView ownerUserId={props.ownerUserId} />;
+    return (
+      <div>
+        <div
+          style={{
+            padding: 10,
+            marginBottom: 10,
+            borderRadius: 12,
+            background: "#fee2e2",
+            border: "1px solid #fecaca",
+            color: "#7f1d1d",
+            fontWeight: 900,
+          }}
+        >
+          TEACHER MODE / ownerUserId = {props.ownerUserId}
+        </div>
+
+        <TeacherReportView ownerUserId={props.ownerUserId} />
+      </div>
+    );
   }
 
   // ---- ここから下は既存の生徒用 ----
@@ -286,6 +306,18 @@ function StudentReportView({
     boxShadow: "0 10px 22px rgba(15, 23, 42, 0.06)",
   };
 
+  const dmBtn: React.CSSProperties = {
+    border: "1px solid rgba(59,130,246,0.22)",
+    background: "#ffffff",
+    color: "#1d4ed8",
+    borderRadius: "999px",
+    padding: "10px 12px",
+    fontWeight: 950,
+    cursor: "pointer",
+    boxShadow: "0 10px 22px rgba(15, 23, 42, 0.06)",
+    whiteSpace: "nowrap",
+  };
+
   function GoalBlock({ g }: { g: GoalRow | null }) {
     if (goalsLoading) {
       return <div style={{ color: "#94a3b8", fontSize: "13px", fontWeight: 900 }}>読み込み中...</div>;
@@ -324,8 +356,20 @@ function StudentReportView({
             </div>
           </div>
 
-          {/* 右側に軽いヒント（必要なら削除OK） */}
-          <span style={subtleRightStyle}>{canEdit ? "生徒画面" : "閲覧モード"}</span>
+          {/* 右側：先生が生徒のレポートを見ている時だけ DMへ ボタン */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {viewerRole === "staff" && (
+              <button
+                type="button"
+                style={dmBtn}
+                onClick={() => nav.openDmWith(ownerUserId)}
+              >
+                DMへ
+              </button>
+            )}
+
+            <span style={subtleRightStyle}>{canEdit ? "生徒画面" : "閲覧モード"}</span>
+          </div>
         </div>
 
         {/* ===== ここから “記録” の中身（従来 tab===record 側）を直置き ===== */}

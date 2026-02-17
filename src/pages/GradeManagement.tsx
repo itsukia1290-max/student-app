@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useIsStaff } from "../hooks/useIsStaff";
+import { useNav } from "../hooks/useNav";
 import TeacherGradesPanel from "../components/report/TeacherGradesPanel";
 
 const colors = {
@@ -164,6 +165,7 @@ function pill(color: "green" | "amber" | "sky", text: string) {
 
 export default function GradeManagement() {
   const { isStaff } = useIsStaff();
+  const nav = useNav();
   const canUse = isStaff;
 
   const [teacherId, setTeacherId] = useState<string | null>(null);
@@ -705,11 +707,32 @@ export default function GradeManagement() {
                   </div>
                 ) : (
                   <div style={{ display: "grid", gap: 12 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                       <div style={{ fontSize: 16, fontWeight: 900, color: colors.textMain }}>
                         {selectedStudent.name ?? "未設定"} の成績
                       </div>
-                      <div style={{ fontSize: 12, color: colors.textSub, fontWeight: 800 }}>先生：編集</div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ fontSize: 12, color: colors.textSub, fontWeight: 800 }}>
+                          先生：編集
+                        </div>
+
+                        <button
+                          style={{
+                            ...styles.btnPrimary,
+                            padding: "8px 12px",
+                            fontSize: 12,
+                          }}
+                          onClick={() => {
+                            if (!selectedStudent) return;
+                            nav.setView("dm");
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            (nav as any).openDmWith?.(selectedStudent.id);
+                          }}
+                        >
+                          ✉ DMへ
+                        </button>
+                      </div>
                     </div>
 
                     <div style={{ border: `1px solid ${colors.border}`, borderRadius: 16, padding: 12, background: "#fff" }}>
