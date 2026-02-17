@@ -107,9 +107,49 @@ const styles = {
     padding: "10px 12px",
     whiteSpace: "pre-wrap" as const,
   },
+  row: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "12px",
+    padding: "12px 12px",
+    borderRadius: "14px",
+    border: `1px solid rgba(15,23,42,0.06)`,
+    background: "#fff",
+    alignItems: "center",
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    background: "rgba(14,165,233,0.12)",
+    color: "#0ea5e9",
+    display: "grid",
+    placeItems: "center",
+    fontWeight: 900,
+    flexShrink: 0,
+  },
+  memoChip: {
+    maxWidth: 280,
+    fontSize: 12,
+    fontWeight: 800,
+    color: colors.textSub,
+    border: `1px solid rgba(15,23,42,0.06)`,
+    borderRadius: 999,
+    padding: "6px 10px",
+    background: "rgba(248,250,252,0.9)",
+    overflow: "hidden" as const,
+    textOverflow: "ellipsis" as const,
+    whiteSpace: "nowrap" as const,
+  },
 };
 
-type StudentMini = { id: string; name: string | null; phone: string | null; memo: string | null };
+type StudentMini = {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  school_year: string | null;
+  subjects: string[];
+};
 type TemplateMini = { id: string; title: string; total_problems: number };
 
 type DistStatus = {
@@ -163,6 +203,34 @@ function pill(color: "green" | "amber" | "sky", text: string) {
   );
 }
 
+function initial(name?: string | null) {
+  return name?.trim()?.slice(0, 1) || "生";
+}
+
+async function loadSubjectsMap(userIds: string[]) {
+  if (userIds.length === 0) return new Map<string, string[]>();
+
+  const { data, error } = await supabase
+    .from("profile_subjects")
+    .select("user_id, study_subjects(name)")
+    .in("user_id", userIds);
+
+  if (error) throw error;
+
+  const map = new Map<string, string[]>();
+  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+    const uid = row.user_id as string;
+    const name = (row.study_subjects as Record<string, unknown> | null)?.name as string | undefined;
+    if (!uid || !name) continue;
+    map.set(uid, [...(map.get(uid) ?? []), name]);
+  }
+
+  for (const [k, v] of map.entries()) {
+    map.set(k, [...new Set(v)].sort((a, b) => a.localeCompare(b, "ja")));
+  }
+  return map;
+}
+
 export default function GradeManagement() {
   const { isStaff } = useIsStaff();
   const nav = useNav();
@@ -200,6 +268,12 @@ export default function GradeManagement() {
   const [distSelected, setDistSelected] = useState<Set<string>>(new Set());
   const [distOverwrite, setDistOverwrite] = useState(false);
 
+  // --- template create modal (NEW) ---
+  const [tplCreateOpen, setTplCreateOpen] = useState(false);
+  const [tplNewTitle, setTplNewTitle] = useState("");
+  const [tplNewChapters, setTplNewChapters] = useState<Array<{ title: string; count: number }>>([{ title: "", count: 10 }]);
+  const [tplRefreshNonce, setTplRefreshNonce] = useState(0);
+
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getUser();
@@ -223,22 +297,58 @@ export default function GradeManagement() {
   async function loadStudents() {
     setStudentLoading(true);
 
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id,name,phone,memo")
-      .eq("role", "student")
-      .eq("status", "active")
-      .eq("is_approved", true)
-      .order("name", { ascending: true });
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id,name,phone,school_year")
+        .eq("role", "student")
+        .eq("status", "active")
+        .eq("is_approved", true)
+        .order("name", { ascending: true });
 
-    if (!error) setStudents((data ?? []) as StudentMini[]);
-    setStudentLoading(false);
+      if (error) throw error;
+
+      const list = (data ?? []) as Array<{
+        id: string;
+        name: string | null;
+        phone: string | null;
+        school_year: string | null;
+      }>;
+
+      const ids = list.map((x) => x.id);
+      const subMap = await loadSubjectsMap(ids);
+
+      const enriched: StudentMini[] = list.map((r) => ({
+        id: r.id,
+        name: r.name,
+        phone: r.phone,
+        school_year: r.school_year,
+        subjects: subMap.get(r.id) ?? [],
+      }));
+
+      setStudents(enriched);
+    } catch {
+      // 今はUIにエラー欄がないので黙って落とす（必要ならメッセージstate追加OK）
+    } finally {
+      setStudentLoading(false);
+    }
   }
 
   const filtered = useMemo(() => {
     const key = q.trim().toLowerCase();
     if (!key) return students;
-    return students.filter((s) => (s.name ?? "").toLowerCase().includes(key));
+
+    return students.filter((s) => {
+      const hay = [
+        s.name ?? "",
+        s.phone ?? "",
+        s.school_year ?? "",
+        (s.subjects ?? []).join(" "),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(key);
+    });
   }, [students, q]);
 
   // --- template list ---
@@ -264,46 +374,112 @@ export default function GradeManagement() {
   }, [canUse]);
 
   // --- template actions ---
-  async function createTemplate() {
+  async function createTemplateWithChapters() {
     if (!teacherId) return;
-    const title = window.prompt("共通テンプレ名を入力してください（例：英語 基礎問題）");
-    if (!title) return;
+
+    const title = tplNewTitle.trim();
+    if (!title) {
+      setTplMsg("問題集名を入力してください。");
+      return;
+    }
+
+    const cleaned = tplNewChapters
+      .map((c) => ({ title: (c.title ?? "").trim(), count: Number(c.count || 0) }))
+      .filter((c) => c.count > 0);
+
+    if (cleaned.length === 0) {
+      setTplMsg("章を1つ以上追加し、問題数を設定してください。");
+      return;
+    }
+
+    const total = cleaned.reduce((s, c) => s + c.count, 0);
+    if (total <= 0) {
+      setTplMsg("合計問題数が0です。");
+      return;
+    }
 
     setTplBusy(true);
     setTplMsg(null);
 
+    // 1) workbooks
     const { data: wb, error: wbErr } = await supabase
       .from("workbooks")
-      .insert([{ title: title.trim(), total_problems: 0 }])
+      .insert([{ title, total_problems: total }])
       .select("id,title,total_problems")
       .single();
 
-    if (wbErr) {
-      setTplMsg("テンプレ作成失敗(workbooks): " + wbErr.message);
+    if (wbErr || !wb) {
+      setTplMsg("テンプレ作成失敗(workbooks): " + (wbErr?.message ?? "unknown"));
       setTplBusy(false);
       return;
     }
 
-    const { error: gErr } = await supabase.from("student_grades").insert([
-      {
-        user_id: teacherId,
-        workbook_id: wb.id,
-        title: wb.title,
-        problem_count: 0,
-        marks: [],
-        labels: [],
-      },
+    // 2) teacher's grade (template source)
+    const { data: g, error: gErr } = await supabase
+      .from("student_grades")
+      .insert([
+        {
+          user_id: teacherId,
+          workbook_id: wb.id,
+          title: wb.title,
+          problem_count: total,
+          marks: [],
+          labels: Array.from({ length: total }, (_, i) => String(i + 1)),
+        },
+      ])
+      .select("id")
+      .single();
+
+    if (gErr || !g) {
+      setTplMsg("テンプレ作成失敗(student_grades): " + (gErr?.message ?? "unknown"));
+      setTplBusy(false);
+      return;
+    }
+
+    // 3) chapters for teacher grade
+    let cursor = 0;
+    const chPayload = cleaned.map((ch) => {
+      const start = cursor;
+      const end = cursor + ch.count - 1;
+      cursor += ch.count;
+
+      return {
+        grade_id: g.id,
+        start_idx: start,
+        end_idx: end,
+        chapter_title: ch.title || null,
+        chapter_note: "",
+        teacher_memo: "",
+        next_homework: "",
+        note: "",
+      };
+    });
+
+    if (chPayload.length > 0) {
+      const { error: chErr } = await supabase.from("student_grade_notes").insert(chPayload);
+      if (chErr) {
+        setTplMsg("テンプレ章作成失敗(student_grade_notes): " + chErr.message);
+        setTplBusy(false);
+        return;
+      }
+    }
+
+    // refresh UI（即時反映を最優先）
+    setTemplates((prev) => [
+      { id: wb.id, title: wb.title, total_problems: wb.total_problems },
+      ...prev,
     ]);
 
-    if (gErr) {
-      setTplMsg("テンプレ作成失敗(student_grades): " + gErr.message);
-      setTplBusy(false);
-      return;
-    }
-
-    await loadTemplates();
     setActiveTemplateId(wb.id);
-    setTplMsg(`テンプレ「${wb.title}」を作成しました。下で章を作ってから「配布先を選ぶ」で追加してください。`);
+
+    // TeacherGradesPanel を強制リマウント（=再読み込み）
+    setTplRefreshNonce((n) => n + 1);
+
+    // ついでに最新と整合（失敗してもUIはもう出てるのでOK）
+    loadTemplates();
+
+    setTplCreateOpen(false);
+    setTplMsg(`テンプレ「${wb.title}」を作成しました。章も作成済みです。「🎯 配布先を選ぶ」から追加してください。`);
     setTplBusy(false);
   }
 
@@ -510,6 +686,104 @@ export default function GradeManagement() {
 
   const activeTpl = templates.find((t) => t.id === activeTemplateId) ?? null;
 
+  function gmModalOverlay(): React.CSSProperties {
+    return {
+      position: "fixed",
+      inset: 0,
+      background: "rgba(15,23,42,0.35)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 9999,
+    };
+  }
+
+  function gmModalCard(): React.CSSProperties {
+    return {
+      width: 520,
+      background: "#fff",
+      borderRadius: 18,
+      padding: 20,
+      boxShadow: "0 20px 50px rgba(0,0,0,0.15)",
+    };
+  }
+
+  function gmModalTitle(): React.CSSProperties {
+    return { fontSize: 18, fontWeight: 1000, marginBottom: 16, color: "#0f172a" };
+  }
+
+  function gmLabelStyle(): React.CSSProperties {
+    return { fontWeight: 900, fontSize: 13, marginBottom: 6, color: "#0f172a" };
+  }
+
+  function gmInputStyle(): React.CSSProperties {
+    return {
+      width: "100%",
+      padding: "8px 10px",
+      borderRadius: 10,
+      border: "1px solid rgba(148,163,184,0.30)",
+      fontWeight: 800,
+      outline: "none",
+    };
+  }
+
+  function gmChapterRowStyle(): React.CSSProperties {
+    return {
+      display: "grid",
+      gridTemplateColumns: "1fr 80px 40px",
+      gap: 8,
+      marginBottom: 6,
+      alignItems: "center",
+    };
+  }
+
+  function gmSmallDeleteBtn(): React.CSSProperties {
+    return {
+      borderRadius: 8,
+      border: "1px solid rgba(220,38,38,0.30)",
+      background: "rgba(254,242,242,0.92)",
+      cursor: "pointer",
+      fontWeight: 900,
+      height: 36,
+    };
+  }
+
+  function gmAddChapterBtn(): React.CSSProperties {
+    return {
+      padding: "6px 10px",
+      borderRadius: 10,
+      border: "1px dashed rgba(37,99,235,0.35)",
+      background: "rgba(255,255,255,0.92)",
+      color: "#1d4ed8",
+      fontWeight: 900,
+      fontSize: 12,
+      cursor: "pointer",
+    };
+  }
+
+  function gmCancelBtn(): React.CSSProperties {
+    return {
+      padding: "8px 14px",
+      borderRadius: 10,
+      border: "1px solid rgba(148,163,184,0.3)",
+      background: "#fff",
+      cursor: "pointer",
+      fontWeight: 900,
+    };
+  }
+
+  function gmPrimaryBtn(disabled?: boolean): React.CSSProperties {
+    return {
+      padding: "8px 14px",
+      borderRadius: 10,
+      border: "none",
+      background: disabled ? "rgba(37,99,235,0.6)" : "#2563eb",
+      color: "#fff",
+      fontWeight: 900,
+      cursor: disabled ? "not-allowed" : "pointer",
+    };
+  }
+
   return (
     <div style={styles.page}>
       <div style={styles.container}>
@@ -528,6 +802,7 @@ export default function GradeManagement() {
               refreshCounts();
               loadStudents();
               loadTemplates();
+              setTplRefreshNonce((n) => n + 1);
             }}
             disabled={tplBusy}
           >
@@ -570,7 +845,16 @@ export default function GradeManagement() {
               ) : (
                 <div style={{ display: "grid", gap: 12 }}>
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                    <button style={{ ...styles.btnGhost, opacity: tplBusy ? 0.6 : 1 }} disabled={tplBusy} onClick={createTemplate}>
+                    <button
+                      style={{ ...styles.btnGhost, opacity: tplBusy ? 0.6 : 1 }}
+                      disabled={tplBusy}
+                      onClick={() => {
+                        setTplMsg(null);
+                        setTplNewTitle("");
+                        setTplNewChapters([{ title: "", count: 10 }]);
+                        setTplCreateOpen(true);
+                      }}
+                    >
                       ＋ テンプレ作成
                     </button>
 
@@ -620,7 +904,11 @@ export default function GradeManagement() {
 
                   {activeTemplateId ? (
                     <div style={{ border: `1px solid ${colors.border}`, borderRadius: 16, padding: 12, background: "#fff" }}>
-                      <TeacherGradesPanel ownerUserId={teacherId} mode="template" />
+                      <TeacherGradesPanel
+                        key={`tpl-${teacherId}-${activeTemplateId}-${tplRefreshNonce}`}
+                        ownerUserId={teacherId}
+                        mode="template"
+                      />
                     </div>
                   ) : (
                     <div style={{ fontSize: 13, color: colors.textSub, fontWeight: 800 }}>テンプレを選択すると、ここで編集できます。</div>
@@ -673,27 +961,37 @@ export default function GradeManagement() {
                 ) : filtered.length === 0 ? (
                   <div style={{ fontSize: 13, color: colors.textSub, fontWeight: 800 }}>該当生徒がいません。</div>
                 ) : (
-                  <div style={{ display: "grid", gap: 8, maxHeight: 520, overflow: "auto" }}>
+                  <div style={{ display: "grid", gap: 10, maxHeight: 520, overflow: "auto" }}>
                     {filtered.map((s) => {
                       const active = s.id === selectedId;
+                      const chipText =
+                        (s.school_year ?? "-") + " / " + (s.subjects?.length ? s.subjects.join("・") : "教科未設定");
+
                       return (
-                        <button
+                        <div
                           key={s.id}
-                          onClick={() => setSelectedId(s.id)}
                           style={{
-                            textAlign: "left",
-                            border: `1px solid ${active ? "rgba(14,165,233,0.55)" : colors.border}`,
-                            background: active ? "rgba(14,165,233,0.10)" : "#fff",
-                            borderRadius: 14,
-                            padding: "12px 12px",
+                            ...styles.row,
                             cursor: "pointer",
+                            border: `1px solid ${active ? "rgba(14,165,233,0.35)" : "rgba(15,23,42,0.06)"}`,
+                            background: active ? "rgba(14,165,233,0.08)" : "#fff",
                           }}
+                          onClick={() => setSelectedId(s.id)}
                         >
-                          <div style={{ fontWeight: 900, color: colors.textMain }}>{s.name ?? "未設定"}</div>
-                          <div style={{ fontSize: 12, color: colors.textSub, fontWeight: 700 }}>
-                            {s.phone ?? "-"} / {s.memo ?? "-"}
+                          <div style={{ display: "flex", gap: 12 }}>
+                            <div style={styles.avatar}>{initial(s.name)}</div>
+                            <div>
+                              <div style={{ fontWeight: 700, color: colors.textMain }}>{s.name ?? "未設定"}</div>
+                              <div style={{ fontSize: 12, color: colors.textSub, fontWeight: 700 }}>
+                                {s.phone ?? "-"}
+                              </div>
+                            </div>
                           </div>
-                        </button>
+
+                          <div style={styles.memoChip} title={chipText}>
+                            {chipText}
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
@@ -881,6 +1179,8 @@ export default function GradeManagement() {
                     {distList.map((s) => {
                       const checked = distSelected.has(s.id);
                       const already = distStatus.alreadyIds.has(s.id);
+                      const chipText =
+                        (s.school_year ?? "-") + " / " + (s.subjects?.length ? s.subjects.join("・") : "教科未設定");
                       return (
                         <button
                           key={s.id}
@@ -901,7 +1201,7 @@ export default function GradeManagement() {
                           <div style={{ display: "grid", gap: 2 }}>
                             <div style={{ fontWeight: 900, color: colors.textMain }}>{s.name ?? "未設定"}</div>
                             <div style={{ fontSize: 12, color: colors.textSub, fontWeight: 700 }}>
-                              {s.phone ?? "-"} / {s.memo ?? "-"}
+                              {chipText}
                             </div>
                           </div>
                           <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
@@ -919,6 +1219,97 @@ export default function GradeManagement() {
             </div>
           </div>
         </div>
+
+        {tplCreateOpen && (
+          <div style={gmModalOverlay()} role="dialog" aria-modal="true" aria-label="テンプレ作成">
+            <div style={gmModalCard()}>
+              <div style={gmModalTitle()}>共通テンプレを作成</div>
+
+              <div style={{ display: "grid", gap: 12 }}>
+                <div>
+                  <div style={gmLabelStyle()}>問題集名</div>
+                  <input
+                    value={tplNewTitle}
+                    onChange={(e) => setTplNewTitle(e.target.value)}
+                    placeholder="例：英語 基礎問題"
+                    style={gmInputStyle()}
+                    disabled={tplBusy}
+                  />
+                </div>
+
+                <div>
+                  <div style={gmLabelStyle()}>章設定</div>
+
+                  {tplNewChapters.map((ch, i) => (
+                    <div key={i} style={gmChapterRowStyle()}>
+                      <input
+                        placeholder="章名"
+                        value={ch.title}
+                        onChange={(e) => {
+                          const next = [...tplNewChapters];
+                          next[i] = { ...next[i], title: e.target.value };
+                          setTplNewChapters(next);
+                        }}
+                        style={gmInputStyle()}
+                        disabled={tplBusy}
+                      />
+
+                      <input
+                        type="number"
+                        min={1}
+                        value={ch.count}
+                        onChange={(e) => {
+                          const next = [...tplNewChapters];
+                          next[i] = { ...next[i], count: Number(e.target.value) };
+                          setTplNewChapters(next);
+                        }}
+                        style={{ ...gmInputStyle(), width: 80 }}
+                        disabled={tplBusy}
+                      />
+
+                      <button
+                        onClick={() => setTplNewChapters((prev) => prev.filter((_, idx) => idx !== i))}
+                        style={gmSmallDeleteBtn()}
+                        disabled={tplBusy || tplNewChapters.length <= 1}
+                        title={tplNewChapters.length <= 1 ? "最低1章は必要です" : "この章を削除"}
+                      >
+                        🗑
+                      </button>
+                    </div>
+                  ))}
+
+                  <button
+                    onClick={() => setTplNewChapters((prev) => [...prev, { title: "", count: 5 }])}
+                    style={gmAddChapterBtn()}
+                    disabled={tplBusy}
+                  >
+                    ＋ 章を追加
+                  </button>
+
+                  <div style={{ marginTop: 8, fontWeight: 900, color: "#0f172a" }}>
+                    合計問題数：{tplNewChapters.reduce((sum, c) => sum + Number(c.count || 0), 0)}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                  <button onClick={() => setTplCreateOpen(false)} style={gmCancelBtn()} disabled={tplBusy}>
+                    キャンセル
+                  </button>
+
+                  <button onClick={createTemplateWithChapters} style={gmPrimaryBtn(tplBusy)} disabled={tplBusy}>
+                    {tplBusy ? "作成中..." : "作成"}
+                  </button>
+                </div>
+
+                {tplMsg && (
+                  <div style={tplMsg.includes("作成しました") ? styles.info : styles.error}>
+                    {tplMsg}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
