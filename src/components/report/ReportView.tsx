@@ -221,6 +221,8 @@ function StudentReportView({
   const outerStyle: React.CSSProperties = {
     background: "#f1f5f9",
     padding: "12px",
+    // ✅ 下部固定バーに隠れないように安全余白
+    paddingBottom: "calc(96px + env(safe-area-inset-bottom))",
   };
 
   const innerStyle: React.CSSProperties = {

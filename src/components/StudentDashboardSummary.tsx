@@ -77,6 +77,18 @@ function hoursText(min: number) {
   return `${h.toFixed(2)} h`;
 }
 
+function colorOf(label: string) {
+  const map: Record<string, string> = {
+    国語: "#f97316",
+    数学: "#3b82f6",
+    英語: "#22c55e",
+    理科: "#a855f7",
+    社会: "#ef4444",
+    その他: "#64748b",
+  };
+  return map[label] ?? "#94a3b8";
+}
+
 export default function StudentDashboardSummary({ userId, canEdit = true }: Props) {
   const nav = useNav();
   const { subjects } = useStudySubjects();
@@ -242,21 +254,119 @@ export default function StudentDashboardSummary({ userId, canEdit = true }: Prop
         ) : err ? (
           <div style={{ fontSize: 13, fontWeight: 900, color: "#dc2626", whiteSpace: "pre-wrap" }}>{err}</div>
         ) : (
-          // ✅ 3つは常に横並び（高さ扱いをコンパクト化）
-          <div
-            style={{
-              marginTop: 10,
-              display: "grid",
-              gridTemplateColumns: "repeat(3, minmax(0, 1fr))", // ✅ 常に3列（スクロールなし）
-              gap: isMobile ? 6 : 10,                           // ✅ モバイルは詳める
-            }}
-          >
-            <SummaryTile compact={isMobile} label="今日" value={hoursText(todayMin)} breakdown={todayBreakdown} chart="donut" />
-            <SummaryTile compact={isMobile} label="今週" value={hoursText(weekMin)} breakdown={weekBreakdown} chart="donut" />
-            <SummaryTile compact={isMobile} label="今月" value={hoursText(monthMin)} breakdown={monthBreakdown} chart="donut" />
-          </div>
+          <>
+            {/* ✅ 凡例（色 ↔ 教科） */}
+            <Legend breakdowns={[todayBreakdown, weekBreakdown, monthBreakdown]} compact={isMobile} />
+
+            {/* ✅ 3つは常に横並び（高さ扱いをコンパクト化） */}
+            <div
+              style={{
+                marginTop: 10,
+                display: "grid",
+                gridTemplateColumns: "repeat(3, minmax(0, 1fr))", // ✅ 常に3列（スクロールなし）
+                gap: isMobile ? 6 : 10, // ✅ モバイルは狭める
+              }}
+            >
+              <SummaryTile compact={isMobile} label="今日" value={hoursText(todayMin)} breakdown={todayBreakdown} chart="donut" />
+              <SummaryTile compact={isMobile} label="今週" value={hoursText(weekMin)} breakdown={weekBreakdown} chart="donut" />
+              <SummaryTile compact={isMobile} label="今月" value={hoursText(monthMin)} breakdown={monthBreakdown} chart="donut" />
+            </div>
+          </>
         )}
       </div>
+    </div>
+  );
+}
+
+function Legend({
+  breakdowns,
+  compact,
+}: {
+  breakdowns: BreakdownItem[][];
+  compact: boolean;
+}) {
+  const map = new Map<string, number>();
+  for (const bd of breakdowns) {
+    for (const b of bd) {
+      map.set(b.label, (map.get(b.label) ?? 0) + b.minutes);
+    }
+  }
+
+  const items = [...map.entries()]
+    .filter(([label, minutes]) => minutes > 0 && label)
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, minutes]) => ({ label, minutes }));
+
+  if (items.length === 0) return null;
+
+  const max = compact ? 4 : 6;
+  const shown = items.slice(0, max);
+  const rest = items.length - shown.length;
+
+  return (
+    <div
+      style={{
+        marginTop: 10,
+        display: "flex",
+        flexWrap: "wrap",
+        gap: compact ? 6 : 8,
+        alignItems: "center",
+      }}
+    >
+      <div style={{ fontSize: 11, fontWeight: 900, color: "#64748b", marginRight: 2 }}>
+        色の対応：
+      </div>
+
+      {shown.map((it) => (
+        <div
+          key={it.label}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: compact ? "5px 8px" : "6px 10px",
+            borderRadius: 999,
+            border: "1px solid rgba(148,163,184,0.22)",
+            background: "rgba(248,250,252,0.9)",
+            fontSize: 11,
+            fontWeight: 900,
+            color: "#334155",
+            maxWidth: compact ? 120 : 160,
+          }}
+          title={`${it.label}: ${(it.minutes / 60).toFixed(2)}h`}
+        >
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: 3,
+              background: colorOf(it.label),
+              flexShrink: 0,
+            }}
+          />
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.label}</span>
+        </div>
+      ))}
+
+      {rest > 0 && (
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 900,
+            color: "#64748b",
+            padding: compact ? "5px 8px" : "6px 10px",
+            borderRadius: 999,
+            border: "1px dashed rgba(148,163,184,0.28)",
+            background: "rgba(255,255,255,0.7)",
+          }}
+          title={items
+            .slice(max)
+            .map((it) => `${it.label}: ${(it.minutes / 60).toFixed(2)}h`)
+            .join(" / ")}
+        >
+          +{rest}
+        </div>
+      )}
     </div>
   );
 }
@@ -328,18 +438,6 @@ function MiniStackedBar({ breakdown, total }: { breakdown: BreakdownItem[]; tota
   if (!breakdown.length || total <= 0) {
     return <div style={{ marginTop: 10, fontSize: 11, fontWeight: 800, color: "#94a3b8" }}>内訳なし</div>;
   }
-
-  const colorOf = (label: string) => {
-    const map: Record<string, string> = {
-      国語: "#f97316",
-      数学: "#3b82f6",
-      英語: "#22c55e",
-      理科: "#a855f7",
-      社会: "#ef4444",
-      その他: "#64748b",
-    };
-    return map[label] ?? "#94a3b8";
-  };
 
   return (
     <div style={{ marginTop: 10 }}>

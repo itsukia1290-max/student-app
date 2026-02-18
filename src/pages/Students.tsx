@@ -259,6 +259,7 @@ export default function Students() {
   const [withdrawnStudents, setWithdrawnStudents] = useState<Student[]>([]);
   const [withdrawnOpen, setWithdrawnOpen] = useState(false);
   const [q, setQ] = useState("");
+  const prevSelectedIdRef = useRef<string | null>(null);
 
   function norm(s: string) {
     return s
@@ -354,18 +355,6 @@ export default function Students() {
     }
   }
 
-  // Realtime で連続イベントが来ても loadAll を叩きすぎない（安全）
-  const reloadTimerRef = useRef<number | null>(null);
-
-  function scheduleReload(delayMs = 250) {
-    if (!isStaff) return;
-    if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
-    reloadTimerRef.current = window.setTimeout(() => {
-      reloadTimerRef.current = null;
-      loadAll();
-    }, delayMs);
-  }
-
   useEffect(() => {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -374,47 +363,17 @@ export default function Students() {
   useEffect(() => {
     if (!isStaff) return;
 
-    // profiles / profile_subjects の変更を監視して一覧を自動更新
-    const channel = supabase
-      .channel("students-auto-reload")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "profiles" },
-        (payload) => {
-          // student 以外の変更まで拾うと無駄が多いので可能な範囲で絞る
-          const row = (payload.new ?? payload.old) as Record<string, unknown> | null;
-          if (!row) return;
+    const prev = prevSelectedIdRef.current;
+    const curr = selected?.id ?? null;
 
-          // role が student の変更だけ拾う（insert/update/delete すべて対応）
-          const role = typeof row.role === "string" ? row.role : null;
-          if (role && role !== "student") return;
+    // ✅ 詳細画面から一覧に戻った瞬間（prevあり → currなし）だけ再読み込み
+    if (prev && !curr) {
+      loadAll();
+    }
 
-          // 退会/復活/承認などが変わったら再読み込み
-          scheduleReload();
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "profile_subjects" },
-        (payload) => {
-          // 教科変更があったら反映（表示チップが変わる）
-          const row = (payload.new ?? payload.old) as Record<string, unknown> | null;
-          if (!row) return;
-
-          scheduleReload();
-        }
-      )
-      .subscribe(() => {
-        // status は "SUBSCRIBED" 等。ログ不要なら消してOK
-        // console.log("[students-auto-reload]", status);
-      });
-
-    return () => {
-      if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
-      supabase.removeChannel(channel);
-    };
+    prevSelectedIdRef.current = curr;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isStaff]);
+  }, [selected, isStaff]);
 
   async function approve(p: Student) {
     setErr(null);
