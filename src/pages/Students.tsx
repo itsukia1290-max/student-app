@@ -1,5 +1,5 @@
 // src/pages/Students.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useIsStaff } from "../hooks/useIsStaff";
 import StudentDetail from "./StudentDetail";
@@ -354,8 +354,64 @@ export default function Students() {
     }
   }
 
+  // Realtime で連続イベントが来ても loadAll を叩きすぎない（安全）
+  const reloadTimerRef = useRef<number | null>(null);
+
+  function scheduleReload(delayMs = 250) {
+    if (!isStaff) return;
+    if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
+    reloadTimerRef.current = window.setTimeout(() => {
+      reloadTimerRef.current = null;
+      loadAll();
+    }, delayMs);
+  }
+
   useEffect(() => {
     loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isStaff]);
+
+  useEffect(() => {
+    if (!isStaff) return;
+
+    // profiles / profile_subjects の変更を監視して一覧を自動更新
+    const channel = supabase
+      .channel("students-auto-reload")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "profiles" },
+        (payload) => {
+          // student 以外の変更まで拾うと無駄が多いので可能な範囲で絞る
+          const row = (payload.new ?? payload.old) as any;
+          if (!row) return;
+
+          // role が student の変更だけ拾う（insert/update/delete すべて対応）
+          if (row.role && row.role !== "student") return;
+
+          // 退会/復活/承認などが変わったら再読み込み
+          scheduleReload();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "profile_subjects" },
+        (payload) => {
+          // 教科変更があったら反映（表示チップが変わる）
+          const row = (payload.new ?? payload.old) as any;
+          if (!row) return;
+
+          scheduleReload();
+        }
+      )
+      .subscribe(() => {
+        // status は "SUBSCRIBED" 等。ログ不要なら消してOK
+        // console.log("[students-auto-reload]", status);
+      });
+
+    return () => {
+      if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
+      supabase.removeChannel(channel);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isStaff]);
 
