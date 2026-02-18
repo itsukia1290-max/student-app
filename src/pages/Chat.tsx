@@ -87,7 +87,15 @@ export default function Chat() {
   const [showMembers, setShowMembers] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
 
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+
   const [q, setQ] = useState("");
+
+  type SenderMini = { id: string; name: string | null };
+  const [senderById, setSenderById] = useState<Record<string, SenderMini>>({});
 
   const [unreadByGroup, setUnreadByGroup] = useState<Record<string, number>>({});
   const [lastByGroup, setLastByGroup] = useState<Record<string, LastPreview>>({});
@@ -136,6 +144,34 @@ export default function Chat() {
       setUnreadByGroup((prev) => ({ ...prev, [groupId]: 0 }));
     },
     [myId]
+  );
+
+  const ensureSendersLoaded = useCallback(
+    async (senderIds: string[]) => {
+      const ids = Array.from(new Set(senderIds.filter(Boolean)));
+
+      // すでに持ってる分は除外
+      const missing = ids.filter((id) => !senderById[id]);
+      if (missing.length === 0) return;
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id,name")
+        .in("id", missing);
+
+      if (error) {
+        console.warn("⚠️ load sender profiles failed:", error.message);
+        return;
+      }
+
+      const next: Record<string, SenderMini> = {};
+      (data ?? []).forEach((p) => {
+        next[p.id as string] = { id: p.id as string, name: (p.name ?? null) as string | null };
+      });
+
+      setSenderById((prev) => ({ ...prev, ...next }));
+    },
+    [] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const fetchUnreadCounts = useCallback(
@@ -289,7 +325,9 @@ export default function Chat() {
       }
 
       if (!cancelled) {
-        setMessages((data ?? []) as Message[]);
+        const rows = (data ?? []) as Message[];
+        setMessages(rows);
+        await ensureSendersLoaded(rows.map((m) => m.sender_id));
         setShowJump(false);
       }
 
@@ -300,7 +338,7 @@ export default function Chat() {
     return () => {
       cancelled = true;
     };
-  }, [activeId, markRead]);
+  }, [activeId, markRead, ensureSendersLoaded]);
 
   useEffect(() => {
     const ids = groups.map((g) => g.id);
@@ -319,6 +357,8 @@ export default function Chat() {
           },
           async (payload) => {
             const row = payload.new as Message;
+
+            await ensureSendersLoaded([row.sender_id]);
 
             setLastByGroup((prev) => ({
               ...prev,
@@ -347,7 +387,7 @@ export default function Chat() {
     return () => {
       channels.forEach((ch) => supabase.removeChannel(ch));
     };
-  }, [groups, active?.id, markRead]);
+  }, [groups, active?.id, markRead, ensureSendersLoaded]);
 
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -438,6 +478,44 @@ export default function Chat() {
     setActive(g);
   }
 
+  async function renameGroup() {
+    if (!active) return;
+
+    const nextName = renameValue.trim();
+    if (!nextName) {
+      setRenameError("名前を入力してください");
+      return;
+    }
+
+    setRenameBusy(true);
+    setRenameError(null);
+
+    const { error } = await supabase
+      .from("groups")
+      .update({ name: nextName })
+      .eq("id", active.id);
+
+    if (error) {
+      console.error(error);
+      setRenameError(error.message);
+      setRenameBusy(false);
+      return;
+    }
+
+    setGroups((prev) =>
+      prev.map((g) =>
+        g.id === active.id ? { ...g, name: nextName } : g
+      )
+    );
+
+    setActive((cur) =>
+      cur?.id === active.id ? { ...cur, name: nextName } : cur
+    );
+
+    setRenameBusy(false);
+    setRenameOpen(false);
+  }
+
   async function deleteGroup(g: Group) {
     if (!g || g.type !== "class") return;
 
@@ -473,6 +551,21 @@ export default function Chat() {
     if (!t) return groups;
     return groups.filter((g) => g.name.toLowerCase().includes(t) || g.id.toLowerCase().includes(t));
   }, [q, groups]);
+
+  // ===== Avatar style (共通) =====
+  const avatarStyle: CSSProperties = {
+    width: 36,
+    height: 36,
+    borderRadius: "50%",
+    background: "linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%)",
+    color: "#334155",
+    fontWeight: 900,
+    display: "grid",
+    placeItems: "center",
+    flexShrink: 0,
+    boxShadow: "0 4px 10px rgba(15,23,42,0.06)",
+    border: "1px solid rgba(148,163,184,0.35)",
+  };
 
   // ===== 押下エフェクト付きピルボタン（インライン） =====
   const pillBase: CSSProperties = {
@@ -512,6 +605,7 @@ export default function Chat() {
     page: {
       height: `calc(100vh - ${NAV_HEIGHT}px)`,
       overflow: "hidden" as const,
+      paddingBottom: NAV_HEIGHT,
     },
 
     // 左
@@ -619,6 +713,14 @@ export default function Chat() {
     empty: { padding: "18px 12px 26px 12px", color: "#64748B", fontSize: 14 },
 
     // 右
+    chatInner: {
+      width: "100%",
+      maxWidth: 980,
+      margin: "0 auto",
+      height: "100%",
+      display: "flex",
+      flexDirection: "column" as const,
+    },
     chatOuter: {
       height: `calc(100vh - ${NAV_HEIGHT}px)`,
       overflow: "hidden" as const,
@@ -660,13 +762,13 @@ export default function Chat() {
       width: 38,
       height: 38,
       borderRadius: 14,
-      background: "linear-gradient(180deg, #45B6FF 0%, #2EA8FF 100%)",
-      boxShadow: "0 10px 18px rgba(46,168,255,0.22)",
-      border: "1px solid rgba(255,255,255,0.55)",
+      background: "linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%)",
+      boxShadow: "0 8px 16px rgba(15,23,42,0.08)",
+      border: "1px solid rgba(148,163,184,0.35)",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      color: "#fff",
+      color: "#334155",
       fontWeight: 900,
       fontSize: 16,
       flexShrink: 0 as const,
@@ -702,18 +804,37 @@ export default function Chat() {
         "radial-gradient(1200px 600px at 20% 0%, rgba(46,168,255,0.08) 0%, rgba(46,168,255,0.00) 60%)",
     },
 
-    row: { display: "flex", marginBottom: 10 },
-    rowMine: { justifyContent: "flex-end" },
-    rowOther: { justifyContent: "flex-start" },
+    row: {
+      display: "flex",
+      marginBottom: 14,
+      alignItems: "flex-end",
+    },
 
-    bubbleBase: { maxWidth: "86%", borderRadius: 18, padding: "10px 12px", boxShadow: "0 8px 18px rgba(15,23,42,0.06)" },
-    bubbleMine: { background: "linear-gradient(180deg, #53B9FF 0%, #2EA8FF 100%)", color: "#fff", border: "1px solid rgba(255,255,255,0.28)" },
-    bubbleOther: { background: "#fff", color: "#0B1220", border: "1px solid #DCEFFF" },
+    bubbleBase: {
+      maxWidth: "70%",
+      borderRadius: 20,
+      padding: "12px 16px",
+      fontSize: 15,
+      fontWeight: 600,
+      lineHeight: 1.6,
+    },
+    bubbleMine: {
+      background: "linear-gradient(180deg, #53B9FF 0%, #2EA8FF 100%)",
+      color: "#ffffff",
+      boxShadow: "0 8px 18px rgba(46,168,255,0.22)",
+      border: "1px solid rgba(46,168,255,0.35)",
+    },
+    bubbleOther: {
+      background: "#ffffff",
+      color: "#0f172a",
+      border: "1px solid rgba(148,163,184,0.25)",
+      boxShadow: "0 6px 14px rgba(15,23,42,0.06)",
+    },
 
-    msgText: { whiteSpace: "pre-wrap" as const, margin: 0 },
-    msgTime: { fontSize: 10, opacity: 0.75, marginTop: 6 },
+    msgText: { margin: 0 },
+    msgTime: { fontSize: 10, opacity: 0.7, marginTop: 6, textAlign: "right" },
 
-    attachLink: { display: "inline-flex", gap: 6, alignItems: "center", fontSize: 12, marginTop: 8, textDecoration: "underline", cursor: "pointer" },
+    attachLink: { display: "inline-block", marginTop: 8, fontSize: 13, textDecoration: "underline", cursor: "pointer" },
 
     // 「↓ 最新へ」…ヘッダーより下に
     jumpBtn: {
@@ -739,8 +860,9 @@ export default function Chat() {
     inputBar: {
       position: "sticky" as const,
       bottom: 0,
-      zIndex: 150, // 入力欄もちゃんと上に
+      zIndex: 150,
       padding: "12px 12px",
+      paddingBottom: 12 + 6,
       background: "rgba(255,255,255,0.94)",
       backdropFilter: "blur(10px)",
       borderTop: "1px solid rgba(125, 211, 252, 0.45)",
@@ -776,11 +898,17 @@ export default function Chat() {
       fontWeight: 900,
       cursor: "pointer",
     },
+    layoutWrap: {
+      height: "100%",
+      maxWidth: 1200,
+      margin: "0 auto",
+    },
   };
 
   return (
     <div style={styles.page}>
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-0" style={{ height: "100%" }}>
+      <div style={styles.layoutWrap}>
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-0" style={{ height: "100%" }}>
         {/* 左 */}
         <aside className={`md:col-span-4 ${active ? "hidden md:block" : "block"}`}>
           <div style={styles.asideOuter}>
@@ -854,7 +982,8 @@ export default function Chat() {
 
         {/* 右 */}
         <main className={`md:col-span-8 ${active ? "block" : "hidden md:block"}`}>
-          <div style={styles.chatOuter}>
+          <div style={styles.chatInner}>
+            <div style={styles.chatOuter}>
             {/* ヘッダー */}
             <div style={styles.chatHeader}>
               <div style={styles.headerLeft}>
@@ -928,6 +1057,26 @@ export default function Chat() {
                   >
                     削除
                   </button>
+
+                  {/* 名前変更 */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRenameValue(active?.name ?? "");
+                      setRenameError(null);
+                      setRenameOpen(true);
+                    }}
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 900,
+                      color: "#2563eb",
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    ✏ 名前変更
+                  </button>
                 </div>
               )}
             </div>
@@ -945,24 +1094,83 @@ export default function Chat() {
                   const url = getImageUrl(m.image_url);
                   const mine = m.sender_id === myId;
 
-                  return (
-                    <div key={m.id} style={{ ...styles.row, ...(mine ? styles.rowMine : styles.rowOther) }}>
-                      <div style={{ ...styles.bubbleBase, ...(mine ? styles.bubbleMine : styles.bubbleOther) }}>
-                        {m.body && <p style={styles.msgText}>{m.body}</p>}
+                  const senderName =
+                    senderById[m.sender_id]?.name ?? (mine ? "あなた" : "（不明）");
 
-                        {url && (
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ ...styles.attachLink, color: mine ? "rgba(255,255,255,0.92)" : "#0369A1" }}
+                  const senderInitial = (senderName?.trim()?.[0] ?? "?").toUpperCase();
+
+                  return (
+                    <div
+                      key={m.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: mine ? "flex-end" : "flex-start",
+                        marginBottom: 14,
+                      }}
+                    >
+                      {!mine && (
+                        <div style={{ ...avatarStyle, marginRight: 10 }}>
+                          {senderInitial}
+                        </div>
+                      )}
+
+                      <div style={{ maxWidth: "70%" }}>
+                        {!mine && (
+                          <div
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 800,
+                              color: "#64748b",
+                              marginBottom: 4,
+                            }}
                           >
-                            📎 添付画像を開く
-                          </a>
+                            {senderName}
+                          </div>
                         )}
 
-                        <div style={styles.msgTime}>{new Date(m.created_at).toLocaleString()}</div>
+                        <div
+                          style={{
+                            ...styles.bubbleBase,
+                            ...(mine ? styles.bubbleMine : styles.bubbleOther),
+                          }}
+                        >
+                          {m.body && <div style={{ whiteSpace: "pre-wrap" }}>{m.body}</div>}
+
+                          {url && (
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: "inline-block",
+                                marginTop: 8,
+                                fontSize: 13,
+                                textDecoration: "underline",
+                                color: mine ? "#e0f2fe" : "#0369a1",
+                              }}
+                            >
+                              📎 添付画像
+                            </a>
+                          )}
+
+                          <div
+                            style={{
+                              fontSize: 10,
+                              opacity: 0.7,
+                              marginTop: 6,
+                              textAlign: "right",
+                            }}
+                          >
+                            {new Date(m.created_at).toLocaleTimeString()}
+                          </div>
+                        </div>
                       </div>
+
+                      {mine && (
+                        <div style={{ ...avatarStyle, marginLeft: 10 }}>
+                          {senderInitial}
+                        </div>
+                      )}
                     </div>
                   );
                 })
@@ -1029,8 +1237,10 @@ export default function Chat() {
                 送信
               </Button>
             </div>
+            </div>
           </div>
         </main>
+      </div>
       </div>
 
       {/* ===== Dialogs: 画面最上位に固定表示（overflow/z-indexの影響を受けない） ===== */}
@@ -1082,6 +1292,83 @@ export default function Chat() {
             onClose={() => setShowCreate(false)}
             onCreated={handleCreatedGroup}
           />
+        </div>
+      )}
+
+      {renameOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            background: "rgba(0,0,0,0.4)",
+            display: "grid",
+            placeItems: "center",
+          }}
+        >
+          <div
+            style={{
+              width: "min(420px, 90vw)",
+              background: "#fff",
+              borderRadius: 16,
+              padding: 16,
+            }}
+          >
+            <div style={{ fontWeight: 900, marginBottom: 10 }}>
+              グループ名の変更
+            </div>
+
+            <input
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: 12,
+                border: "1px solid #cbd5f5",
+                fontWeight: 800,
+                boxSizing: "border-box" as const,
+              }}
+            />
+
+            {renameError && (
+              <div style={{ marginTop: 8, color: "#dc2626", fontSize: 13 }}>
+                {renameError}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+              <button
+                onClick={() => setRenameOpen(false)}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #cbd5f5",
+                  background: "#fff",
+                  cursor: "pointer",
+                  fontWeight: 900,
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={renameGroup}
+                disabled={renameBusy}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #2563eb",
+                  background: "#2563eb",
+                  color: "#fff",
+                  cursor: renameBusy ? "not-allowed" : "pointer",
+                  fontWeight: 900,
+                  opacity: renameBusy ? 0.6 : 1,
+                }}
+              >
+                {renameBusy ? "変更中…" : "変更"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

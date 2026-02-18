@@ -151,14 +151,19 @@ export default function MyPage({ initialTab = "profile", initialGoalPeriod = "we
     setSaving(true);
     setMsg(null);
 
-    // 1) profiles update
-    const payload = {
-      name: (form.name ?? "").trim(),
-      phone: (form.phone ?? "").trim() || null,
-      memo: (form.memo ?? "").trim() || null,
-      school: (form.school ?? "").trim() || null,
-      school_year: (form.school_year ?? null) as SchoolYear | null,
-    };
+    // ✅ staffは「氏名・メモだけ」更新（他フィールドを触らない）
+    const payload = isStaff
+      ? {
+          name: (form.name ?? "").trim(),
+          memo: (form.memo ?? "").trim() || null,
+        }
+      : {
+          name: (form.name ?? "").trim(),
+          phone: (form.phone ?? "").trim() || null,
+          memo: (form.memo ?? "").trim() || null,
+          school: (form.school ?? "").trim() || null,
+          school_year: (form.school_year ?? null) as SchoolYear | null,
+        };
 
     const { error: ue } = await supabase.from("profiles").update(payload).eq("id", form.id);
     if (ue) {
@@ -167,21 +172,23 @@ export default function MyPage({ initialTab = "profile", initialGoalPeriod = "we
       return;
     }
 
-    // 2) profile_subjects 入れ替え（安全に delete → insert）
-    const { error: de } = await supabase.from("profile_subjects").delete().eq("user_id", user.id);
-    if (de) {
-      setMsg("教科の保存に失敗（削除）: " + de.message);
-      setSaving(false);
-      return;
-    }
-
-    if (selectedSubjectIds.length > 0) {
-      const ins = selectedSubjectIds.map((sid) => ({ user_id: user.id, subject_id: sid }));
-      const { error: ie } = await supabase.from("profile_subjects").insert(ins);
-      if (ie) {
-        setMsg("教科の保存に失敗（追加）: " + ie.message);
+    // ✅ staffは教科を触らない（delete/insertしない）
+    if (!isStaff) {
+      const { error: de } = await supabase.from("profile_subjects").delete().eq("user_id", user.id);
+      if (de) {
+        setMsg("教科の保存に失敗（削除）: " + de.message);
         setSaving(false);
         return;
+      }
+
+      if (selectedSubjectIds.length > 0) {
+        const ins = selectedSubjectIds.map((sid) => ({ user_id: user.id, subject_id: sid }));
+        const { error: ie } = await supabase.from("profile_subjects").insert(ins);
+        if (ie) {
+          setMsg("教科の保存に失敗（追加）: " + ie.message);
+          setSaving(false);
+          return;
+        }
       }
     }
 
@@ -306,7 +313,18 @@ export default function MyPage({ initialTab = "profile", initialGoalPeriod = "we
               {!form ? (
                 <InfoText>読み込み中...</InfoText>
               ) : (
-                <ProfileForm form={form} setForm={setForm} onSave={onSave} saving={saving} msg={msg} allSubjects={[]} selectedSubjectIds={[]} toggleSubject={() => {}} loadingExtra={false} />
+                <ProfileForm
+                  variant="staff"
+                  form={form}
+                  setForm={setForm}
+                  onSave={onSave}
+                  saving={saving}
+                  msg={msg}
+                  allSubjects={[]}
+                  selectedSubjectIds={[]}
+                  toggleSubject={() => {}}
+                  loadingExtra={false}
+                />
               )}
             </Card>
           </div>
@@ -356,6 +374,7 @@ export default function MyPage({ initialTab = "profile", initialGoalPeriod = "we
                 <InfoText>読み込み中...</InfoText>
               ) : (
                 <ProfileForm
+                  variant="student"
                   form={form}
                   setForm={setForm}
                   onSave={onSave}
@@ -467,6 +486,7 @@ function inputStyle(): React.CSSProperties {
 }
 
 function ProfileForm({
+  variant,
   form,
   setForm,
   onSave,
@@ -477,6 +497,7 @@ function ProfileForm({
   toggleSubject,
   loadingExtra,
 }: {
+  variant: "student" | "staff";
   form: Profile;
   setForm: React.Dispatch<React.SetStateAction<Profile | null>>;
   onSave: (e: React.FormEvent) => Promise<void>;
@@ -488,7 +509,7 @@ function ProfileForm({
   loadingExtra: boolean;
 }) {
   const isMobile = useMediaQuery("(max-width: 520px)");
-  const canShowExtra = true; // for non-staff students
+  const canShowExtra = variant === "student";
   
   return (
     <form onSubmit={onSave} style={{ display: "grid", gap: 12, maxWidth: 720 }}>
@@ -496,14 +517,16 @@ function ProfileForm({
         <input style={inputStyle()} value={form.name ?? ""} onChange={(e) => setForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))} />
       </Field>
 
-      <Field label="学校">
-        <input
-          style={inputStyle()}
-          placeholder="例）○○中学校"
-          value={form.school ?? ""}
-          onChange={(e) => setForm((prev) => (prev ? { ...prev, school: e.target.value || null } : prev))}
-        />
-      </Field>
+      {canShowExtra && (
+        <Field label="学校">
+          <input
+            style={inputStyle()}
+            placeholder="例）○○中学校"
+            value={form.school ?? ""}
+            onChange={(e) => setForm((prev) => (prev ? { ...prev, school: e.target.value || null } : prev))}
+          />
+        </Field>
+      )}
 
       {canShowExtra && (
         <Field label="学年">
@@ -522,14 +545,16 @@ function ProfileForm({
         </Field>
       )}
 
-      <Field label="電話番号">
-        <input
-          style={inputStyle()}
-          placeholder="例）090-xxxx-xxxx"
-          value={form.phone ?? ""}
-          onChange={(e) => setForm((prev) => (prev ? { ...prev, phone: e.target.value || null } : prev))}
-        />
-      </Field>
+      {canShowExtra && (
+        <Field label="電話番号">
+          <input
+            style={inputStyle()}
+            placeholder="例）090-xxxx-xxxx"
+            value={form.phone ?? ""}
+            onChange={(e) => setForm((prev) => (prev ? { ...prev, phone: e.target.value || null } : prev))}
+          />
+        </Field>
+      )}
 
       {canShowExtra && (
         <Field label="教科">

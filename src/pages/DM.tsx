@@ -604,6 +604,7 @@ export default function DM({
   const styles = {
     page: {
       minHeight: "70vh",
+      paddingBottom: 72,
     },
     grid: {
       display: "grid",
@@ -754,6 +755,14 @@ export default function DM({
     empty: { padding: "18px 12px 26px 12px", color: "#64748B", fontSize: 14 },
 
     // 右側
+    mainInner: {
+      width: "100%",
+      maxWidth: 980,
+      margin: "0 auto",
+      height: "100%",
+      display: "flex",
+      flexDirection: "column" as const,
+    },
     mainOuter: {
       minHeight: "70vh",
       background: "#FFFFFF",
@@ -847,16 +856,20 @@ export default function DM({
       color: "#fff",
       boxShadow: "0 12px 26px rgba(46,168,255,0.22)",
       border: "1px solid rgba(46,168,255,0.35)",
+      outline: "1px solid rgba(15, 23, 42, 0.03)",
+      outlineOffset: 0,
     },
     bubbleOther: {
       marginRight: "auto",
       maxWidth: "86%",
       borderRadius: 18,
       padding: "10px 12px",
-      background: "#FFFFFF",
+      background: "linear-gradient(180deg, #FFFFFF 0%, #F8FBFF 100%)",
       color: "#0B1220",
-      boxShadow: "0 10px 22px rgba(15,23,42,0.06)",
-      border: "1px solid #DCEFFF",
+      boxShadow: "0 14px 30px rgba(15,23,42,0.08)",
+      border: "1.5px solid rgba(2, 132, 199, 0.22)",
+      outline: "1px solid rgba(15, 23, 42, 0.03)",
+      outlineOffset: 0,
     },
     timeTinyMine: { marginTop: 6, fontSize: 10, opacity: 0.75 },
     timeTinyOther: { marginTop: 6, fontSize: 10, color: "#94A3B8" },
@@ -908,15 +921,21 @@ export default function DM({
       boxShadow: "0 6px 14px rgba(15,23,42,0.06)",
       userSelect: "none" as const,
     } as React.CSSProperties,
+    layoutWrap: {
+      height: "100%",
+      maxWidth: 1200,
+      margin: "0 auto",
+    },
   };
 
   // responsive: md以上は2カラム
 
   return (
     <div style={styles.page}>
-      <div
-        className="grid grid-cols-1 md:grid-cols-12 min-h-[70vh] gap-0"
-      >
+      <div style={styles.layoutWrap}>
+        <div
+          className="grid grid-cols-1 md:grid-cols-12 min-h-[70vh] gap-0"
+        >
         {/* ===== 左：DM一覧 ===== */}
         <aside className={`md:col-span-4 md:border-r ${active && !showNewDm ? "hidden md:block" : "block"}`}>
           <div style={styles.asideOuter}>
@@ -1003,7 +1022,8 @@ export default function DM({
 
         {/* ===== 右：トーク ===== */}
         <main className={`md:col-span-8 flex flex-col ${active && !showNewDm ? "block" : "hidden md:flex"}`}>
-          <div style={styles.mainOuter}>
+          <div style={styles.mainInner}>
+            <div style={styles.mainOuter}>
             {/* ヘッダー */}
             <div style={styles.topBar}>
               <div style={styles.topLeft}>
@@ -1155,6 +1175,7 @@ export default function DM({
                 送信
               </Button>
             </div>
+            </div>
           </div>
 
           {/* プロフィール閲覧 */}
@@ -1177,6 +1198,7 @@ export default function DM({
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

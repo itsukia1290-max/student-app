@@ -139,8 +139,6 @@ function SoftCard({
 }
 
 export default function ReportView(props: Props) {
-  console.log("[ReportView render]", { mode: props.mode, ownerUserId: props.ownerUserId });
-
   // ★ 教師は完全に別画面
   if (props.mode === "teacher") {
     return (
