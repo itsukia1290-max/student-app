@@ -199,56 +199,67 @@ export default function StudentDashboardSummary({ userId, canEdit = true }: Prop
         }}
       />
 
-      {/* ヘッダー（白で締める） */}
+      {/* ヘッダー（スマホでも横並び：タイトル左 / ボタン右） */}
       <div
         style={{
           padding: "14px 18px",
           borderBottom: "2px solid rgba(15,23,42,0.06)",
           display: "flex",
-          flexDirection: isMobile ? "column" : "row",
+          alignItems: "center",
           justifyContent: "space-between",
-          gap: isMobile ? 8 : 10,
-          alignItems: isMobile ? "stretch" : "center",
+          gap: 10,
+          minWidth: 0,
         }}
       >
-        <div style={{ fontSize: 15, fontWeight: 900, color: "#1d4ed8", whiteSpace: "nowrap" }}>
+        {/* 左：タイトル */}
+        <div
+          style={{
+            fontSize: 15,
+            fontWeight: 900,
+            color: "#1d4ed8",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+          }}
+        >
           学習サマリー
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            flexWrap: "wrap",
-            justifyContent: isMobile ? "flex-start" : "flex-end",
-          }}
-        >
+        {/* 右：ボタン（右端固定） */}
+        <div style={{ marginLeft: "auto", flexShrink: 0 }}>
           {canEdit && (
-            <button type="button" style={actionBtnStyle} onClick={() => nav.openMyRecords()}>
+            <button
+              type="button"
+              style={{
+                ...actionBtnStyle,
+                padding: isMobile ? "8px 10px" : actionBtnStyle.padding,
+                fontSize: isMobile ? 11 : 12,
+              }}
+              onClick={() => nav.openMyRecords()}
+            >
               学習記録を追加
             </button>
           )}
-
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 900,
-              color: "#475569",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              maxWidth: isMobile ? "100%" : 520,
-            }}
-            title={`今日: ${today} / 週: ${weekStart}〜 / 月: ${monthStart}〜`}
-          >
-            今日: {today} / 週: {weekStart}〜 / 月: {monthStart}〜
-          </div>
         </div>
       </div>
 
       {/* 本文 */}
       <div style={{ padding: isMobile ? 12 : 16 }}>
+        {/* ✅ 日付（ヘッダーから分離して詰まり回避） */}
+        <div
+          style={{
+            marginTop: 10,
+            fontSize: 12,
+            fontWeight: 900,
+            color: "#475569",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+          title={`今日: ${today} / 週: ${weekStart}〜 / 月: ${monthStart}〜`}
+        >
+          今日: {today} / 週: {weekStart}〜 / 月: {monthStart}〜
+        </div>
+
         {loading ? (
           <div style={{ fontSize: 13, fontWeight: 800, color: "#64748b" }}>読み込み中...</div>
         ) : err ? (
@@ -274,6 +285,7 @@ export default function StudentDashboardSummary({ userId, canEdit = true }: Prop
           </>
         )}
       </div>
+
     </div>
   );
 }
