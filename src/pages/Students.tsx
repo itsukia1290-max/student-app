@@ -382,11 +382,12 @@ export default function Students() {
         { event: "*", schema: "public", table: "profiles" },
         (payload) => {
           // student 以外の変更まで拾うと無駄が多いので可能な範囲で絞る
-          const row = (payload.new ?? payload.old) as any;
+          const row = (payload.new ?? payload.old) as Record<string, unknown> | null;
           if (!row) return;
 
           // role が student の変更だけ拾う（insert/update/delete すべて対応）
-          if (row.role && row.role !== "student") return;
+          const role = typeof row.role === "string" ? row.role : null;
+          if (role && role !== "student") return;
 
           // 退会/復活/承認などが変わったら再読み込み
           scheduleReload();
@@ -397,7 +398,7 @@ export default function Students() {
         { event: "*", schema: "public", table: "profile_subjects" },
         (payload) => {
           // 教科変更があったら反映（表示チップが変わる）
-          const row = (payload.new ?? payload.old) as any;
+          const row = (payload.new ?? payload.old) as Record<string, unknown> | null;
           if (!row) return;
 
           scheduleReload();
